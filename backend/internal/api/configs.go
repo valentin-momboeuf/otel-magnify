@@ -1,0 +1,77 @@
+package api
+
+import (
+	"crypto/sha256"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"otel-magnify/internal/auth"
+	"otel-magnify/pkg/models"
+)
+
+type createConfigRequest struct {
+	Name    string `json:"name"`
+	Content string `json:"content"`
+}
+
+func (a *API) handleListConfigs(w http.ResponseWriter, r *http.Request) {
+	configs, err := a.db.ListConfigs()
+	if err != nil {
+		respondError(w, 500, "failed to list configs")
+		return
+	}
+	respondJSON(w, 200, configs)
+}
+
+func (a *API) handleCreateConfig(w http.ResponseWriter, r *http.Request) {
+	var req createConfigRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		respondError(w, 400, "invalid JSON")
+		return
+	}
+	if req.Name == "" || req.Content == "" {
+		respondError(w, 400, "name and content are required")
+		return
+	}
+
+	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(req.Content)))
+	claims := auth.ClaimsFromContext(r.Context())
+	createdBy := ""
+	if claims != nil {
+		createdBy = claims.Email
+	}
+
+	cfg := models.Config{
+		ID:        hash,
+		Name:      req.Name,
+		Content:   req.Content,
+		CreatedAt: time.Now().UTC(),
+		CreatedBy: createdBy,
+	}
+
+	if err := a.db.CreateConfig(cfg); err != nil {
+		respondError(w, 500, "failed to create config")
+		return
+	}
+	respondJSON(w, 201, cfg)
+}
+
+func (a *API) handleGetConfig(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	cfg, err := a.db.GetConfig(id)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			respondError(w, 404, "config not found")
+			return
+		}
+		respondError(w, 500, "failed to get config")
+		return
+	}
+	respondJSON(w, 200, cfg)
+}
