@@ -31,7 +31,6 @@ export default function Dashboard() {
       </div>
 
       <div className="stat-grid">
-        <StatCard label="Agents"        value={total}              />
         <StatCard label="Collectors"    value={collectors}         />
         <StatCard label="SDK Agents"    value={sdks}               />
         <StatCard label="Connected"     value={connected}          />
