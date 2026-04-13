@@ -1,3 +1,4 @@
+import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { agentsAPI, alertsAPI } from '../api/client'
 import { useStore } from '../store'
@@ -8,8 +9,14 @@ export default function Dashboard() {
   const { data: alerts } = useQuery({ queryKey: ['alerts'], queryFn: () => alertsAPI.list(false) })
 
   const store = useStore()
-  if (agents && agents !== store.agents) store.setAgents(agents)
-  if (alerts && alerts !== store.alerts) store.setAlerts(alerts)
+
+  useEffect(() => {
+    if (agents) store.setAgents(agents)
+  }, [agents])
+
+  useEffect(() => {
+    if (alerts) store.setAlerts(alerts)
+  }, [alerts])
 
   const connected = agents?.filter((a) => a.status === 'connected').length ?? 0
   const degraded  = agents?.filter((a) => a.status === 'degraded').length ?? 0

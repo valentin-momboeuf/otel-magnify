@@ -2,7 +2,9 @@ package main
 
 import (
 	"context"
+	"embed"
 	"fmt"
+	"io/fs"
 	"log"
 	"net/http"
 	"os"
@@ -10,13 +12,19 @@ import (
 	"syscall"
 	"time"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"otel-magnify/internal/alerts"
 	"otel-magnify/internal/api"
 	"otel-magnify/internal/auth"
 	"otel-magnify/internal/config"
 	"otel-magnify/internal/opamp"
 	"otel-magnify/internal/store"
+	"otel-magnify/pkg/models"
 )
+
+//go:embed dist
+var frontendDist embed.FS
 
 func main() {
 	cfg := config.Load()
@@ -36,6 +44,9 @@ func main() {
 		log.Fatalf("Failed to run migrations: %v", err)
 	}
 	log.Println("Database migrations applied")
+
+	// Seed admin user if env vars are set (idempotent)
+	seedAdmin(db)
 
 	// WebSocket hub
 	hub := api.NewHub()
@@ -70,9 +81,16 @@ func main() {
 	go alertEngine.Start(ctx, 30*time.Second)
 	log.Println("Alert engine started (30s interval)")
 
+	// Embedded frontend assets
+	var staticFS fs.FS
+	sub, err := fs.Sub(frontendDist, "dist")
+	if err == nil {
+		staticFS = sub
+	}
+
 	// REST API
 	a := auth.New(cfg.JWTSecret)
-	router := api.NewRouter(db, a, hub, opampSrv)
+	router := api.NewRouter(db, a, hub, opampSrv, cfg.CORSOrigins, staticFS)
 
 	apiHTTP := &http.Server{
 		Addr:    cfg.ListenAddr,
@@ -102,4 +120,38 @@ func main() {
 	opampSrv.Stop(shutdownCtx)
 	hub.Stop()
 	log.Println("Shutdown complete")
+}
+
+// seedAdmin creates an admin user on startup if SEED_ADMIN_EMAIL and
+// SEED_ADMIN_PASSWORD are set. Skips silently if the email already exists.
+func seedAdmin(db *store.DB) {
+	email := os.Getenv("SEED_ADMIN_EMAIL")
+	password := os.Getenv("SEED_ADMIN_PASSWORD")
+	if email == "" || password == "" {
+		return
+	}
+
+	// Idempotent: skip if already exists
+	if _, err := db.GetUserByEmail(email); err == nil {
+		log.Printf("Seed admin: user %s already exists, skipping", email)
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		log.Printf("Seed admin: failed to hash password: %v", err)
+		return
+	}
+
+	user := models.User{
+		ID:           "admin-seed-001",
+		Email:        email,
+		PasswordHash: string(hash),
+		Role:         "admin",
+	}
+	if err := db.CreateUser(user); err != nil {
+		log.Printf("Seed admin: failed to create user: %v", err)
+		return
+	}
+	log.Printf("Seed admin: created user %s", email)
 }

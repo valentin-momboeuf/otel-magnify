@@ -1,7 +1,6 @@
 package models
 
 import (
-	"database/sql"
 	"encoding/json"
 	"time"
 )
@@ -36,7 +35,7 @@ type Agent struct {
 	Status         string         `json:"status"`  // "connected" | "disconnected" | "degraded"
 	LastSeenAt     time.Time      `json:"last_seen_at"`
 	Labels         Labels         `json:"labels"`
-	ActiveConfigID sql.NullString `json:"active_config_id,omitempty"`
+	ActiveConfigID *string `json:"active_config_id,omitempty"`
 }
 
 type Config struct {

@@ -35,7 +35,7 @@ func (a *API) handleGetAgent(w http.ResponseWriter, r *http.Request) {
 func (a *API) handlePushConfig(w http.ResponseWriter, r *http.Request) {
 	agentID := chi.URLParam(r, "id")
 
-	body, err := io.ReadAll(r.Body)
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
 	if err != nil {
 		respondError(w, 400, "failed to read body")
 		return
@@ -53,4 +53,14 @@ func (a *API) handlePushConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	respondJSON(w, 202, map[string]string{"status": "config push initiated"})
+}
+
+func (a *API) handleGetAgentConfigHistory(w http.ResponseWriter, r *http.Request) {
+	id := chi.URLParam(r, "id")
+	history, err := a.db.GetAgentConfigHistory(id)
+	if err != nil {
+		respondError(w, 500, "failed to get config history")
+		return
+	}
+	respondJSON(w, 200, history)
 }

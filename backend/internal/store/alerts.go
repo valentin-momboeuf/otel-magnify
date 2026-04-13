@@ -17,8 +17,15 @@ func (d *DB) CreateAlert(a models.Alert) error {
 }
 
 func (d *DB) ResolveAlert(id string) error {
-	_, err := d.Exec(`UPDATE alerts SET resolved_at = ? WHERE id = ?`, time.Now().UTC(), id)
-	return err
+	res, err := d.Exec(`UPDATE alerts SET resolved_at = ? WHERE id = ?`, time.Now().UTC(), id)
+	if err != nil {
+		return err
+	}
+	n, _ := res.RowsAffected()
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (d *DB) ListAlerts(includeResolved bool) ([]models.Alert, error) {

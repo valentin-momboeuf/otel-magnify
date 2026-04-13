@@ -28,7 +28,7 @@ func newTestAPI(t *testing.T) (*store.DB, http.Handler) {
 	go hub.Run()
 	t.Cleanup(hub.Stop)
 
-	router := NewRouter(db, a, hub, nil)
+	router := NewRouter(db, a, hub, nil, "", nil)
 	return db, router
 }
 

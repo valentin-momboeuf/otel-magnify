@@ -6,8 +6,11 @@ let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 export function connectWS() {
   if (ws?.readyState === WebSocket.OPEN) return
 
+  const token = localStorage.getItem('token')
+  if (!token) return
+
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
-  ws = new WebSocket(`${protocol}//${window.location.host}/ws`)
+  ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${token}`)
 
   ws.onmessage = (event) => {
     const data = JSON.parse(event.data)

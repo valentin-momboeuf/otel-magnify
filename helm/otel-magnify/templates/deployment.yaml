@@ -46,11 +46,11 @@ spec:
             {{- toYaml .Values.resources | nindent 12 }}
           livenessProbe:
             httpGet:
-              path: /api/agents
+              path: /healthz
               port: api
             initialDelaySeconds: 5
           readinessProbe:
             httpGet:
-              path: /api/agents
+              path: /healthz
               port: api
             initialDelaySeconds: 3
