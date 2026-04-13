@@ -1,5 +1,6 @@
 import { useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
+import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip, Legend } from 'recharts'
 import { agentsAPI, alertsAPI } from '../api/client'
 import { useStore } from '../store'
 import StatusBadge from '../components/agents/StatusBadge'
@@ -22,6 +23,12 @@ export default function Dashboard() {
   const degraded  = agents?.filter((a) => a.status === 'degraded').length ?? 0
   const total     = agents?.length ?? 0
 
+  const statusData = [
+    { name: 'Connected',    value: connected,                                                          color: '#34d399' },
+    { name: 'Disconnected', value: (agents?.filter(a => a.status === 'disconnected').length ?? 0),    color: '#6b7280' },
+    { name: 'Degraded',     value: degraded,                                                           color: '#fbbf24' },
+  ].filter(d => d.value > 0)
+
   return (
     <div>
       <div className="page-header">
@@ -34,6 +41,24 @@ export default function Dashboard() {
         <StatCard label="Degraded"      value={degraded}           />
         <StatCard label="Active Alerts" value={alerts?.length ?? 0} />
       </div>
+
+      {statusData.length > 0 && (
+        <div style={{ display: 'flex', gap: '2rem', marginBottom: '2rem', alignItems: 'center' }}>
+          <div style={{ width: 220, height: 220 }}>
+            <ResponsiveContainer>
+              <PieChart>
+                <Pie data={statusData} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={55} outerRadius={85} paddingAngle={3} strokeWidth={0}>
+                  {statusData.map((entry, i) => (
+                    <Cell key={i} fill={entry.color} />
+                  ))}
+                </Pie>
+                <Tooltip contentStyle={{ background: 'var(--surface)', border: '1px solid var(--border)', borderRadius: '6px', fontFamily: 'var(--mono)', fontSize: '0.78rem' }} />
+                <Legend wrapperStyle={{ fontFamily: 'var(--sans)', fontSize: '0.75rem' }} />
+              </PieChart>
+            </ResponsiveContainer>
+          </div>
+        </div>
+      )}
 
       <p className="section-title">Recent Alerts</p>
 
