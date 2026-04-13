@@ -10,6 +10,7 @@ type Config struct {
 	JWTSecret       string
 	CORSOrigins     string // comma-separated allowed origins
 	MinAgentVersion string // minimum required agent version; empty = disabled
+	WebhookURL      string // HTTP endpoint to notify on alert fire; empty = disabled
 }
 
 func Load() Config {
@@ -21,6 +22,7 @@ func Load() Config {
 		JWTSecret:       getenv("JWT_SECRET", ""),
 		CORSOrigins:     getenv("CORS_ORIGINS", "http://localhost:5173"),
 		MinAgentVersion: getenv("MIN_AGENT_VERSION", ""),
+		WebhookURL:      getenv("WEBHOOK_URL", ""),
 	}
 }
 

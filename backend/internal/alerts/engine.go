@@ -17,14 +17,16 @@ type Engine struct {
 	hub         *api.Hub
 	downTimeout time.Duration
 	minVersion  string
+	webhook     *WebhookNotifier
 }
 
-func New(db *store.DB, hub *api.Hub, downTimeout time.Duration, minVersion string) *Engine {
+func New(db *store.DB, hub *api.Hub, downTimeout time.Duration, minVersion string, webhookURL string) *Engine {
 	return &Engine{
 		db:          db,
 		hub:         hub,
 		downTimeout: downTimeout,
 		minVersion:  minVersion,
+		webhook:     NewWebhookNotifier(webhookURL),
 	}
 }
 
@@ -81,6 +83,9 @@ func (e *Engine) evaluateAgentDown(agent models.Agent, now time.Time) {
 		if e.hub != nil {
 			e.hub.BroadcastAlertUpdate(alert)
 		}
+		if e.webhook != nil {
+			go e.webhook.Send(alert)
+		}
 	}
 
 	if !isDown && existing != nil {
@@ -117,6 +122,9 @@ func (e *Engine) evaluateConfigDrift(agent models.Agent, now time.Time) {
 		}
 		if e.hub != nil {
 			e.hub.BroadcastAlertUpdate(alert)
+		}
+		if e.webhook != nil {
+			go e.webhook.Send(alert)
 		}
 	}
 
@@ -156,6 +164,9 @@ func (e *Engine) evaluateVersionOutdated(agent models.Agent, now time.Time) {
 		}
 		if e.hub != nil {
 			e.hub.BroadcastAlertUpdate(alert)
+		}
+		if e.webhook != nil {
+			go e.webhook.Send(alert)
 		}
 	}
 
