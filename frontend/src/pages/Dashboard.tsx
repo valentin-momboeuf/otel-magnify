@@ -21,7 +21,6 @@ export default function Dashboard() {
 
   const connected  = agents?.filter((a) => a.status === 'connected').length ?? 0
   const degraded   = agents?.filter((a) => a.status === 'degraded').length ?? 0
-  const total      = agents?.length ?? 0
   const collectors = agents?.filter((a) => a.type === 'collector').length ?? 0
   const sdks       = agents?.filter((a) => a.type === 'sdk').length ?? 0
 
