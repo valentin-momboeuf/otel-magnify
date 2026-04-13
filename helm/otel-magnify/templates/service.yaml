@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  type: {{ .Values.service.type }}
+  ports:
+    - name: api
+      port: {{ .Values.service.apiPort }}
+      targetPort: api
+    - name: opamp
+      port: {{ .Values.service.opampPort }}
+      targetPort: opamp
+  selector:
+    app: {{ .Release.Name }}

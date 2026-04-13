@@ -1,0 +1,56 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Release.Name }}
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  replicas: {{ .Values.replicaCount }}
+  selector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Release.Name }}
+    spec:
+      containers:
+        - name: otel-magnify
+          image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
+          imagePullPolicy: {{ .Values.image.pullPolicy }}
+          ports:
+            - name: api
+              containerPort: 8080
+            - name: opamp
+              containerPort: 4320
+          env:
+            - name: DB_DRIVER
+              value: {{ .Values.config.dbDriver | quote }}
+            - name: DB_DSN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secret
+                  key: db-dsn
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Release.Name }}-secret
+                  key: jwt-secret
+            - name: LISTEN_ADDR
+              value: ":8080"
+            - name: OPAMP_ADDR
+              value: ":4320"
+            - name: CORS_ORIGINS
+              value: {{ .Values.config.corsOrigins | quote }}
+          resources:
+            {{- toYaml .Values.resources | nindent 12 }}
+          livenessProbe:
+            httpGet:
+              path: /api/agents
+              port: api
+            initialDelaySeconds: 5
+          readinessProbe:
+            httpGet:
+              path: /api/agents
+              port: api
+            initialDelaySeconds: 3

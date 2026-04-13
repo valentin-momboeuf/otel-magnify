@@ -1,0 +1,35 @@
+replicaCount: 1
+
+image:
+  repository: otel-magnify
+  tag: latest
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  apiPort: 8080
+  opampPort: 4320
+
+ingress:
+  enabled: false
+  className: ""
+  hosts:
+    - host: otel-magnify.local
+      paths:
+        - path: /
+          pathType: Prefix
+  tls: []
+
+config:
+  dbDriver: pgx
+  dbDSN: ""
+  corsOrigins: ""
+
+jwtSecret: ""
+
+resources:
+  limits:
+    memory: 256Mi
+  requests:
+    cpu: 100m
+    memory: 128Mi
