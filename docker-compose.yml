@@ -11,6 +11,8 @@ services:
       LISTEN_ADDR: ":8080"
       OPAMP_ADDR: ":4320"
       CORS_ORIGINS: "http://localhost:8080"
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
     volumes:
       - magnify-data:/data
 
