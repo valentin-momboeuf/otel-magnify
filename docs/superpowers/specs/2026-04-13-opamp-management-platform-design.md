@@ -1,20 +1,20 @@
-# Design — otel-magnify : plateforme de gestion OpAMP
+# Design — otel-magnify: OpAMP Management Platform
 
-**Date :** 2026-04-13
-**Statut :** approuvé
+**Date:** 2026-04-13
+**Status:** approved
 
-## Contexte
+## Context
 
-`otel-magnify` est une application web permettant une gestion centralisée des agents OpenTelemetry via le protocole OpAMP (Open Agent Management Protocol). Elle cible deux types d'agents : les OpenTelemetry Collectors et les agents SDK (Java, Python, Go). Le cas d'usage principal est triple : observer l'état des agents, piloter leurs configurations à distance, et être alerté en cas de dérive ou de panne.
+`otel-magnify` is a web application providing centralized management of OpenTelemetry agents via the OpAMP (Open Agent Management Protocol). It targets two agent types: OpenTelemetry Collectors and SDK agents (Java, Python, Go). The primary use cases are: observing agent state, remotely managing configurations, and alerting on drift or failures.
 
-## Périmètre
+## Scope
 
-- **Phase 1** : équipe restreinte (~100 agents), auth JWT simple, SQLite
-- **Phase 2** : multi-tenant, auth par rôle/organisation, PostgreSQL, milliers d'agents
+- **Phase 1**: small team (~100 agents), simple JWT auth, SQLite
+- **Phase 2**: multi-tenant, role/org-based auth, PostgreSQL, thousands of agents
 
-Ce document couvre la phase 1 avec les hooks d'extension prévus pour la phase 2.
+This document covers phase 1 with extension hooks planned for phase 2.
 
-## Architecture générale
+## Architecture Overview
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -41,164 +41,164 @@ Ce document couvre la phase 1 avec les hooks d'extension prévus pour la phase 2
     OTel Collectors          SDK Agents (Java/Python/Go)
 ```
 
-## Backend Go
+## Go Backend
 
 ### Structure
 
 ```
 backend/
-├── cmd/server/          # entrypoint, config via env vars ou fichier YAML
+├── cmd/server/          # entrypoint, config via env vars or YAML file
 ├── internal/
-│   ├── opamp/           # serveur OpAMP : connexions agents, heartbeats, push config
-│   ├── store/           # accès DB + migrations (golang-migrate)
-│   ├── api/             # handlers REST + WebSocket hub vers le frontend
-│   ├── alerts/          # moteur de règles d'alertes (évaluation toutes les 30s)
-│   └── auth/            # middleware JWT (phase 1), hooks multi-tenant (phase 2)
+│   ├── opamp/           # OpAMP server: agent connections, heartbeats, config push
+│   ├── store/           # DB access + migrations (golang-migrate)
+│   ├── api/             # REST handlers + WebSocket hub to frontend
+│   ├── alerts/          # alert rules engine (evaluated every 30s)
+│   └── auth/            # JWT middleware (phase 1), multi-tenant hooks (phase 2)
 └── pkg/
-    └── models/          # structs partagés : Agent, Config, Alert, User
+    └── models/          # shared structs: Agent, Config, Alert, User
 ```
 
-### Dépendances clés
+### Key Dependencies
 
-| Dépendance | Usage |
+| Dependency | Usage |
 |---|---|
-| `open-telemetry/opamp-go` | SDK OpAMP serveur |
-| `go-chi/chi` | Routeur HTTP idiomatique, compatible `net/http` |
-| `golang-migrate/migrate` | Migrations DB versionnées (fichiers SQL up/down) |
-| `golang-jwt/jwt` | Génération et validation de tokens JWT (HS256) |
+| `open-telemetry/opamp-go` | OpAMP server SDK |
+| `go-chi/chi` | Idiomatic HTTP router, `net/http` compatible |
+| `golang-migrate/migrate` | Versioned DB migrations (SQL up/down files) |
+| `golang-jwt/jwt` | JWT token generation and validation (HS256) |
 
-### Flux principal
+### Main Flow
 
-1. Un agent se connecte via WebSocket OpAMP → `opamp/` l'enregistre dans le store
-2. À chaque heartbeat, `opamp/` met à jour le statut et la config active en DB
-3. `alerts/` évalue les règles toutes les 30s et crée des alertes si nécessaire
-4. `api/` diffuse les changements en temps-réel au frontend via WebSocket (fan-out)
-5. L'utilisateur modifie une config via l'UI → `api/` appelle `opamp/` qui push la config à l'agent cible
+1. An agent connects via OpAMP WebSocket → `opamp/` registers it in the store
+2. On each heartbeat, `opamp/` updates the agent status and active config in DB
+3. `alerts/` evaluates rules every 30s and creates alerts as needed
+4. `api/` fans out changes to the frontend in real-time via WebSocket
+5. User modifies a config in the UI → `api/` calls `opamp/` which pushes the config to the target agent
 
-### Authentification
+### Authentication
 
-- **Phase 1** : login/password en DB, JWT signé HS256, header `Authorization: Bearer <token>`
-- **Phase 2** : claims JWT étendus avec `tenant_id`, filtrage automatique des données par tenant dans chaque handler
+- **Phase 1**: login/password stored in DB, JWT signed with HS256, `Authorization: Bearer <token>` header
+- **Phase 2**: JWT claims extended with `tenant_id`, automatic per-tenant data filtering in every handler
 
-## Frontend React
+## React Frontend
 
 ### Structure
 
 ```
 frontend/
 ├── src/
-│   ├── api/          # clients REST (axios) + WebSocket natif
+│   ├── api/          # REST clients (axios) + native WebSocket
 │   ├── components/
-│   │   ├── agents/   # liste, carte agent, badge statut
-│   │   ├── config/   # éditeur YAML (CodeMirror 6), diff avant/après push
-│   │   ├── alerts/   # panneau alertes, configuration des règles
-│   │   └── layout/   # navbar, sidebar, shell global
+│   │   ├── agents/   # agent list, agent card, status badge
+│   │   ├── config/   # YAML editor (CodeMirror 6), before/after diff on push
+│   │   ├── alerts/   # alerts panel, rule configuration
+│   │   └── layout/   # navbar, sidebar, global shell
 │   ├── pages/
-│   │   ├── Dashboard.tsx    # vue d'ensemble : agents actifs, alertes récentes
-│   │   ├── Agents.tsx       # liste + filtres (type, statut, version, labels)
-│   │   ├── AgentDetail.tsx  # état détaillé, config active, historique
-│   │   ├── Configs.tsx      # templates de config, versioning
-│   │   └── Alerts.tsx       # règles + historique des alertes
-│   └── store/        # état global Zustand
+│   │   ├── Dashboard.tsx    # overview: active agents, recent alerts
+│   │   ├── Agents.tsx       # list + filters (type, status, version, labels)
+│   │   ├── AgentDetail.tsx  # detailed state, active config, history
+│   │   ├── Configs.tsx      # config templates, versioning
+│   │   └── Alerts.tsx       # rules + alert history
+│   └── store/        # global state (Zustand)
 ```
 
-### Dépendances clés
+### Key Dependencies
 
-| Dépendance | Usage |
+| Dependency | Usage |
 |---|---|
-| `Vite` | Build et dev server |
-| `Recharts` | Graphiques (agents actifs, latence heartbeat) |
-| `CodeMirror 6` | Éditeur YAML avec syntax highlighting |
-| `Zustand` | State management léger |
-| `TanStack Query` | Fetching REST + cache |
+| `Vite` | Build tool and dev server |
+| `Recharts` | Charts (active agents over time, heartbeat latency) |
+| `CodeMirror 6` | YAML editor with syntax highlighting |
+| `Zustand` | Lightweight state management |
+| `TanStack Query` | REST fetching and caching |
 
-### Temps-réel
+### Real-time Updates
 
-WebSocket backend → mise à jour du store Zustand → re-render React automatique. Chaque changement d'état d'agent (connexion, déconnexion, config appliquée) est diffusé immédiatement sans polling.
+Backend WebSocket → Zustand store update → automatic React re-render. Every agent state change (connect, disconnect, config applied) is pushed immediately without polling.
 
-## Modèle de données
+## Data Model
 
 ```sql
--- Agents enregistrés via OpAMP
+-- Agents registered via OpAMP
 agents (
-  id              TEXT PRIMARY KEY,   -- agent_id OpAMP (UUID)
-  display_name    TEXT,
-  type            TEXT,               -- "collector" | "sdk"
-  version         TEXT,
-  status          TEXT,               -- "connected" | "disconnected" | "degraded"
-  last_seen_at    TIMESTAMP,
-  labels          JSONB,              -- ex: {"env": "prod", "region": "eu-west-1"}
+  id               TEXT PRIMARY KEY,   -- OpAMP agent_id (UUID)
+  display_name     TEXT,
+  type             TEXT,               -- "collector" | "sdk"
+  version          TEXT,
+  status           TEXT,               -- "connected" | "disconnected" | "degraded"
+  last_seen_at     TIMESTAMP,
+  labels           JSONB,              -- e.g. {"env": "prod", "region": "eu-west-1"}
   active_config_id TEXT REFERENCES configs(id)
 )
 
--- Configs versionnées par hash de contenu
+-- Configs versioned by content hash
 configs (
-  id          TEXT PRIMARY KEY,       -- SHA256 du contenu YAML
+  id          TEXT PRIMARY KEY,        -- SHA256 of YAML content
   name        TEXT,
-  content     TEXT,                   -- YAML brut
+  content     TEXT,                    -- raw YAML
   created_at  TIMESTAMP,
   created_by  TEXT
 )
 
--- Historique des configs appliquées par agent
+-- History of configs applied per agent
 agent_configs (
   agent_id    TEXT REFERENCES agents(id),
   config_id   TEXT REFERENCES configs(id),
   applied_at  TIMESTAMP,
-  status      TEXT                    -- "pending" | "applied" | "failed"
+  status      TEXT                     -- "pending" | "applied" | "failed"
 )
 
--- Alertes
+-- Alerts
 alerts (
   id          TEXT PRIMARY KEY,
   agent_id    TEXT REFERENCES agents(id),
-  rule        TEXT,                   -- "agent_down" | "config_drift" | "version_outdated"
-  severity    TEXT,                   -- "warning" | "critical"
+  rule        TEXT,                    -- "agent_down" | "config_drift" | "version_outdated"
+  severity    TEXT,                    -- "warning" | "critical"
   message     TEXT,
   fired_at    TIMESTAMP,
   resolved_at TIMESTAMP
 )
 
--- Utilisateurs
+-- Users
 users (
   id            TEXT PRIMARY KEY,
   email         TEXT UNIQUE,
   password_hash TEXT,
-  role          TEXT,                 -- "admin" | "viewer"
-  tenant_id     TEXT                  -- NULL en phase 1, utilisé en phase 2
+  role          TEXT,                  -- "admin" | "viewer"
+  tenant_id     TEXT                   -- NULL in phase 1, used in phase 2
 )
 ```
 
-## Moteur d'alertes
+## Alert Engine
 
-Évaluation toutes les 30 secondes. Règles configurables via l'UI (seuils, activation).
+Rules evaluated every 30 seconds. Thresholds and activation configurable via the UI.
 
-| Règle | Condition | Sévérité |
+| Rule | Condition | Severity |
 |---|---|---|
 | `agent_down` | `last_seen_at` > 5 minutes | critical |
-| `config_drift` | config active ≠ config attendue | warning |
-| `version_outdated` | version < version minimale définie | warning |
+| `config_drift` | active config ≠ expected config | warning |
+| `version_outdated` | version < defined minimum version | warning |
 
-**Notifications phase 1 :** webhook HTTP configurable.
-**Notifications phase 2 :** email.
+**Phase 1 notifications:** configurable HTTP webhook.
+**Phase 2 notifications:** email.
 
-## Déploiement
+## Deployment
 
-| Environnement | Méthode | DB |
+| Environment | Method | DB |
 |---|---|---|
 | Local (dev) | `go run` + `vite dev` | SQLite |
-| Docker Compose | `docker-compose up` | SQLite ou Postgres |
+| Docker Compose | `docker-compose up` | SQLite or Postgres |
 | Kubernetes | Helm chart | Postgres |
 
-Build : Dockerfile multi-stage — build React → assets embarqués dans le binaire Go via `embed.FS` → image finale ~20MB, un seul conteneur à opérer.
+Multi-stage Dockerfile: React build → assets embedded in the Go binary via `embed.FS` → final image ~20MB, single container to operate.
 
-## Sécurité
+## Security
 
-Le plugin [`security-guidance`](https://github.com/anthropics/claude-code/tree/main/plugins/security-guidance) est activé pendant le développement. Il avertit proactivement des patterns vulnérables (injection de commande, XSS, GitHub Actions, etc.) à chaque édition de fichier.
+The [`security-guidance`](https://github.com/anthropics/claude-code/tree/main/plugins/security-guidance) plugin is enabled during development. It proactively warns about vulnerable patterns (command injection, XSS, GitHub Actions, etc.) on every file edit.
 
-Points d'attention spécifiques à ce projet :
-- **JWT secret** : injecté par variable d'environnement, jamais hardcodé
-- **Validation des configs OpAMP** : les payloads reçus des agents sont validés avant persistance
-- **CORS** : origins autorisées configurées explicitement (pas de wildcard en prod)
-- **TLS** : terminaison TLS obligatoire en prod (Ingress K8s ou reverse proxy)
-- **Passwords** : hashés avec bcrypt (cost ≥ 12)
+Project-specific security requirements:
+- **JWT secret**: injected via environment variable, never hardcoded
+- **OpAMP config validation**: payloads received from agents are validated before persistence
+- **CORS**: allowed origins explicitly configured (no wildcard in production)
+- **TLS**: mandatory TLS termination in production (K8s Ingress or reverse proxy)
+- **Passwords**: hashed with bcrypt (cost ≥ 12)
