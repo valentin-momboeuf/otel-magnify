@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 import Layout from './components/layout/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import Dashboard from './pages/Dashboard'
-import Agents from './pages/Agents'
+import Inventory from './pages/Agents'
 import AgentDetail from './pages/AgentDetail'
 import Configs from './pages/Configs'
 import Alerts from './pages/Alerts'
@@ -25,8 +25,8 @@ function AppShell() {
     <Routes>
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/agents" element={<Agents />} />
-        <Route path="/agents/:id" element={<AgentDetail />} />
+        <Route path="/inventory" element={<Inventory />} />
+        <Route path="/inventory/:id" element={<AgentDetail />} />
         <Route path="/configs" element={<Configs />} />
         <Route path="/alerts" element={<Alerts />} />
       </Route>

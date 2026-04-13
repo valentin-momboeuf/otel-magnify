@@ -41,7 +41,7 @@ function IconAlerts() {
 
 const navItems = [
   { path: '/',        label: 'Dashboard', Icon: IconDashboard },
-  { path: '/agents',  label: 'Agents',    Icon: IconAgents    },
+  { path: '/inventory', label: 'Inventory', Icon: IconAgents    },
   { path: '/configs', label: 'Configs',   Icon: IconConfigs   },
   { path: '/alerts',  label: 'Alerts',    Icon: IconAlerts    },
 ]

@@ -1,4 +1,5 @@
 import { useEffect } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { agentsAPI, alertsAPI } from '../api/client'
 import { useStore } from '../store'
@@ -31,8 +32,8 @@ export default function Dashboard() {
       </div>
 
       <div className="stat-grid">
-        <StatCard label="Collectors"    value={collectors}         />
-        <StatCard label="SDK Agents"    value={sdks}               />
+        <StatCard label="Collectors"    value={collectors}         link="/inventory?type=collector" />
+        <StatCard label="SDK Agents"    value={sdks}               link="/inventory?type=sdk" />
         <StatCard label="Connected"     value={connected}          />
         <StatCard label="Degraded"      value={degraded}           />
         <StatCard label="Active Alerts" value={alerts?.length ?? 0} />
@@ -72,9 +73,13 @@ export default function Dashboard() {
   )
 }
 
-function StatCard({ label, value }: { label: string; value: number }) {
+function StatCard({ label, value, link }: { label: string; value: number; link?: string }) {
+  const navigate = useNavigate()
   return (
-    <div className="stat-card">
+    <div
+      className={`stat-card${link ? ' stat-card-link' : ''}`}
+      onClick={link ? () => navigate(link) : undefined}
+    >
       <div className="stat-value">{value}</div>
       <div className="stat-label">{label}</div>
     </div>

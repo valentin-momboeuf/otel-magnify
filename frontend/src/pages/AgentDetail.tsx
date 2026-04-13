@@ -18,8 +18,8 @@ export default function AgentDetail() {
     <div>
       <div className="page-header">
         <h1 className="page-title">{agent.display_name || agent.id}</h1>
-        <Link to="/agents" style={{ fontFamily: 'var(--mono)', fontSize: '0.7rem', color: 'var(--muted)', textDecoration: 'none' }}>
-          ← Agents
+        <Link to="/inventory" style={{ fontFamily: 'var(--mono)', fontSize: '0.7rem', color: 'var(--muted)', textDecoration: 'none' }}>
+          ← Inventory
         </Link>
       </div>
 

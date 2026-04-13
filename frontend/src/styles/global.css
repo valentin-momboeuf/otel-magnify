@@ -312,6 +312,14 @@ body {
   box-shadow: var(--shadow-sm);
 }
 
+.stat-card-link {
+  cursor: pointer;
+}
+
+.stat-card-link:hover::after {
+  background: linear-gradient(90deg, var(--gold), transparent) !important;
+}
+
 .stat-card::after {
   content: '';
   position: absolute;

@@ -23,7 +23,7 @@ function TypeIcon({ type }: { type: string }) {
 
 export default function AgentCard({ agent }: { agent: Agent }) {
   return (
-    <Link to={`/agents/${agent.id}`} className="agent-card">
+    <Link to={`/inventory/${agent.id}`} className="agent-card">
       <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
         <TypeIcon type={agent.type} />
         <div>
