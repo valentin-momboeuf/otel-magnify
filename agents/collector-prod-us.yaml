@@ -1,0 +1,37 @@
+extensions:
+  opamp:
+    server:
+      ws:
+        endpoint: ws://otel-magnify:4320/v1/opamp
+        tls:
+          insecure: true
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 10s
+    send_batch_size: 2048
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+
+exporters:
+  debug:
+    verbosity: detailed
+
+service:
+  extensions: [opamp]
+  pipelines:
+    metrics:
+      receivers: [otlp]
+      processors: [memory_limiter, batch]
+      exporters: [debug]
+    logs:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
