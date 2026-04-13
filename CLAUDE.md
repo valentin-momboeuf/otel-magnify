@@ -1,0 +1,73 @@
+# CLAUDE.md — otel-magnify
+
+## Project
+
+Centralized OpenTelemetry agent management platform via OpAMP.
+Go backend + React frontend, single binary deployment.
+
+## Architecture
+
+- `backend/` — Go module `otel-magnify`
+  - `cmd/server/` — entrypoint, embeds frontend via `embed.FS`
+  - `internal/opamp/` — OpAMP server (opamp-go), agent registry, config push
+  - `internal/api/` — chi router, REST handlers, WebSocket hub
+  - `internal/alerts/` — alert engine (30s tick), webhook notifier
+  - `internal/auth/` — JWT HS256, middleware
+  - `internal/store/` — SQLite/Postgres via goose migrations
+  - `pkg/models/` — shared structs
+- `frontend/` — React 18 + TypeScript + Vite
+  - Zustand for state, TanStack Query for fetching, CodeMirror 6 for YAML editor
+  - Design system: "Signal Deck" (warm gold accent, Plus Jakarta Sans + Fira Code)
+- `agents/` — sample OTel Collector configs for demo
+- `helm/otel-magnify/` — Kubernetes Helm chart
+
+## Commands
+
+```bash
+# Backend
+cd backend && go test ./...
+cd backend && go build ./cmd/server/
+
+# Frontend
+cd frontend && npx tsc --noEmit
+cd frontend && npm run dev
+
+# Docker
+JWT_SECRET=xxx docker compose up --build
+# With Postgres:
+DB_DRIVER=pgx DB_DSN="postgres://magnify:magnify@postgres:5432/magnify?sslmode=disable" docker compose --profile postgres up
+
+# Demo collectors
+docker run -d --name collector-prod-eu --network otel-magnify_default \
+  -v $(pwd)/agents/collector-prod-eu.yaml:/etc/otelcol-contrib/config.yaml \
+  otel/opentelemetry-collector-contrib:0.98.0
+```
+
+## Conventions
+
+- **Documentation**: French — **Code & commits**: English
+- **Commits**: conventional (`feat:`, `fix:`, `docs:`, `refactor:`)
+- **No Co-Authored-By** in commit messages
+- **Go**: standard `testing`, in-memory SQLite for tests, `chi` for routing
+- **Frontend**: CSS classes in `styles/global.css`, no inline styles, CSS variables for theming
+- **Pages route**: `/inventory` (not `/agents`) — contains both collectors and SDK agents
+
+## Key design decisions
+
+- `pressly/goose` over `golang-migrate` — better `modernc.org/sqlite` support (pure Go, no CGO)
+- OpAMP server uses `Attach()` to mount on chi mux (not standalone)
+- Agent type detection via `isCollectorName()` — matches `otelcol*` prefix patterns
+- WebSocket auth via `?token=` query param (not header — browsers can't set WS headers)
+- Frontend embed.FS with SPA fallback for production single-binary deployment
+
+## Environment variables
+
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `JWT_SECRET` | Yes | JWT signing key |
+| `DB_DRIVER` | No (sqlite) | `sqlite` or `pgx` |
+| `DB_DSN` | No | DB connection string |
+| `WEBHOOK_URL` | No | Alert webhook endpoint |
+| `MIN_AGENT_VERSION` | No | Minimum agent version for alerts |
+| `SEED_ADMIN_EMAIL` | No | Create admin on startup |
+| `SEED_ADMIN_PASSWORD` | No | Admin password |
