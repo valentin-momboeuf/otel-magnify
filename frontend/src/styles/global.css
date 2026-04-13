@@ -513,6 +513,28 @@ body {
   margin-top: 3px;
 }
 
+.agent-type {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.agent-type-collector {
+  background: var(--gold-dim);
+  color: var(--gold);
+  border: 1px solid rgba(212, 165, 55, 0.2);
+}
+
+.agent-type-sdk {
+  background: rgba(96, 165, 250, 0.08);
+  color: var(--blue);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+}
+
 /* ── Filters ── */
 .filter-bar {
   display: flex;

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -144,9 +145,10 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 			}
 		}
 		// Determine type from service.name
-		agent.Type = "collector"
-		if agent.DisplayName != "" && agent.DisplayName != "io.opentelemetry.collector" {
-			agent.Type = "sdk"
+		// Collectors report as "otelcol", "otelcol-contrib", "otelcol-custom", etc.
+		agent.Type = "sdk"
+		if isCollectorName(agent.DisplayName) {
+			agent.Type = "collector"
 		}
 		// Non-identifying attributes -> labels
 		for _, kv := range desc.NonIdentifyingAttributes {
@@ -205,4 +207,14 @@ func (s *Server) onConnectionClose(conn types.Connection) {
 			})
 		}
 	}
+}
+
+// isCollectorName returns true if the service.name indicates an OTel Collector.
+// Collectors typically report as "otelcol", "otelcol-contrib", "otelcol-custom",
+// or "io.opentelemetry.collector".
+func isCollectorName(name string) bool {
+	n := strings.ToLower(name)
+	return strings.HasPrefix(n, "otelcol") ||
+		strings.Contains(n, "opentelemetry-collector") ||
+		strings.Contains(n, "opentelemetry.collector")
 }
