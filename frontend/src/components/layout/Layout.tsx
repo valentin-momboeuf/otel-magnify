@@ -1,11 +1,49 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useStore } from '../../store'
 
+// SVG icons as inline components — keeps the bundle small, no icon dep needed
+function IconDashboard() {
+  return (
+    <svg className="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <rect x="1" y="1" width="5" height="5" rx="0.5" />
+      <rect x="8" y="1" width="5" height="5" rx="0.5" />
+      <rect x="1" y="8" width="5" height="5" rx="0.5" />
+      <rect x="8" y="8" width="5" height="5" rx="0.5" />
+    </svg>
+  )
+}
+
+function IconAgents() {
+  return (
+    <svg className="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <circle cx="7" cy="4" r="2.5" />
+      <path d="M1 13c0-3.3 2.7-5 6-5s6 1.7 6 5" />
+    </svg>
+  )
+}
+
+function IconConfigs() {
+  return (
+    <svg className="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M2 3h10M2 7h7M2 11h5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
+function IconAlerts() {
+  return (
+    <svg className="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
+      <path d="M7 1L1 12h12L7 1z" />
+      <path d="M7 5.5v3M7 10v.5" strokeLinecap="round" />
+    </svg>
+  )
+}
+
 const navItems = [
-  { path: '/', label: 'Dashboard' },
-  { path: '/agents', label: 'Agents' },
-  { path: '/configs', label: 'Configs' },
-  { path: '/alerts', label: 'Alerts' },
+  { path: '/',        label: 'Dashboard', Icon: IconDashboard },
+  { path: '/agents',  label: 'Agents',    Icon: IconAgents    },
+  { path: '/configs', label: 'Configs',   Icon: IconConfigs   },
+  { path: '/alerts',  label: 'Alerts',    Icon: IconAlerts    },
 ]
 
 export default function Layout() {
@@ -13,31 +51,43 @@ export default function Layout() {
   const alertCount = useStore((s) => s.alerts.length)
 
   return (
-    <div style={{ display: 'flex', minHeight: '100vh' }}>
-      <nav style={{ width: 220, background: '#1a1a2e', color: '#fff', padding: '1rem' }}>
-        <h2 style={{ fontSize: '1.2rem', marginBottom: '2rem' }}>otel-magnify</h2>
-        <ul style={{ listStyle: 'none', padding: 0 }}>
-          {navItems.map((item) => (
-            <li key={item.path} style={{ marginBottom: '0.5rem' }}>
-              <Link
-                to={item.path}
-                style={{
-                  color: location.pathname === item.path ? '#4fc3f7' : '#ccc',
-                  textDecoration: 'none',
-                }}
-              >
-                {item.label}
-                {item.label === 'Alerts' && alertCount > 0 && (
-                  <span style={{ marginLeft: 8, background: '#e53935', borderRadius: 8, padding: '2px 6px', fontSize: '0.75rem' }}>
-                    {alertCount}
-                  </span>
-                )}
-              </Link>
-            </li>
-          ))}
+    <div className="app-layout">
+      <nav className="sidebar">
+        <div className="sidebar-logo">
+          <div className="sidebar-logo-name">
+            otel<span>-magnify</span>
+          </div>
+          <div className="sidebar-logo-sub">OpAMP Control Plane</div>
+          <div className="sidebar-signal" />
+        </div>
+
+        <ul className="sidebar-nav">
+          {navItems.map(({ path, label, Icon }) => {
+            // Exact match for root, prefix match for sub-routes
+            const isActive = path === '/'
+              ? location.pathname === '/'
+              : location.pathname.startsWith(path)
+            return (
+              <li key={path} className="sidebar-nav-item">
+                <Link to={path} className={isActive ? 'active' : ''}>
+                  <Icon />
+                  {label}
+                  {label === 'Alerts' && alertCount > 0 && (
+                    <span className="sidebar-badge">{alertCount}</span>
+                  )}
+                </Link>
+              </li>
+            )
+          })}
         </ul>
+
+        <div className="sidebar-footer">
+          <span className="sidebar-footer-dot" />
+          LIVE
+        </div>
       </nav>
-      <main style={{ flex: 1, padding: '1.5rem', background: '#f5f5f5' }}>
+
+      <main className="main-content">
         <Outlet />
       </main>
     </div>

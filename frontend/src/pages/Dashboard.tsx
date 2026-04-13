@@ -2,7 +2,6 @@ import { useQuery } from '@tanstack/react-query'
 import { agentsAPI, alertsAPI } from '../api/client'
 import { useStore } from '../store'
 import StatusBadge from '../components/agents/StatusBadge'
-import type React from 'react'
 
 export default function Dashboard() {
   const { data: agents } = useQuery({ queryKey: ['agents'], queryFn: agentsAPI.list })
@@ -13,37 +12,51 @@ export default function Dashboard() {
   if (alerts && alerts !== store.alerts) store.setAlerts(alerts)
 
   const connected = agents?.filter((a) => a.status === 'connected').length ?? 0
-  const total = agents?.length ?? 0
+  const degraded  = agents?.filter((a) => a.status === 'degraded').length ?? 0
+  const total     = agents?.length ?? 0
 
   return (
     <div>
-      <h1>Dashboard</h1>
-      <div style={{ display: 'flex', gap: '1rem', marginBottom: '2rem' }}>
-        <StatCard label="Total Agents" value={total} />
-        <StatCard label="Connected" value={connected} />
+      <div className="page-header">
+        <h1 className="page-title">Dashboard</h1>
+      </div>
+
+      <div className="stat-grid">
+        <StatCard label="Total Agents"  value={total}              />
+        <StatCard label="Connected"     value={connected}          />
+        <StatCard label="Degraded"      value={degraded}           />
         <StatCard label="Active Alerts" value={alerts?.length ?? 0} />
       </div>
-      <h2>Recent Alerts</h2>
+
+      <p className="section-title">Recent Alerts</p>
+
       {alerts && alerts.length > 0 ? (
-        <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <table className="data-table">
           <thead>
             <tr>
-              <th style={th}>Agent</th><th style={th}>Rule</th><th style={th}>Severity</th><th style={th}>Message</th>
+              <th>Agent</th>
+              <th>Rule</th>
+              <th>Severity</th>
+              <th>Message</th>
+              <th>Fired at</th>
             </tr>
           </thead>
           <tbody>
             {alerts.slice(0, 5).map((a) => (
               <tr key={a.id}>
-                <td style={td}>{a.agent_id}</td>
-                <td style={td}>{a.rule}</td>
-                <td style={td}><StatusBadge status={a.severity} /></td>
-                <td style={td}>{a.message}</td>
+                <td><code>{a.agent_id}</code></td>
+                <td><code>{a.rule}</code></td>
+                <td><StatusBadge status={a.severity} /></td>
+                <td>{a.message}</td>
+                <td style={{ whiteSpace: 'nowrap', fontFamily: 'var(--mono)', fontSize: '0.75rem', color: 'var(--muted)' }}>
+                  {new Date(a.fired_at).toLocaleString()}
+                </td>
               </tr>
             ))}
           </tbody>
         </table>
       ) : (
-        <p>No active alerts.</p>
+        <div className="empty-state">No active alerts</div>
       )}
     </div>
   )
@@ -51,12 +64,9 @@ export default function Dashboard() {
 
 function StatCard({ label, value }: { label: string; value: number }) {
   return (
-    <div style={{ background: '#fff', padding: '1rem 2rem', borderRadius: 8, boxShadow: '0 1px 3px rgba(0,0,0,0.1)' }}>
-      <div style={{ fontSize: '2rem', fontWeight: 700 }}>{value}</div>
-      <div style={{ color: '#666' }}>{label}</div>
+    <div className="stat-card">
+      <div className="stat-value">{value}</div>
+      <div className="stat-label">{label}</div>
     </div>
   )
 }
-
-const th: React.CSSProperties = { textAlign: 'left', padding: '8px', borderBottom: '2px solid #ddd' }
-const td: React.CSSProperties = { padding: '8px', borderBottom: '1px solid #eee' }

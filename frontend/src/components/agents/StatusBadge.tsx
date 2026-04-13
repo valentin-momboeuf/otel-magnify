@@ -1,22 +1,22 @@
-const colors: Record<string, string> = {
-  connected: '#4caf50',
-  disconnected: '#9e9e9e',
-  degraded: '#ff9800',
+interface Props {
+  status: string
 }
 
-export default function StatusBadge({ status }: { status: string }) {
+// Maps a status string to its CSS modifier class
+function badgeClass(status: string): string {
+  const map: Record<string, string> = {
+    connected:    'badge-connected',
+    disconnected: 'badge-disconnected',
+    degraded:     'badge-degraded',
+    warning:      'badge-warning',
+    critical:     'badge-critical',
+  }
+  return map[status] ?? 'badge-disconnected'
+}
+
+export default function StatusBadge({ status }: Props) {
   return (
-    <span
-      style={{
-        display: 'inline-block',
-        padding: '2px 8px',
-        borderRadius: 4,
-        background: colors[status] ?? '#9e9e9e',
-        color: '#fff',
-        fontSize: '0.8rem',
-        fontWeight: 600,
-      }}
-    >
+    <span className={`badge ${badgeClass(status)}`}>
       {status}
     </span>
   )
