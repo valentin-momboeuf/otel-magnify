@@ -1,0 +1,18 @@
+services:
+  otel-magnify:
+    build: .
+    ports:
+      - "8080:8080"
+      - "4320:4320"
+    environment:
+      DB_DRIVER: sqlite
+      DB_DSN: /data/otel-magnify.db
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      LISTEN_ADDR: ":8080"
+      OPAMP_ADDR: ":4320"
+      CORS_ORIGINS: "http://localhost:8080"
+    volumes:
+      - magnify-data:/data
+
+volumes:
+  magnify-data:
