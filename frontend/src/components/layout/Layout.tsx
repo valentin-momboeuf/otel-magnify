@@ -1,40 +1,40 @@
 import { Link, Outlet, useLocation } from 'react-router-dom'
 import { useStore } from '../../store'
 
-// SVG icons as inline components — keeps the bundle small, no icon dep needed
 function IconDashboard() {
   return (
-    <svg className="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <rect x="1" y="1" width="5" height="5" rx="0.5" />
-      <rect x="8" y="1" width="5" height="5" rx="0.5" />
-      <rect x="1" y="8" width="5" height="5" rx="0.5" />
-      <rect x="8" y="8" width="5" height="5" rx="0.5" />
+    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="1.5" y="1.5" width="5" height="5" rx="1" />
+      <rect x="9.5" y="1.5" width="5" height="5" rx="1" />
+      <rect x="1.5" y="9.5" width="5" height="5" rx="1" />
+      <rect x="9.5" y="9.5" width="5" height="5" rx="1" />
     </svg>
   )
 }
 
 function IconAgents() {
   return (
-    <svg className="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <circle cx="7" cy="4" r="2.5" />
-      <path d="M1 13c0-3.3 2.7-5 6-5s6 1.7 6 5" />
+    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+      <circle cx="8" cy="5" r="2.5" />
+      <path d="M2.5 15c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
     </svg>
   )
 }
 
 function IconConfigs() {
   return (
-    <svg className="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M2 3h10M2 7h7M2 11h5" strokeLinecap="round" />
+    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+      <path d="M3 4h10M3 8h7M3 12h5" />
     </svg>
   )
 }
 
 function IconAlerts() {
   return (
-    <svg className="nav-icon" viewBox="0 0 14 14" fill="none" stroke="currentColor" strokeWidth="1.5">
-      <path d="M7 1L1 12h12L7 1z" />
-      <path d="M7 5.5v3M7 10v.5" strokeLinecap="round" />
+    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 2L2 13h12L8 2z" />
+      <path d="M8 6.5v3" />
+      <circle cx="8" cy="11" r="0.5" fill="currentColor" stroke="none" />
     </svg>
   )
 }
@@ -63,7 +63,6 @@ export default function Layout() {
 
         <ul className="sidebar-nav">
           {navItems.map(({ path, label, Icon }) => {
-            // Exact match for root, prefix match for sub-routes
             const isActive = path === '/'
               ? location.pathname === '/'
               : location.pathname.startsWith(path)
