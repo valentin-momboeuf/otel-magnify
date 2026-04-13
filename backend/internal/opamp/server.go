@@ -29,17 +29,19 @@ type Server struct {
 	store    *store.DB
 	notifier Notifier
 
-	mu    sync.RWMutex
-	conns map[string]types.Connection // agentUID hex -> connection
+	mu         sync.RWMutex
+	conns      map[string]types.Connection // agentUID hex -> connection
+	connToUID  map[types.Connection]string // reverse map for O(1) lookup on close
 }
 
 // New creates a new OpAMP server. Both db and notifier can be nil (useful for testing).
 func New(db *store.DB, notifier Notifier) *Server {
 	return &Server{
-		opamp:    opampServer.New(nil),
-		store:    db,
-		notifier: notifier,
-		conns:    make(map[string]types.Connection),
+		opamp:     opampServer.New(nil),
+		store:     db,
+		notifier:  notifier,
+		conns:     make(map[string]types.Connection),
+		connToUID: make(map[types.Connection]string),
 	}
 }
 
@@ -118,9 +120,10 @@ func (s *Server) onConnected(ctx context.Context, conn types.Connection) {
 func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
 	uid := hex.EncodeToString(msg.InstanceUid)
 
-	// Track connection
+	// Track connection in both directions for O(1) lookup on close
 	s.mu.Lock()
 	s.conns[uid] = conn
+	s.connToUID[conn] = uid
 	s.mu.Unlock()
 
 	agent := models.Agent{
@@ -181,22 +184,25 @@ func (s *Server) onConnectionClose(conn types.Connection) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	for uid, c := range s.conns {
-		if c == conn {
-			delete(s.conns, uid)
-			if s.store != nil {
-				if err := s.store.UpdateAgentStatus(uid, "disconnected"); err != nil {
-					log.Printf("Failed to update agent %s status: %v", uid, err)
-				}
-				if s.notifier != nil {
-					s.notifier.BroadcastAgentUpdate(models.Agent{
-						ID:         uid,
-						Status:     "disconnected",
-						LastSeenAt: time.Now().UTC(),
-					})
-				}
-			}
-			break
+	uid, ok := s.connToUID[conn]
+	if !ok {
+		// Connection was never registered (e.g. closed before first message)
+		return
+	}
+
+	delete(s.conns, uid)
+	delete(s.connToUID, conn)
+
+	if s.store != nil {
+		if err := s.store.UpdateAgentStatus(uid, "disconnected"); err != nil {
+			log.Printf("Failed to update agent %s status: %v", uid, err)
+		}
+		if s.notifier != nil {
+			s.notifier.BroadcastAgentUpdate(models.Agent{
+				ID:         uid,
+				Status:     "disconnected",
+				LastSeenAt: time.Now().UTC(),
+			})
 		}
 	}
 }
