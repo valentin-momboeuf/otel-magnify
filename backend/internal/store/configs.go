@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -51,6 +52,22 @@ func (d *DB) RecordAgentConfig(agentID, configID, status string) error {
 		agentID, configID, time.Now().UTC(), status,
 	)
 	return err
+}
+
+func (d *DB) GetLatestPendingAgentConfig(agentID string) (*models.AgentConfig, error) {
+	var ac models.AgentConfig
+	err := d.QueryRow(`
+		SELECT agent_id, config_id, applied_at, status
+		FROM agent_configs WHERE agent_id = ? AND status = 'pending'
+		ORDER BY applied_at DESC LIMIT 1`, agentID,
+	).Scan(&ac.AgentID, &ac.ConfigID, &ac.AppliedAt, &ac.Status)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &ac, nil
 }
 
 func (d *DB) GetAgentConfigHistory(agentID string) ([]models.AgentConfig, error) {

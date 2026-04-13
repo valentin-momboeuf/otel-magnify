@@ -77,7 +77,7 @@ func main() {
 	// Alert engine
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	alertEngine := alerts.New(db, hub, 5*time.Minute)
+	alertEngine := alerts.New(db, hub, 5*time.Minute, cfg.MinAgentVersion)
 	go alertEngine.Start(ctx, 30*time.Second)
 	log.Println("Alert engine started (30s interval)")
 
