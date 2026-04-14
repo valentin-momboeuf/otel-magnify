@@ -3,6 +3,8 @@
 ![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-orange.svg)
 ![Status: pre-1.0](https://img.shields.io/badge/Status-pre--1.0-yellow.svg)
 
+→ [Roadmap](ROADMAP.md)
+
 > **⚠️ Statut : pré-1.0 — non recommandé pour des déploiements critiques sans support commercial**
 >
 > L'API REST et le protocole OpAMP sont en cours de stabilisation.
