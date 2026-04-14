@@ -60,6 +60,22 @@ docker run -d --name collector-prod-eu --network otel-magnify_default \
 - WebSocket auth via `?token=` query param (not header — browsers can't set WS headers)
 - Frontend embed.FS with SPA fallback for production single-binary deployment
 
+## Release workflow
+
+```bash
+# 1. Tag the version
+git tag v0.x.y -m "release: v0.x.y"
+
+# 2. Generate changelog (requires git-cliff)
+git-cliff --output CHANGELOG.md
+git add CHANGELOG.md && git commit -m "docs: update changelog for v0.x.y"
+
+# 3. Push
+git push origin main && git push origin v0.x.y
+
+# 4. Create GitHub release manually (paste CHANGELOG.md content)
+```
+
 ## Environment variables
 
 | Variable | Required | Description |
