@@ -2,6 +2,7 @@ import { useParams, Link } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
 import { agentsAPI } from '../api/client'
 import StatusBadge from '../components/agents/StatusBadge'
+import AgentConfigSection from '../components/agents/AgentConfigSection'
 
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>()
@@ -70,6 +71,9 @@ export default function AgentDetail() {
           </div>
         </>
       )}
+
+      {/* Configuration */}
+      <AgentConfigSection agent={agent} />
     </div>
   )
 }
