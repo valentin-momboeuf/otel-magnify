@@ -1,5 +1,14 @@
 # otel-magnify
 
+![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-orange.svg)
+![Status: pre-1.0](https://img.shields.io/badge/Status-pre--1.0-yellow.svg)
+
+> **⚠️ Statut : pré-1.0 — non recommandé pour des déploiements critiques sans support commercial**
+>
+> L'API REST et le protocole OpAMP sont en cours de stabilisation.
+> Les endpoints et les formats de données peuvent changer sans préavis entre versions mineures.
+> Pour un usage en production dans un environnement critique, [ouvrez une issue](https://github.com/valentin-momboeuf/otel-magnify/issues).
+
 Centralized management platform for OpenTelemetry agents via [OpAMP](https://opentelemetry.io/docs/specs/opamp/) (Open Agent Management Protocol).
 
 Monitor, configure, and alert on your OTel Collectors and SDK agents from a single interface.
@@ -151,4 +160,4 @@ helm/otel-magnify/      # Kubernetes Helm chart
 
 ## License
 
-See [LICENSE](LICENSE).
+[Business Source License 1.1](LICENSE) — usage gratuit jusqu'à 20 agents, conversion en Apache 2.0 le 2030-04-14.
