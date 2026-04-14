@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import axios from 'axios'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { configsAPI, agentsAPI } from '../../api/client'
 import YamlEditor from '../config/YamlEditor'
@@ -23,13 +24,17 @@ export default function AgentConfigSection({ agent }: Props) {
   const pushMutation = useMutation({
     mutationFn: () => agentsAPI.pushConfig(agent.id, draftYaml),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['agent-config', agent.active_config_id] })
+      // Invalidating the agent causes a re-render with the updated active_config_id,
+      // which in turn triggers a fresh config query with the new key.
       queryClient.invalidateQueries({ queryKey: ['agent', agent.id] })
       setEditMode(false)
       setPushError(null)
     },
-    onError: (err: Error) => {
-      setPushError(err.message || 'Failed to push configuration')
+    onError: (err: unknown) => {
+      const msg = axios.isAxiosError(err)
+        ? (err.response?.data?.error ?? err.message)
+        : 'Failed to push configuration'
+      setPushError(msg)
     },
   })
 
