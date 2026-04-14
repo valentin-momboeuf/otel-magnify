@@ -2,41 +2,41 @@
 
 ## Developer Certificate of Origin (DCO)
 
-Tout commit doit être signé avec `--signoff` :
+Every commit must be signed off with `--signoff`:
 
 ```bash
 git commit --signoff -m "feat: description"
 ```
 
-En signant, tu certifies que ta contribution est conforme au
-[DCO 1.1](https://developercertificate.org) — en résumé, que tu as le droit
-de soumettre ce code sous la licence du projet.
+By signing off, you certify that your contribution complies with the
+[DCO 1.1](https://developercertificate.org) — in short, that you have the right
+to submit this code under the project's license.
 
-## Avant de soumettre une PR
+## Before submitting a PR
 
-Vérifier que les tests passent :
+Make sure the tests pass:
 
 ```bash
 # Backend
 cd backend && go test ./...
 
-# Types frontend
+# Frontend types
 cd frontend && npx tsc --noEmit
 ```
 
-## Conventions de commit
+## Commit conventions
 
-Format : `type: description` (en anglais)
+Format: `type: description` (in English)
 
 | Type | Usage |
 |------|-------|
-| `feat:` | Nouvelle fonctionnalité |
-| `fix:` | Correction de bug |
-| `docs:` | Documentation uniquement |
-| `refactor:` | Refactoring sans changement de comportement |
+| `feat:` | New feature |
+| `fix:` | Bug fix |
+| `docs:` | Documentation only |
+| `refactor:` | Refactoring without behavior change |
 | `ci:` | CI/CD |
 
-## Licence
+## License
 
-En contribuant, tu acceptes que ta contribution soit soumise à la
-[Business Source License 1.1](LICENSE) du projet.
+By contributing, you agree that your contribution will be licensed under
+the project's [Business Source License 1.1](LICENSE).

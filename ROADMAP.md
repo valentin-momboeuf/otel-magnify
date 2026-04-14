@@ -1,28 +1,28 @@
 # Roadmap
 
-Cette roadmap est indicative. Les priorités peuvent évoluer selon les retours de la communauté.
+This roadmap is indicative. Priorities may evolve based on community feedback.
 
-## Now — en cours
+## Now — in progress
 
-- Stabilisation du core (inventaire agents, push de configuration, alertes basiques)
-- Support Docker Compose et Kubernetes (Helm)
-- Authentification JWT
+- Core stabilization (agent inventory, config push, basic alerts)
+- Docker Compose and Kubernetes (Helm) support
+- JWT authentication
 
-## Next — prévu
+## Next — planned
 
 - SSO / SAML 2.0
-- RBAC granulaire (rôles et permissions)
+- Granular RBAC (roles and permissions)
 - Audit log
 - Config rollback & versioning
 - Multi-tenant
 
-## Later — sur le radar
+## Later — on the radar
 
-- Clustering / haute disponibilité
-- Alerting avancé (règles custom, escalation, intégrations PagerDuty/Slack/Teams)
-- Métriques fleet détaillées (CPU, mémoire, throughput par agent)
-- Offre cloud managée
+- Clustering / high availability
+- Advanced alerting (custom rules, escalation, PagerDuty/Slack/Teams integrations)
+- Detailed fleet metrics (CPU, memory, throughput per agent)
+- Managed cloud offering
 
 ---
 
-💬 Tu as un besoin non couvert ? [Ouvre une issue](https://github.com/valentin-momboeuf/otel-magnify/issues).
+💬 Got a need that isn't covered? [Open an issue](https://github.com/valentin-momboeuf/otel-magnify/issues).

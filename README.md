@@ -5,11 +5,11 @@
 
 → [Roadmap](ROADMAP.md)
 
-> **⚠️ Statut : pré-1.0 — non recommandé pour des déploiements critiques sans support commercial**
+> **⚠️ Status: pre-1.0 — not recommended for critical deployments without commercial support**
 >
-> L'API REST et le protocole OpAMP sont en cours de stabilisation.
-> Les endpoints et les formats de données peuvent changer sans préavis entre versions mineures.
-> Pour un usage en production dans un environnement critique, [ouvrez une issue](https://github.com/valentin-momboeuf/otel-magnify/issues).
+> The REST API and OpAMP protocol are still being stabilized.
+> Endpoints and data formats may change without notice between minor versions.
+> For production use in a critical environment, [open an issue](https://github.com/valentin-momboeuf/otel-magnify/issues).
 
 Centralized management platform for OpenTelemetry agents via [OpAMP](https://opentelemetry.io/docs/specs/opamp/) (Open Agent Management Protocol).
 
@@ -162,4 +162,4 @@ helm/otel-magnify/      # Kubernetes Helm chart
 
 ## License
 
-[Business Source License 1.1](LICENSE) — usage gratuit jusqu'à 20 agents, conversion en Apache 2.0 le 2030-04-14.
+[Business Source License 1.1](LICENSE) — free use up to 20 agents, converts to Apache 2.0 on 2030-04-14.

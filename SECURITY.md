@@ -1,19 +1,19 @@
 # Security Policy
 
-## Versions supportées
+## Supported versions
 
-Seule la dernière version publiée reçoit des correctifs de sécurité.
+Only the latest released version receives security fixes.
 
 | Version | Support          |
 |---------|-----------------|
-| latest  | ✅ Supportée     |
-| < latest | ❌ Non supportée |
+| latest  | ✅ Supported     |
+| < latest | ❌ Not supported |
 
-## Signaler une vulnérabilité
+## Reporting a vulnerability
 
-**Ne pas ouvrir une issue GitHub publique pour une vulnérabilité de sécurité.**
+**Do not open a public GitHub issue for a security vulnerability.**
 
-Utilise le [private vulnerability reporting](https://github.com/valentin-momboeuf/otel-magnify/security/advisories/new) de GitHub.
+Use GitHub's [private vulnerability reporting](https://github.com/valentin-momboeuf/otel-magnify/security/advisories/new).
 
-Tu recevras une réponse sous **72 heures**.
-Un correctif sera coordonné avant toute divulgation publique (responsible disclosure).
+You will receive a response within **72 hours**.
+A fix will be coordinated before any public disclosure (responsible disclosure).

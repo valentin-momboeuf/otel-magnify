@@ -1,5 +1,5 @@
 [changelog]
-header = "# Changelog\n\nToutes les modifications notables sont documentées ici.\n"
+header = "# Changelog\n\nAll notable changes to this project are documented here.\n"
 body = """
 {% if version %}## {{ version }} — {{ timestamp | date(format="%Y-%m-%d") }}{% else %}## Unreleased{% endif %}
 {% for group, commits in commits | group_by(attribute="group") %}

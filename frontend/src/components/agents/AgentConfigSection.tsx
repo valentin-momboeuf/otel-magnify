@@ -71,7 +71,7 @@ export default function AgentConfigSection({ agent }: Props) {
     )
   }
 
-  // ── Collector sans config active ─────────────────────────────────────────
+  // ── Collector without active config ──────────────────────────────────────
   if (!agent.active_config_id) {
     return (
       <>
@@ -100,7 +100,7 @@ export default function AgentConfigSection({ agent }: Props) {
     )
   }
 
-  // ── Collector avec config active ─────────────────────────────────────────
+  // ── Collector with active config ─────────────────────────────────────────
   if (isLoading) {
     return (
       <>
@@ -114,7 +114,7 @@ export default function AgentConfigSection({ agent }: Props) {
     return (
       <>
         <p className="section-title">Configuration</p>
-        <div className="error-text">Impossible de charger la configuration</div>
+        <div className="error-text">Failed to load configuration</div>
       </>
     )
   }

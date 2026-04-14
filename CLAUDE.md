@@ -45,7 +45,7 @@ docker run -d --name collector-prod-eu --network otel-magnify_default \
 
 ## Conventions
 
-- **Documentation**: French — **Code & commits**: English
+- **Language**: all repo content (documentation, code, commits) in English
 - **Commits**: conventional (`feat:`, `fix:`, `docs:`, `refactor:`)
 - **No Co-Authored-By** in commit messages
 - **Go**: standard `testing`, in-memory SQLite for tests, `chi` for routing
