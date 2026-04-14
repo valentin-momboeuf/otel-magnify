@@ -24,6 +24,7 @@ export default function AgentConfigSection({ agent }: Props) {
     mutationFn: () => agentsAPI.pushConfig(agent.id, draftYaml),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['agent-config', agent.active_config_id] })
+      queryClient.invalidateQueries({ queryKey: ['agent', agent.id] })
       setEditMode(false)
       setPushError(null)
     },
