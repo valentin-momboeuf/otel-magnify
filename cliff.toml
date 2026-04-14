@@ -1,0 +1,32 @@
+[changelog]
+header = "# Changelog\n\nToutes les modifications notables sont documentées ici.\n"
+body = """
+{% if version %}## {{ version }} — {{ timestamp | date(format="%Y-%m-%d") }}{% else %}## Unreleased{% endif %}
+{% for group, commits in commits | group_by(attribute="group") %}
+### {{ group }}
+{% for commit in commits %}\
+- {{ commit.message | upper_first }}{% if commit.breaking %} (**BREAKING CHANGE**){% endif %}
+{% endfor %}
+{% endfor %}\n
+"""
+trim = true
+footer = ""
+
+[git]
+conventional_commits = true
+filter_unconventional = true
+commit_parsers = [
+  { message = "^feat", group = "Features" },
+  { message = "^fix", group = "Bug Fixes" },
+  { message = "^docs", group = "Documentation" },
+  { message = "^refactor", group = "Refactoring" },
+  { message = "^ci", group = "CI/CD" },
+  { message = "^chore", skip = true },
+  { message = "^release", skip = true },
+]
+filter_commits = true
+tag_pattern = "v[0-9].*"
+skip_tags = ""
+ignore_tags = ""
+topo_order = false
+sort_commits = "oldest"
