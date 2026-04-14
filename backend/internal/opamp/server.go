@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/http"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -165,6 +166,16 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 		}
 	}
 
+	// Extract effective config reported by the agent. Heartbeats omit this field;
+	// in that case, preserve the previously known active_config_id from the store.
+	if s.store != nil {
+		if cfgID := s.persistEffectiveConfig(uid, agent.DisplayName, msg.EffectiveConfig); cfgID != "" {
+			agent.ActiveConfigID = &cfgID
+		} else if prev, err := s.store.GetAgent(uid); err == nil {
+			agent.ActiveConfigID = prev.ActiveConfigID
+		}
+	}
+
 	// Persist to store
 	if s.store != nil {
 		if err := s.store.UpsertAgent(agent); err != nil {
@@ -207,6 +218,58 @@ func (s *Server) onConnectionClose(conn types.Connection) {
 			})
 		}
 	}
+}
+
+// persistEffectiveConfig stores the YAML config reported by the agent (deduplicated
+// by content hash) and returns the resulting config ID. Returns empty if the message
+// carries no effective config (typical for heartbeats).
+func (s *Server) persistEffectiveConfig(agentUID, displayName string, effective *protobufs.EffectiveConfig) string {
+	if effective == nil || effective.ConfigMap == nil || len(effective.ConfigMap.ConfigMap) == 0 {
+		return ""
+	}
+
+	// Collectors typically report a single file under the empty key "".
+	// Concatenate deterministically if multiple files are present.
+	keys := make([]string, 0, len(effective.ConfigMap.ConfigMap))
+	for k := range effective.ConfigMap.ConfigMap {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+
+	var buf []byte
+	for _, k := range keys {
+		buf = append(buf, effective.ConfigMap.ConfigMap[k].Body...)
+	}
+	if len(buf) == 0 {
+		return ""
+	}
+
+	sum := sha256.Sum256(buf)
+	configID := hex.EncodeToString(sum[:])
+
+	if _, err := s.store.GetConfig(configID); err != nil {
+		name := fmt.Sprintf("%s-reported-%s", fallback(displayName, agentUID[:8]), configID[:8])
+		cfg := models.Config{
+			ID:        configID,
+			Name:      name,
+			Content:   string(buf),
+			CreatedAt: time.Now().UTC(),
+			CreatedBy: "agent-reported",
+		}
+		if err := s.store.CreateConfig(cfg); err != nil {
+			log.Printf("Failed to persist effective config %s: %v", configID[:8], err)
+			return ""
+		}
+	}
+
+	return configID
+}
+
+func fallback(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }
 
 // isCollectorName returns true if the service.name indicates an OTel Collector.
