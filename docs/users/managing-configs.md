@@ -16,16 +16,16 @@ The `POST /api/agents/{id}/config/validate` endpoint performs a lightweight YAML
 
 ## Auto-rollback
 
-When an agent reports `RemoteConfigStatus_FAILED`, otel-magnify automatically re-pushes the last known-good configuration. The `auto_rollback_applied` event is broadcast on the WebSocket, and the rollback shows up in the push history.
+When an agent reports a `failed` status, otel-magnify automatically re-pushes the last known-good configuration. The rollback is recorded as a **new** `agent_configs` row (status `pending`, `pushed_by = "auto-rollback"`) — the failed row is left in place for auditing. An `auto_rollback_applied` event is broadcast on the WebSocket.
 
 ## Push history
 
 Every push is stored in the `agent_configs` table with:
 
 - Config content hash
-- Operator (email of the user who triggered the push)
+- Operator (`pushed_by` — the user's email, or `auto-rollback` for automated recoveries)
 - Timestamp
-- Applied status (`PENDING`, `APPLIED`, `FAILED`, `ROLLED_BACK`)
+- Status (`pending`, `applied`, or `failed`)
 - Error message if the agent rejected the config
 
 The history is visible from the agent detail page.

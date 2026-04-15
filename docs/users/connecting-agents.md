@@ -48,7 +48,7 @@ For development and testing, the repo ships a small simulator at `backend/cmd/sd
 
 ```bash
 cd backend
-go run ./cmd/sdkagent/ --server ws://localhost:4320/v1/opamp --name demo-sdk-agent
+go run ./cmd/sdkagent/ --endpoint ws://localhost:4320/v1/opamp --name demo-sdk-agent
 ```
 
 ## What otel-magnify captures from an agent

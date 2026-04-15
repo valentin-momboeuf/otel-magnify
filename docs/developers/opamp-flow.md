@@ -34,12 +34,13 @@ sequenceDiagram
     participant S as Store
     participant WS as WebSocket hub
 
-    U->>API: POST /api/agents/{id}/config
-    API->>S: Insert agent_configs row (status=PENDING)
+    U->>API: POST /api/agents/{id}/config (raw YAML)
+    API->>API: Validate against AvailableComponents
+    API->>S: Insert agent_configs row (status=pending)
     API->>O: Trigger push for {id}
     O->>A: ServerToAgent{RemoteConfig}
-    A->>O: AgentToServer{RemoteConfigStatus: APPLIED}
-    O->>S: Update row (status=APPLIED)
+    A->>O: AgentToServer{RemoteConfigStatus: APPLYING → APPLIED}
+    O->>S: Update row (status=applied)
     O->>WS: broadcast agent_config_status
     WS-->>U: live update
 ```
@@ -57,12 +58,13 @@ sequenceDiagram
 
     Note over O,A: A bad config was just pushed
     A->>O: AgentToServer{RemoteConfigStatus: FAILED, error}
-    O->>S: Update row (status=FAILED, error_message)
-    O->>S: Load last-known-good config
+    O->>S: Update row (status=failed, error_message)
+    O->>S: Load last-applied config (GetLastAppliedAgentConfig)
     O->>A: ServerToAgent{RemoteConfig: last-good}
-    A->>O: AgentToServer{RemoteConfigStatus: APPLIED}
-    O->>S: Insert rollback row (status=ROLLED_BACK)
+    O->>S: Insert new row (status=pending, pushed_by=auto-rollback)
     O->>WS: broadcast auto_rollback_applied
+    A->>O: AgentToServer{RemoteConfigStatus: APPLIED}
+    O->>S: Update rollback row (status=applied)
     WS-->>U: live update
 ```
 

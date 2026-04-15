@@ -1,6 +1,6 @@
 # REST API
 
-All endpoints return JSON and expect JSON request bodies (where applicable). Authenticated endpoints require the header `Authorization: Bearer <jwt>`.
+All endpoints return JSON. Most expect JSON request bodies; the two config endpoints (`POST /api/agents/{id}/config` and `POST /api/agents/{id}/config/validate`) are exceptions and take raw YAML. Authenticated endpoints require the header `Authorization: Bearer <jwt>`.
 
 ## Endpoint summary
 
@@ -48,19 +48,22 @@ Response is an array of agent summaries. The exact fields are defined in `backen
 
 ### `POST /api/agents/{id}/config`
 
-Request:
+Request body is the **raw YAML** (no JSON wrapper), with `Content-Type: application/yaml` or `text/plain`. The server computes the SHA-256 config hash itself. The push is rejected up front if the light validator finds a problem — callers should hit `/validate` first for UX.
+
+Response (202 Accepted):
 
 ```json
 {
-  "content": "receivers:\n  otlp:\n    protocols:\n      grpc:\n..."
+  "status": "config push initiated",
+  "config_hash": "3f9a..."
 }
 ```
 
-Response includes the persisted `config_hash` and the initial push status (`PENDING`). Follow-up status updates arrive via the WebSocket.
+On validation failure, 400 with `{ "error": "...", "validation_errors": [ ... ] }`. Follow-up push status (`pending` → `applied` | `failed`) arrives via the WebSocket.
 
 ### `POST /api/agents/{id}/config/validate`
 
-Same request shape as the push endpoint. Response is either `{ "valid": true }` or `{ "valid": false, "errors": [ ... ] }`.
+Same request shape as the push endpoint (raw YAML). Always returns 200 with a `validator.Result`: `{ "valid": true }` or `{ "valid": false, "errors": [ { "code", "message", "path" }, ... ] }`.
 
 ## Error format
 

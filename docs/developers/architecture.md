@@ -49,7 +49,7 @@ backend/
 ## Key design decisions
 
 - **`pressly/goose` over `golang-migrate`** — better `modernc.org/sqlite` support (pure Go, no CGO required).
-- **OpAMP server uses `Attach()`** to mount on the chi mux, not as a standalone server.
+- **OpAMP server runs on a dedicated `http.ServeMux` on `:4320`**, separate from the chi-based API mux on `:8080`. `Attach()` returns the handler and `ConnContext` hook, which are wired into the OpAMP-only mux at `/v1/opamp`. Keeping them on different listeners avoids the OpAMP protocol leaking into the user-facing router.
 - **Agent type detection via `isCollectorName()`** — matches the `otelcol*` prefix patterns.
 - **WebSocket auth via `?token=` query parameter** — browsers cannot set custom headers on WS handshakes.
 - **Frontend served via `embed.FS` with SPA fallback** for the single-binary deployment model.
