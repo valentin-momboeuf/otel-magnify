@@ -2,6 +2,7 @@ import { useEffect, useRef } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
 import { yaml } from '@codemirror/lang-yaml'
 import { Compartment, EditorState } from '@codemirror/state'
+import { signalDeckYaml } from './yamlTheme'
 
 interface Props {
   value: string
@@ -26,8 +27,9 @@ export default function YamlEditor({ value, onChange, readOnly = false }: Props)
         extensions: [
           basicSetup,
           yaml(),
+          signalDeckYaml,
           EditorView.theme({
-            '&': { height: '400px', border: '1px solid #ccc', borderRadius: '4px' },
+            '&': { height: '400px', border: '1px solid var(--border, #2a2822)', borderRadius: '4px' },
           }),
           readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
           EditorView.updateListener.of((update) => {

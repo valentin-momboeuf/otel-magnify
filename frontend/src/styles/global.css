@@ -794,6 +794,80 @@ body {
   border-radius: 3px;
 }
 
+/* ── Push status banner ── */
+.push-status-stack { display: flex; flex-direction: column; gap: 0.5rem; margin-top: 0.75rem; }
+.push-banner {
+  border: 1px solid var(--border, #2a2822);
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.78rem;
+  background: #141310;
+}
+.push-banner-row { display: flex; align-items: center; gap: 0.6rem; }
+.push-banner-label { font-weight: 600; }
+.push-banner-hash { color: var(--muted, #6b6a63); font-size: 0.72rem; }
+.push-banner-error {
+  margin: 0.4rem 0 0 0;
+  white-space: pre-wrap;
+  color: #e06c75;
+  font-size: 0.72rem;
+  line-height: 1.4;
+}
+.push-banner-pending  { border-color: #6b6a63; }
+.push-banner-applying { border-color: #6b6a63; }
+.push-banner-applied  { border-color: #6bcf7f; }
+.push-banner-failed   { border-color: #e06c75; background: #1f1313; }
+.push-banner-rollback { border-color: #d4a84a; background: #1b1810; }
+.push-banner-dismiss {
+  margin-left: auto;
+  background: none; border: none;
+  color: var(--muted); cursor: pointer;
+  font-size: 1rem; padding: 0 0.3rem;
+}
+.push-banner-dismiss:hover { color: var(--fg, #e5e2d7); }
+
+/* ── Tabstrip (edit/diff) ── */
+.tabstrip { display: flex; gap: 0.3rem; margin-bottom: 0.5rem; }
+.tab {
+  background: none;
+  border: 1px solid var(--border, #2a2822);
+  color: var(--muted, #6b6a63);
+  padding: 0.3rem 0.7rem;
+  font-family: var(--mono, monospace);
+  font-size: 0.72rem;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.tab-active { color: var(--fg, #e5e2d7); border-color: var(--accent, #d4a84a); }
+
+/* ── Push history ── */
+.history-table { width: 100%; border-collapse: collapse; font-family: var(--mono, monospace); font-size: 0.75rem; margin-top: 0.5rem; }
+.history-table th, .history-table td { text-align: left; padding: 0.4rem 0.6rem; border-bottom: 1px solid var(--border, #2a2822); vertical-align: top; }
+.history-table th { color: var(--muted, #6b6a63); font-weight: 500; }
+.history-error { color: #e06c75; max-width: 24rem; white-space: pre-wrap; }
+
+.status-pill { display: inline-block; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.7rem; }
+.status-pending  { background: #262420; color: #c9b580; }
+.status-applying { background: #262420; color: #c9b580; }
+.status-applied  { background: #15301c; color: #6bcf7f; }
+.status-failed   { background: #301515; color: #e06c75; }
+
+.btn-small { padding: 0.2rem 0.5rem; font-size: 0.7rem; margin-right: 0.3rem; }
+
+/* ── History / view modal ── */
+.modal-backdrop {
+  position: fixed; inset: 0; background: rgba(0, 0, 0, 0.6);
+  display: flex; align-items: center; justify-content: center; z-index: 50;
+}
+.modal {
+  background: var(--bg, #14130f);
+  border: 1px solid var(--border, #2a2822);
+  border-radius: 4px; padding: 1rem;
+  width: min(900px, 90vw); max-height: 90vh; overflow: auto;
+}
+.modal-header { display: flex; justify-content: space-between; margin-bottom: 0.75rem; font-family: var(--mono, monospace); font-size: 0.8rem; }
+
 /* ── Login page ── */
 .login-bg {
   display: flex;
