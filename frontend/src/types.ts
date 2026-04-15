@@ -17,6 +17,7 @@ export interface Agent {
   labels: Record<string, string>
   active_config_id?: string
   remote_config_status?: RemoteConfigStatus
+  available_components?: AvailableComponents
 }
 
 export interface Config {
@@ -52,4 +53,20 @@ export interface AutoRollbackEvent {
   from_hash: string
   to_hash: string
   reason: string
+}
+
+export interface ValidationError {
+  code: string
+  message: string
+  path?: string
+}
+
+export interface ValidationResult {
+  valid: boolean
+  errors?: ValidationError[]
+}
+
+export interface AvailableComponents {
+  components: Record<string, string[]>
+  hash?: string
 }

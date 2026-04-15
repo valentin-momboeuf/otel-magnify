@@ -1,5 +1,5 @@
 import axios from 'axios'
-import type { Agent, Config, Alert, AgentConfig } from '../types'
+import type { Agent, Config, Alert, AgentConfig, ValidationResult } from '../types'
 
 const api = axios.create({ baseURL: '/api' })
 
@@ -28,6 +28,12 @@ export const agentsAPI = {
   pushConfig: (id: string, yaml: string) =>
     api
       .post<{ status: string; config_hash: string }>(`/agents/${id}/config`, yaml, {
+        headers: { 'Content-Type': 'text/yaml' },
+      })
+      .then((r) => r.data),
+  validateConfig: (id: string, yaml: string) =>
+    api
+      .post<ValidationResult>(`/agents/${id}/config/validate`, yaml, {
         headers: { 'Content-Type': 'text/yaml' },
       })
       .then((r) => r.data),

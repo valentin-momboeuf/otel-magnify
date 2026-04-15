@@ -764,6 +764,36 @@ body {
   margin-bottom: 1rem;
 }
 
+/* ── Validation feedback ── */
+.validation-ok {
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  font-weight: 500;
+  color: var(--green, #22c55e);
+  padding: 0.55rem 0.9rem;
+  background: rgba(34, 197, 94, 0.08);
+  border: 1px solid rgba(34, 197, 94, 0.25);
+  border-radius: var(--radius-sm);
+}
+
+.validation-errors {
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  color: var(--red);
+  padding: 0.6rem 0.9rem;
+  background: var(--red-dim);
+  border: 1px solid rgba(248, 113, 113, 0.2);
+  border-radius: var(--radius-sm);
+}
+
+.validation-errors code {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  background: rgba(0, 0, 0, 0.15);
+  padding: 0 4px;
+  border-radius: 3px;
+}
+
 /* ── Login page ── */
 .login-bg {
   display: flex;
