@@ -1,3 +1,12 @@
+export type PushStatus = 'pending' | 'applying' | 'applied' | 'failed'
+
+export interface RemoteConfigStatus {
+  status: PushStatus
+  config_hash: string
+  error_message?: string
+  updated_at: string
+}
+
 export interface Agent {
   id: string
   display_name: string
@@ -7,6 +16,7 @@ export interface Agent {
   last_seen_at: string
   labels: Record<string, string>
   active_config_id?: string
+  remote_config_status?: RemoteConfigStatus
 }
 
 export interface Config {
@@ -31,5 +41,15 @@ export interface AgentConfig {
   agent_id: string
   config_id: string
   applied_at: string
-  status: 'pending' | 'applied' | 'failed'
+  status: PushStatus
+  error_message?: string
+  pushed_by?: string
+  content?: string
+}
+
+export interface AutoRollbackEvent {
+  agent_id: string
+  from_hash: string
+  to_hash: string
+  reason: string
 }

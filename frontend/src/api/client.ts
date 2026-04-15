@@ -26,7 +26,11 @@ export const agentsAPI = {
   list: () => api.get<Agent[]>('/agents').then((r) => r.data ?? []),
   get: (id: string) => api.get<Agent>(`/agents/${id}`).then((r) => r.data),
   pushConfig: (id: string, yaml: string) =>
-    api.post(`/agents/${id}/config`, yaml, { headers: { 'Content-Type': 'text/yaml' } }),
+    api
+      .post<{ status: string; config_hash: string }>(`/agents/${id}/config`, yaml, {
+        headers: { 'Content-Type': 'text/yaml' },
+      })
+      .then((r) => r.data),
   getConfigHistory: (id: string) =>
     api.get<AgentConfig[]>(`/agents/${id}/configs`).then((r) => r.data ?? []),
 }

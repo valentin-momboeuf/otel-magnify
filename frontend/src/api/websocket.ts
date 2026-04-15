@@ -23,6 +23,17 @@ export function connectWS() {
       case 'alert_update':
         store.addAlert(data.alert)
         break
+      case 'agent_config_status':
+        store.setConfigStatus(data.agent_id, data.status)
+        break
+      case 'auto_rollback_applied':
+        store.setAutoRollback({
+          agent_id: data.agent_id,
+          from_hash: data.from_hash,
+          to_hash: data.to_hash,
+          reason: data.reason,
+        })
+        break
     }
   }
 
