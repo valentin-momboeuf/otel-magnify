@@ -141,15 +141,25 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 	s.connToUID[conn] = uid
 	s.mu.Unlock()
 
-	agent := models.Agent{
-		ID:         uid,
-		Status:     "connected",
-		LastSeenAt: time.Now().UTC(),
-		Labels:     models.Labels{},
+	// Seed from the previous DB state so heartbeats (which omit
+	// AgentDescription and other identity fields) don't clobber them.
+	var agent models.Agent
+	if s.store != nil {
+		if prev, err := s.store.GetAgent(uid); err == nil {
+			agent = prev
+		}
+	}
+	agent.ID = uid
+	agent.Status = "connected"
+	agent.LastSeenAt = time.Now().UTC()
+	if agent.Labels == nil {
+		agent.Labels = models.Labels{}
 	}
 
-	// Extract agent description
+	// Extract agent description. Present on the first message from an agent
+	// and whenever the agent itself changes (e.g. version bump).
 	if desc := msg.AgentDescription; desc != nil {
+		agent.Labels = models.Labels{}
 		for _, kv := range desc.IdentifyingAttributes {
 			switch kv.Key {
 			case "service.name":
@@ -158,13 +168,11 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 				agent.Version = kv.Value.GetStringValue()
 			}
 		}
-		// Determine type from service.name
-		// Collectors report as "otelcol", "otelcol-contrib", "otelcol-custom", etc.
+		// Collectors report service.name as "otelcol", "otelcol-contrib", etc.
 		agent.Type = "sdk"
 		if isCollectorName(agent.DisplayName) {
 			agent.Type = "collector"
 		}
-		// Non-identifying attributes -> labels
 		for _, kv := range desc.NonIdentifyingAttributes {
 			if sv := kv.Value.GetStringValue(); sv != "" {
 				agent.Labels[kv.Key] = sv
@@ -179,37 +187,26 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 		}
 	}
 
-	// Extract effective config reported by the agent. Heartbeats omit this field;
-	// in that case, preserve the previously known active_config_id from the store.
+	// Persist the reported effective config (if any), otherwise keep the
+	// previously known active_config_id already seeded on `agent`.
 	if s.store != nil {
 		if cfgID := s.persistEffectiveConfig(uid, agent.DisplayName, msg.EffectiveConfig); cfgID != "" {
 			agent.ActiveConfigID = &cfgID
-		} else if prev, err := s.store.GetAgent(uid); err == nil {
-			agent.ActiveConfigID = prev.ActiveConfigID
 		}
 	}
 
-	// Extract available components (installed receivers/processors/exporters/…).
-	// Only populated on full updates; heartbeats typically omit it.
+	// Available components only ride on full updates; preserve prior snapshot on heartbeats.
 	if ac := flattenAvailableComponents(msg.AvailableComponents); ac != nil {
 		agent.AvailableComponents = ac
 	}
 
 	// If the agent advertises the capability but hasn't sent the list yet,
 	// ask it to send one on the next message by setting the report flag on the reply.
-	requestComponents := false
-	if msg.Capabilities&reportsAvailableComponentsCap != 0 && agent.AvailableComponents == nil {
-		if s.store != nil {
-			if prev, err := s.store.GetAgent(uid); err != nil || prev.AvailableComponents == nil {
-				requestComponents = true
-			}
-		} else {
-			requestComponents = true
-		}
-	}
+	requestComponents := msg.Capabilities&reportsAvailableComponentsCap != 0 && agent.AvailableComponents == nil
 
-	// Persist to store
-	if s.store != nil {
+	// Persist to store. Skip if we have no type yet (unknown agent that
+	// hasn't sent its AgentDescription) — the CHECK constraint would reject it.
+	if s.store != nil && agent.Type != "" {
 		if err := s.store.UpsertAgent(agent); err != nil {
 			log.Printf("Failed to upsert agent %s: %v", uid, err)
 		}
