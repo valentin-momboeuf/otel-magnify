@@ -97,3 +97,9 @@ func ClaimsFromContext(ctx context.Context) *Claims {
 	claims, _ := ctx.Value(contextKey{}).(*Claims)
 	return claims
 }
+
+// ContextWithClaims returns a new context carrying the given claims.
+// Used in tests and places where we construct a request outside the middleware.
+func ContextWithClaims(ctx context.Context, c *Claims) context.Context {
+	return context.WithValue(ctx, contextKey{}, c)
+}

@@ -12,7 +12,7 @@ import (
 )
 
 func TestCreateAndListConfigs(t *testing.T) {
-	_, router := newTestAPI(t)
+	_, router, _ := newTestAPI(t)
 
 	body := `{"name":"collector-base","content":"receivers:\n  otlp:"}`
 	a := auth.New("test-secret-key-at-least-32-bytes!")
@@ -44,7 +44,7 @@ func TestCreateAndListConfigs(t *testing.T) {
 }
 
 func TestLoginHandler(t *testing.T) {
-	db, router := newTestAPI(t)
+	db, router, _ := newTestAPI(t)
 
 	hash, _ := hashPassword("testpass123")
 	db.CreateUser(models.User{
@@ -69,7 +69,7 @@ func TestLoginHandler(t *testing.T) {
 }
 
 func TestListAlerts_Handler(t *testing.T) {
-	db, router := newTestAPI(t)
+	db, router, _ := newTestAPI(t)
 	db.UpsertAgent(models.Agent{
 		ID: "a1", Type: "collector", Status: "connected",
 		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},

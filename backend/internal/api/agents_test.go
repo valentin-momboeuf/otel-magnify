@@ -1,9 +1,11 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -12,7 +14,17 @@ import (
 	"otel-magnify/pkg/models"
 )
 
-func newTestAPI(t *testing.T) (*store.DB, http.Handler) {
+type fakeOpAMP struct {
+	pushed [][]byte
+	err    error
+}
+
+func (f *fakeOpAMP) PushConfig(_ context.Context, _ string, y []byte) error {
+	f.pushed = append(f.pushed, y)
+	return f.err
+}
+
+func newTestAPI(t *testing.T) (*store.DB, http.Handler, *fakeOpAMP) {
 	t.Helper()
 	db, err := store.Open("sqlite", ":memory:")
 	if err != nil {
@@ -28,8 +40,9 @@ func newTestAPI(t *testing.T) (*store.DB, http.Handler) {
 	go hub.Run()
 	t.Cleanup(hub.Stop)
 
-	router := NewRouter(db, a, hub, nil, "", nil)
-	return db, router
+	opampFake := &fakeOpAMP{}
+	router := NewRouter(db, a, hub, opampFake, "", nil)
+	return db, router, opampFake
 }
 
 func authedRequest(t *testing.T, method, url string) *http.Request {
@@ -42,7 +55,7 @@ func authedRequest(t *testing.T, method, url string) *http.Request {
 }
 
 func TestListAgents_Empty(t *testing.T) {
-	_, router := newTestAPI(t)
+	_, router, _ := newTestAPI(t)
 	req := authedRequest(t, "GET", "/api/agents")
 	rec := httptest.NewRecorder()
 	router.ServeHTTP(rec, req)
@@ -53,7 +66,7 @@ func TestListAgents_Empty(t *testing.T) {
 }
 
 func TestListAgents_WithData(t *testing.T) {
-	db, router := newTestAPI(t)
+	db, router, _ := newTestAPI(t)
 
 	db.UpsertAgent(models.Agent{
 		ID: "a1", DisplayName: "test", Type: "collector",
@@ -76,7 +89,7 @@ func TestListAgents_WithData(t *testing.T) {
 }
 
 func TestGetAgent(t *testing.T) {
-	db, router := newTestAPI(t)
+	db, router, _ := newTestAPI(t)
 	db.UpsertAgent(models.Agent{
 		ID: "a1", DisplayName: "test", Type: "collector",
 		Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
@@ -98,7 +111,7 @@ func TestGetAgent(t *testing.T) {
 }
 
 func TestGetAgent_NotFound(t *testing.T) {
-	_, router := newTestAPI(t)
+	_, router, _ := newTestAPI(t)
 
 	req := authedRequest(t, "GET", "/api/agents/nonexistent")
 	rec := httptest.NewRecorder()
@@ -106,5 +119,70 @@ func TestGetAgent_NotFound(t *testing.T) {
 
 	if rec.Code != 404 {
 		t.Errorf("status = %d, want 404", rec.Code)
+	}
+}
+
+func TestHandlePushConfig_PersistsAndReturnsHash(t *testing.T) {
+	db, router, opampFake := newTestAPI(t)
+	_ = db.UpsertAgent(models.Agent{ID: "a1", Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
+
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+	req := httptest.NewRequest("POST", "/api/agents/a1/config", strings.NewReader("receivers: {}"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "text/yaml")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != 202 {
+		t.Fatalf("status %d, body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if len(body["config_hash"]) != 64 {
+		t.Fatalf("expected 64-char hex hash, got %q", body["config_hash"])
+	}
+	hist, _ := db.GetAgentConfigHistory("a1")
+	if len(hist) != 1 || hist[0].Status != "pending" || hist[0].PushedBy != "admin@test.com" {
+		t.Fatalf("history not recorded: %+v", hist)
+	}
+	if len(opampFake.pushed) != 1 {
+		t.Fatalf("expected 1 opamp push, got %d", len(opampFake.pushed))
+	}
+}
+
+func TestHandlePushConfig_RejectsEmptyBody(t *testing.T) {
+	db, router, _ := newTestAPI(t)
+	_ = db.UpsertAgent(models.Agent{ID: "a1", Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
+
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+	req := httptest.NewRequest("POST", "/api/agents/a1/config", strings.NewReader(""))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "text/yaml")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("status %d", rec.Code)
+	}
+}
+
+func TestHandleGetAgentConfigHistory_IncludesErrorAndContent(t *testing.T) {
+	db, router, _ := newTestAPI(t)
+	_ = db.UpsertAgent(models.Agent{ID: "a1", Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
+	_ = db.CreateConfig(models.Config{ID: "c1", Name: "n", Content: "my-yaml", CreatedAt: time.Now().UTC()})
+	_ = db.RecordAgentConfig(models.AgentConfig{AgentID: "a1", ConfigID: "c1", Status: "failed", ErrorMessage: "oops", PushedBy: "u@x"})
+
+	req := authedRequest(t, "GET", "/api/agents/a1/configs")
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status %d", rec.Code)
+	}
+	var hist []models.AgentConfig
+	_ = json.Unmarshal(rec.Body.Bytes(), &hist)
+	if len(hist) != 1 || hist[0].ErrorMessage != "oops" || hist[0].Content != "my-yaml" || hist[0].PushedBy != "u@x" {
+		t.Fatalf("history shape: %+v", hist)
 	}
 }

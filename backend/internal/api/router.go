@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io/fs"
 	"net/http"
@@ -11,18 +12,23 @@ import (
 	"github.com/go-chi/cors"
 
 	"otel-magnify/internal/auth"
-	"otel-magnify/internal/opamp"
 	"otel-magnify/internal/store"
 )
+
+// OpAMPPusher is the subset of opamp.Server the HTTP layer uses.
+// Declared here so handlers can be tested with a fake.
+type OpAMPPusher interface {
+	PushConfig(ctx context.Context, agentID string, yamlContent []byte) error
+}
 
 type API struct {
 	db    *store.DB
 	auth  *auth.Auth
 	hub   *Hub
-	opamp *opamp.Server
+	opamp OpAMPPusher
 }
 
-func NewRouter(db *store.DB, a *auth.Auth, hub *Hub, opampSrv *opamp.Server, corsOrigins string, staticFS fs.FS) http.Handler {
+func NewRouter(db *store.DB, a *auth.Auth, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS) http.Handler {
 	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv}
 
 	r := chi.NewRouter()
