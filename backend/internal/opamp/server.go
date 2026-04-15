@@ -23,6 +23,8 @@ import (
 // Notifier is called when an agent's state changes, to notify the frontend WS hub.
 type Notifier interface {
 	BroadcastAgentUpdate(agent models.Agent)
+	BroadcastConfigStatus(agentID string, status models.RemoteConfigStatus)
+	BroadcastAutoRollback(agentID, fromHash, toHash, reason string)
 }
 
 // Server wraps the opamp-go server and manages agent state.
@@ -34,17 +36,24 @@ type Server struct {
 	mu         sync.RWMutex
 	conns      map[string]types.Connection // agentUID hex -> connection
 	connToUID  map[types.Connection]string // reverse map for O(1) lookup on close
+
+	// pushFn sends a config YAML to an agent. Defaults to PushConfig; overridable in tests.
+	pushFn func(agentID string, yaml []byte) error
 }
 
 // New creates a new OpAMP server. Both db and notifier can be nil (useful for testing).
 func New(db *store.DB, notifier Notifier) *Server {
-	return &Server{
+	s := &Server{
 		opamp:     opampServer.New(nil),
 		store:     db,
 		notifier:  notifier,
 		conns:     make(map[string]types.Connection),
 		connToUID: make(map[types.Connection]string),
 	}
+	s.pushFn = func(agentID string, yaml []byte) error {
+		return s.PushConfig(context.Background(), agentID, yaml)
+	}
+	return s
 }
 
 // ConnectedAgentCount returns the number of currently connected agents.
@@ -186,6 +195,11 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 	// Notify frontend
 	if s.notifier != nil {
 		s.notifier.BroadcastAgentUpdate(agent)
+	}
+
+	// Handle RemoteConfigStatus reported by the agent (applied / failed / applying).
+	if s.store != nil && msg.RemoteConfigStatus != nil {
+		s.handleRemoteConfigStatus(uid, msg.RemoteConfigStatus)
 	}
 
 	return &protobufs.ServerToAgent{
