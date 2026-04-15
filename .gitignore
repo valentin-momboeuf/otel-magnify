@@ -1,0 +1,5 @@
+# Python virtualenv used to build the docs
+.venv-docs/
+
+# MkDocs build output
+site/
