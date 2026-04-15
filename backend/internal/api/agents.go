@@ -13,6 +13,7 @@ import (
 	"github.com/go-chi/chi/v5"
 
 	"otel-magnify/internal/auth"
+	"otel-magnify/internal/validator"
 	"otel-magnify/pkg/models"
 )
 
@@ -59,6 +60,21 @@ func (a *API) handlePushConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Safety net: refuse to push a config that fails light validation.
+	// The frontend should have called /validate first for UX feedback;
+	// this blocks API-level bypass.
+	var available *models.AvailableComponents
+	if agent, err := a.db.GetAgent(agentID); err == nil {
+		available = agent.AvailableComponents
+	}
+	if result := validator.Validate(body, available); !result.Valid {
+		respondJSON(w, 400, map[string]any{
+			"error":             "configuration failed validation",
+			"validation_errors": result.Errors,
+		})
+		return
+	}
+
 	sum := sha256.Sum256(body)
 	hash := hex.EncodeToString(sum[:])
 
@@ -97,6 +113,34 @@ func (a *API) handlePushConfig(w http.ResponseWriter, r *http.Request) {
 		"status":      "config push initiated",
 		"config_hash": hash,
 	})
+}
+
+// handleValidateConfig runs the light validator against a candidate YAML for
+// an agent, using the agent's reported AvailableComponents when present.
+// Always returns 200 with a Result body — the client inspects result.valid.
+func (a *API) handleValidateConfig(w http.ResponseWriter, r *http.Request) {
+	agentID := chi.URLParam(r, "id")
+
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		respondError(w, 400, "failed to read body")
+		return
+	}
+	defer r.Body.Close()
+	if len(body) == 0 {
+		respondError(w, 400, "empty config body")
+		return
+	}
+
+	var available *models.AvailableComponents
+	if agent, err := a.db.GetAgent(agentID); err == nil {
+		available = agent.AvailableComponents
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		respondError(w, 500, "failed to load agent")
+		return
+	}
+
+	respondJSON(w, 200, validator.Validate(body, available))
 }
 
 func (a *API) handleGetAgentConfigHistory(w http.ResponseWriter, r *http.Request) {

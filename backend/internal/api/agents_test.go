@@ -128,7 +128,17 @@ func TestHandlePushConfig_PersistsAndReturnsHash(t *testing.T) {
 
 	a := auth.New("test-secret-key-at-least-32-bytes!")
 	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
-	req := httptest.NewRequest("POST", "/api/agents/a1/config", strings.NewReader("receivers: {}"))
+	validYAML := `receivers:
+  otlp: {}
+exporters:
+  logging: {}
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [logging]
+`
+	req := httptest.NewRequest("POST", "/api/agents/a1/config", strings.NewReader(validYAML))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "text/yaml")
 
@@ -165,6 +175,105 @@ func TestHandlePushConfig_RejectsEmptyBody(t *testing.T) {
 	router.ServeHTTP(rec, req)
 	if rec.Code != 400 {
 		t.Fatalf("status %d", rec.Code)
+	}
+}
+
+func TestHandleValidateConfig_ReturnsErrorsForBadYAML(t *testing.T) {
+	db, router, _ := newTestAPI(t)
+	_ = db.UpsertAgent(models.Agent{ID: "a1", Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
+
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+	req := httptest.NewRequest("POST", "/api/agents/a1/config/validate", strings.NewReader("receivers: {}"))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "text/yaml")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status %d", rec.Code)
+	}
+	var result struct {
+		Valid  bool `json:"valid"`
+		Errors []struct {
+			Code string `json:"code"`
+		} `json:"errors"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &result)
+	if result.Valid || len(result.Errors) == 0 {
+		t.Fatalf("expected validation errors, got %+v", result)
+	}
+}
+
+func TestHandleValidateConfig_UsesAgentAvailableComponents(t *testing.T) {
+	db, router, _ := newTestAPI(t)
+	_ = db.UpsertAgent(models.Agent{
+		ID: "a1", Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+		AvailableComponents: &models.AvailableComponents{
+			Components: map[string][]string{
+				"receivers": {"otlp"},
+				"exporters": {"logging"},
+			},
+		},
+	})
+
+	yamlWithUnknownReceiver := `receivers:
+  jaeger: {}
+exporters:
+  logging: {}
+service:
+  pipelines:
+    traces:
+      receivers: [jaeger]
+      exporters: [logging]
+`
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+	req := httptest.NewRequest("POST", "/api/agents/a1/config/validate", strings.NewReader(yamlWithUnknownReceiver))
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 200 {
+		t.Fatalf("status %d", rec.Code)
+	}
+	var result struct {
+		Valid  bool `json:"valid"`
+		Errors []struct {
+			Code string `json:"code"`
+		} `json:"errors"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &result)
+	if result.Valid {
+		t.Fatal("expected invalid (jaeger not in available components)")
+	}
+	foundNotInstalled := false
+	for _, e := range result.Errors {
+		if e.Code == "component_not_installed" {
+			foundNotInstalled = true
+		}
+	}
+	if !foundNotInstalled {
+		t.Errorf("expected component_not_installed error, got %+v", result.Errors)
+	}
+}
+
+func TestHandlePushConfig_RejectsInvalidYAML(t *testing.T) {
+	db, router, opampFake := newTestAPI(t)
+	_ = db.UpsertAgent(models.Agent{ID: "a1", Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
+
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+	req := httptest.NewRequest("POST", "/api/agents/a1/config", strings.NewReader("receivers: {}"))
+	req.Header.Set("Authorization", "Bearer "+token)
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 400 {
+		t.Fatalf("expected 400 (validation rejection), got %d: %s", rec.Code, rec.Body.String())
+	}
+	if len(opampFake.pushed) != 0 {
+		t.Errorf("opamp push should not have been called on invalid config")
 	}
 }
 

@@ -65,6 +65,7 @@ func NewRouter(db *store.DB, a *auth.Auth, hub *Hub, opampSrv OpAMPPusher, corsO
 		r.Get("/api/agents", api.handleListAgents)
 		r.Get("/api/agents/{id}", api.handleGetAgent)
 		r.Post("/api/agents/{id}/config", api.handlePushConfig)
+		r.Post("/api/agents/{id}/config/validate", api.handleValidateConfig)
 		r.Get("/api/agents/{id}/configs", api.handleGetAgentConfigHistory)
 
 		r.Get("/api/configs", api.handleListConfigs)
