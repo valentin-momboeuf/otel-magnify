@@ -21,9 +21,17 @@ func (d *DB) UpsertAgent(a models.Agent) error {
 		}
 		statusJSON = s
 	}
+	var componentsJSON any
+	if a.AvailableComponents != nil {
+		c, err := a.AvailableComponents.Value()
+		if err != nil {
+			return fmt.Errorf("marshal available_components: %w", err)
+		}
+		componentsJSON = c
+	}
 	_, err = d.Exec(`
-		INSERT INTO agents (id, display_name, type, version, status, last_seen_at, labels, active_config_id, remote_config_status)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO agents (id, display_name, type, version, status, last_seen_at, labels, active_config_id, remote_config_status, available_components)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			display_name = excluded.display_name,
 			type = excluded.type,
@@ -32,8 +40,9 @@ func (d *DB) UpsertAgent(a models.Agent) error {
 			last_seen_at = excluded.last_seen_at,
 			labels = excluded.labels,
 			active_config_id = excluded.active_config_id,
-			remote_config_status = COALESCE(excluded.remote_config_status, agents.remote_config_status)`,
-		a.ID, a.DisplayName, a.Type, a.Version, a.Status, a.LastSeenAt.UTC(), labelsJSON, a.ActiveConfigID, statusJSON,
+			remote_config_status = COALESCE(excluded.remote_config_status, agents.remote_config_status),
+			available_components = COALESCE(excluded.available_components, agents.available_components)`,
+		a.ID, a.DisplayName, a.Type, a.Version, a.Status, a.LastSeenAt.UTC(), labelsJSON, a.ActiveConfigID, statusJSON, componentsJSON,
 	)
 	return err
 }
@@ -42,10 +51,11 @@ func (d *DB) GetAgent(id string) (models.Agent, error) {
 	var a models.Agent
 	var labelsJSON string
 	var statusJSON sql.NullString
+	var componentsJSON sql.NullString
 	err := d.QueryRow(`
-		SELECT id, display_name, type, version, status, last_seen_at, labels, active_config_id, remote_config_status
+		SELECT id, display_name, type, version, status, last_seen_at, labels, active_config_id, remote_config_status, available_components
 		FROM agents WHERE id = ?`, id,
-	).Scan(&a.ID, &a.DisplayName, &a.Type, &a.Version, &a.Status, &a.LastSeenAt, &labelsJSON, &a.ActiveConfigID, &statusJSON)
+	).Scan(&a.ID, &a.DisplayName, &a.Type, &a.Version, &a.Status, &a.LastSeenAt, &labelsJSON, &a.ActiveConfigID, &statusJSON, &componentsJSON)
 	if err != nil {
 		return a, fmt.Errorf("get agent %s: %w", id, err)
 	}
@@ -58,12 +68,18 @@ func (d *DB) GetAgent(id string) (models.Agent, error) {
 			return a, fmt.Errorf("scan remote_config_status: %w", err)
 		}
 	}
+	if componentsJSON.Valid && componentsJSON.String != "" {
+		a.AvailableComponents = &models.AvailableComponents{}
+		if err := a.AvailableComponents.Scan(componentsJSON.String); err != nil {
+			return a, fmt.Errorf("scan available_components: %w", err)
+		}
+	}
 	return a, nil
 }
 
 func (d *DB) ListAgents() ([]models.Agent, error) {
 	rows, err := d.Query(`
-		SELECT id, display_name, type, version, status, last_seen_at, labels, active_config_id, remote_config_status
+		SELECT id, display_name, type, version, status, last_seen_at, labels, active_config_id, remote_config_status, available_components
 		FROM agents ORDER BY display_name`)
 	if err != nil {
 		return nil, err
@@ -75,7 +91,8 @@ func (d *DB) ListAgents() ([]models.Agent, error) {
 		var a models.Agent
 		var labelsJSON string
 		var statusJSON sql.NullString
-		if err := rows.Scan(&a.ID, &a.DisplayName, &a.Type, &a.Version, &a.Status, &a.LastSeenAt, &labelsJSON, &a.ActiveConfigID, &statusJSON); err != nil {
+		var componentsJSON sql.NullString
+		if err := rows.Scan(&a.ID, &a.DisplayName, &a.Type, &a.Version, &a.Status, &a.LastSeenAt, &labelsJSON, &a.ActiveConfigID, &statusJSON, &componentsJSON); err != nil {
 			return nil, err
 		}
 		if err := a.Labels.Scan(labelsJSON); err != nil {
@@ -84,6 +101,12 @@ func (d *DB) ListAgents() ([]models.Agent, error) {
 		if statusJSON.Valid && statusJSON.String != "" {
 			a.RemoteConfigStatus = &models.RemoteConfigStatus{}
 			if err := a.RemoteConfigStatus.Scan(statusJSON.String); err != nil {
+				return nil, err
+			}
+		}
+		if componentsJSON.Valid && componentsJSON.String != "" {
+			a.AvailableComponents = &models.AvailableComponents{}
+			if err := a.AvailableComponents.Scan(componentsJSON.String); err != nil {
 				return nil, err
 			}
 		}

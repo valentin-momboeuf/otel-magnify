@@ -20,6 +20,10 @@ import (
 	"otel-magnify/pkg/models"
 )
 
+// reportsAvailableComponentsCap is the capability bit set by agents that will
+// send AgentToServer.available_components. Defined in OpAMP spec ≥ v0.14.
+const reportsAvailableComponentsCap = uint64(protobufs.AgentCapabilities_AgentCapabilities_ReportsAvailableComponents)
+
 // Notifier is called when an agent's state changes, to notify the frontend WS hub.
 type Notifier interface {
 	BroadcastAgentUpdate(agent models.Agent)
@@ -185,6 +189,25 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 		}
 	}
 
+	// Extract available components (installed receivers/processors/exporters/…).
+	// Only populated on full updates; heartbeats typically omit it.
+	if ac := flattenAvailableComponents(msg.AvailableComponents); ac != nil {
+		agent.AvailableComponents = ac
+	}
+
+	// If the agent advertises the capability but hasn't sent the list yet,
+	// ask it to send one on the next message by setting the report flag on the reply.
+	requestComponents := false
+	if msg.Capabilities&reportsAvailableComponentsCap != 0 && agent.AvailableComponents == nil {
+		if s.store != nil {
+			if prev, err := s.store.GetAgent(uid); err != nil || prev.AvailableComponents == nil {
+				requestComponents = true
+			}
+		} else {
+			requestComponents = true
+		}
+	}
+
 	// Persist to store
 	if s.store != nil {
 		if err := s.store.UpsertAgent(agent); err != nil {
@@ -202,9 +225,39 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 		s.handleRemoteConfigStatus(uid, msg.RemoteConfigStatus)
 	}
 
-	return &protobufs.ServerToAgent{
+	reply := &protobufs.ServerToAgent{
 		InstanceUid: msg.InstanceUid,
 	}
+	if requestComponents {
+		reply.Flags = uint64(protobufs.ServerToAgentFlags_ServerToAgentFlags_ReportAvailableComponents)
+	}
+	return reply
+}
+
+// flattenAvailableComponents converts the OpAMP nested representation
+// (category -> ComponentDetails{SubComponentMap: type -> ComponentDetails})
+// into a flat map of category -> sorted list of component type names.
+// Returns nil if the input is empty (e.g. heartbeat).
+func flattenAvailableComponents(ac *protobufs.AvailableComponents) *models.AvailableComponents {
+	if ac == nil || len(ac.Components) == 0 {
+		return nil
+	}
+	out := &models.AvailableComponents{
+		Components: make(map[string][]string, len(ac.Components)),
+		Hash:       hex.EncodeToString(ac.Hash),
+	}
+	for category, details := range ac.Components {
+		if details == nil {
+			continue
+		}
+		names := make([]string, 0, len(details.SubComponentMap))
+		for name := range details.SubComponentMap {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		out.Components[category] = names
+	}
+	return out
 }
 
 func (s *Server) onConnectionClose(conn types.Connection) {

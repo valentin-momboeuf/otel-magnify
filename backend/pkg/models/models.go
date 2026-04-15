@@ -29,15 +29,50 @@ func (l *Labels) Scan(src any) error {
 }
 
 type Agent struct {
-	ID                 string              `json:"id"`
-	DisplayName        string              `json:"display_name"`
-	Type               string              `json:"type"`   // "collector" | "sdk"
-	Version            string              `json:"version"`
-	Status             string              `json:"status"` // "connected" | "disconnected" | "degraded"
-	LastSeenAt         time.Time           `json:"last_seen_at"`
-	Labels             Labels              `json:"labels"`
-	ActiveConfigID     *string             `json:"active_config_id,omitempty"`
-	RemoteConfigStatus *RemoteConfigStatus `json:"remote_config_status,omitempty"`
+	ID                  string               `json:"id"`
+	DisplayName         string               `json:"display_name"`
+	Type                string               `json:"type"`   // "collector" | "sdk"
+	Version             string               `json:"version"`
+	Status              string               `json:"status"` // "connected" | "disconnected" | "degraded"
+	LastSeenAt          time.Time            `json:"last_seen_at"`
+	Labels              Labels               `json:"labels"`
+	ActiveConfigID      *string              `json:"active_config_id,omitempty"`
+	RemoteConfigStatus  *RemoteConfigStatus  `json:"remote_config_status,omitempty"`
+	AvailableComponents *AvailableComponents `json:"available_components,omitempty"`
+}
+
+// AvailableComponents maps OTel Collector categories (receivers, processors,
+// exporters, extensions, connectors) to the set of component types the agent
+// reports as installed. Populated from OpAMP AgentToServer.available_components.
+type AvailableComponents struct {
+	// Components keyed by category, each value a sorted list of component type names.
+	Components map[string][]string `json:"components"`
+	// Hash reported by the agent (hex-encoded); used to detect changes.
+	Hash string `json:"hash,omitempty"`
+}
+
+func (a AvailableComponents) Value() (string, error) {
+	b, err := json.Marshal(a)
+	return string(b), err
+}
+
+func (a *AvailableComponents) Scan(src any) error {
+	switch v := src.(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		return json.Unmarshal([]byte(v), a)
+	case []byte:
+		if len(v) == 0 {
+			return nil
+		}
+		return json.Unmarshal(v, a)
+	case nil:
+		return nil
+	default:
+		return fmt.Errorf("unsupported type for AvailableComponents: %T", src)
+	}
 }
 
 type RemoteConfigStatus struct {
