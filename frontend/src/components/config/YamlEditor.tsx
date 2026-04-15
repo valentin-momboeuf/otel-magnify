@@ -1,7 +1,7 @@
-import { useRef, useEffect } from 'react'
+import { useEffect, useRef } from 'react'
 import { EditorView, basicSetup } from 'codemirror'
 import { yaml } from '@codemirror/lang-yaml'
-import { EditorState } from '@codemirror/state'
+import { Compartment, EditorState } from '@codemirror/state'
 
 interface Props {
   value: string
@@ -12,38 +12,58 @@ interface Props {
 export default function YamlEditor({ value, onChange, readOnly = false }: Props) {
   const ref = useRef<HTMLDivElement>(null)
   const viewRef = useRef<EditorView | null>(null)
+  const readOnlyCompartment = useRef(new Compartment())
+  const onChangeRef = useRef(onChange)
+
+  onChangeRef.current = onChange
 
   useEffect(() => {
     if (!ref.current) return
 
-    const extensions = [
-      basicSetup,
-      yaml(),
-      EditorView.theme({ '&': { height: '400px', border: '1px solid #ccc', borderRadius: '4px' } }),
-    ]
-
-    if (readOnly) {
-      extensions.push(EditorState.readOnly.of(true))
-    }
-
-    if (onChange) {
-      extensions.push(
-        EditorView.updateListener.of((update) => {
-          if (update.docChanged) {
-            onChange(update.state.doc.toString())
-          }
-        })
-      )
-    }
-
     const view = new EditorView({
-      state: EditorState.create({ doc: value, extensions }),
+      state: EditorState.create({
+        doc: value,
+        extensions: [
+          basicSetup,
+          yaml(),
+          EditorView.theme({
+            '&': { height: '400px', border: '1px solid #ccc', borderRadius: '4px' },
+          }),
+          readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
+          EditorView.updateListener.of((update) => {
+            if (update.docChanged) {
+              onChangeRef.current?.(update.state.doc.toString())
+            }
+          }),
+        ],
+      }),
       parent: ref.current,
     })
     viewRef.current = view
 
-    return () => view.destroy()
-  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+    return () => {
+      view.destroy()
+      viewRef.current = null
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    view.dispatch({
+      effects: readOnlyCompartment.current.reconfigure(EditorState.readOnly.of(readOnly)),
+    })
+  }, [readOnly])
+
+  useEffect(() => {
+    const view = viewRef.current
+    if (!view) return
+    if (view.state.doc.toString() === value) return
+    view.dispatch({
+      changes: { from: 0, to: view.state.doc.length, insert: value },
+    })
+  }, [value])
 
   return <div ref={ref} />
 }
