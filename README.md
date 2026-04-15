@@ -120,6 +120,80 @@ All configuration via environment variables:
 | `SEED_ADMIN_EMAIL` | *(optional)* | Create admin user on startup |
 | `SEED_ADMIN_PASSWORD` | *(optional)* | Password for seed admin user |
 
+## Connecting Agents
+
+otel-magnify manages agents via the [OpAMP](https://opentelemetry.io/docs/specs/opamp/) protocol. Each agent must be configured to connect to the OpAMP WebSocket endpoint exposed on port `4320`.
+
+### OTel Collector
+
+Add the `opamp` extension to your Collector config and reference it in `service.extensions`:
+
+```yaml
+extensions:
+  opamp:
+    server:
+      ws:
+        endpoint: ws://<magnify-host>:4320/v1/opamp
+        tls:
+          insecure: true   # set to false with a valid certificate in production
+
+service:
+  extensions: [opamp]
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]
+```
+
+> The `opamp` extension is included in [opentelemetry-collector-contrib](https://github.com/open-telemetry/opentelemetry-collector-contrib). Use `otel/opentelemetry-collector-contrib:0.98.0` or later.
+
+Sample configs ready to use are available in [`agents/`](agents/).
+
+### SDK Agent (Java / Python / Go)
+
+SDK agents connect the same way — point the OpAMP client to the WebSocket endpoint:
+
+**Java** (OpenTelemetry Java agent with OpAMP support):
+
+```properties
+otel.opamp.service.endpoint=ws://<magnify-host>:4320/v1/opamp
+```
+
+**Python** (`opamp-client` package):
+
+```python
+from opamp import OpAMPClient
+
+client = OpAMPClient(
+    server_url="ws://<magnify-host>:4320/v1/opamp",
+)
+client.start()
+```
+
+**Go** (`opamp-go` client):
+
+```go
+import "github.com/open-telemetry/opamp-go/client"
+
+c := client.NewWebSocket(nil)
+err := c.Start(context.Background(), client.StartSettings{
+    OpAMPServerURL: "ws://<magnify-host>:4320/v1/opamp",
+})
+```
+
+### Docker Compose (local demo)
+
+When running with `docker compose`, agents on the same Docker network reach the OpAMP server at `ws://otel-magnify:4320/v1/opamp`:
+
+```bash
+docker run -d --name collector-demo --network otel-magnify_default \
+  -v $(pwd)/agents/collector-prod-eu.yaml:/etc/otelcol-contrib/config.yaml \
+  otel/opentelemetry-collector-contrib:0.98.0
+```
+
+Once connected, agents appear automatically in the **Inventory** page.
+
 ## API Endpoints
 
 | Method | Path | Auth | Description |

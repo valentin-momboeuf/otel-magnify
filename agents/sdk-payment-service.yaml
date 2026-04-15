@@ -1,0 +1,35 @@
+extensions:
+  opamp:
+    server:
+      ws:
+        endpoint: ws://otel-magnify:4320/v1/opamp
+        tls:
+          insecure: true
+
+
+receivers:
+  otlp:
+    protocols:
+      grpc:
+        endpoint: 0.0.0.0:4317
+
+processors:
+  batch:
+    timeout: 5s
+
+exporters:
+  debug:
+    verbosity: basic
+
+service:
+  extensions: [opamp]
+  telemetry:
+    resource:
+      service.name: payment-service
+      service.version: 1.4.2
+      deployment.environment: production
+  pipelines:
+    traces:
+      receivers: [otlp]
+      processors: [batch]
+      exporters: [debug]

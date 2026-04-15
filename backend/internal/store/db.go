@@ -34,7 +34,7 @@ func Open(driver, dsn string) (*DB, error) {
 	if driver == "sqlite" {
 		// Foreign key enforcement is off by default in SQLite.
 		// WAL mode improves concurrent read performance.
-		if _, err := db.Exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL;"); err != nil {
+		if _, err := db.Exec("PRAGMA foreign_keys = ON; PRAGMA journal_mode = WAL; PRAGMA busy_timeout = 5000;"); err != nil {
 			return nil, fmt.Errorf("sqlite pragmas: %w", err)
 		}
 	}
