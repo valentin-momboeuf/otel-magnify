@@ -1,25 +1,40 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { configsAPI, agentsAPI } from '../../api/client'
 import YamlEditor from '../config/YamlEditor'
+import PushStatusBanner from './PushStatusBanner'
+import ConfigDiffView from './ConfigDiffView'
+import PushHistoryTable from './PushHistoryTable'
+import { useStore } from '../../store'
 import type { Agent, ValidationResult } from '../../types'
 
 interface Props {
   agent: Agent
 }
 
+type Tab = 'edit' | 'diff'
+
+const PUSH_TIMEOUT_MS = 30_000
+
 export default function AgentConfigSection({ agent }: Props) {
   const queryClient = useQueryClient()
+  const configStatus = useStore((s) => s.configStatus[agent.id])
+  const rollback = useStore((s) => s.lastRollback[agent.id])
+  const clearRollback = useStore((s) => s.clearAutoRollback)
+
   const [editMode, setEditMode]       = useState(false)
+  const [tab, setTab]                 = useState<Tab>('edit')
   const [draftYaml, setDraftYaml]     = useState('')
-  const [pushError, setPushError]     = useState<string | null>(null)
+  const [pendingHash, setPendingHash] = useState<string | null>(null)
+  const [timedOut, setTimedOut]       = useState(false)
   const [validation, setValidation]   = useState<ValidationResult | null>(null)
+  const [pushError, setPushError]     = useState<string | null>(null)
 
   const { data: config, isLoading, isError } = useQuery({
     queryKey: ['agent-config', agent.active_config_id],
-    queryFn:  () => configsAPI.get(agent.active_config_id!),
-    enabled:  agent.type === 'collector' && !!agent.active_config_id,
+    queryFn: () => configsAPI.get(agent.active_config_id!),
+    enabled: agent.type === 'collector' && !!agent.active_config_id,
   })
 
   const validateMutation = useMutation({
@@ -38,18 +53,14 @@ export default function AgentConfigSection({ agent }: Props) {
 
   const pushMutation = useMutation({
     mutationFn: () => agentsAPI.pushConfig(agent.id, draftYaml),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['agent', agent.id] })
-      setEditMode(false)
-      setValidation(null)
+    onSuccess: (res) => {
+      setPendingHash(res.config_hash)
+      setTimedOut(false)
       setPushError(null)
     },
     onError: (err: unknown) => {
       if (axios.isAxiosError(err) && err.response?.data?.validation_errors) {
-        setValidation({
-          valid: false,
-          errors: err.response.data.validation_errors,
-        })
+        setValidation({ valid: false, errors: err.response.data.validation_errors })
         setPushError('Configuration failed validation')
         return
       }
@@ -60,36 +71,101 @@ export default function AgentConfigSection({ agent }: Props) {
     },
   })
 
+  // React to WS-driven status updates that match our pending push hash.
+  useEffect(() => {
+    if (!pendingHash || !configStatus) return
+    if (configStatus.config_hash !== pendingHash) return
+    if (configStatus.status === 'applied') {
+      setPendingHash(null)
+      setTimedOut(false)
+      setEditMode(false)
+      setDraftYaml('')
+      setValidation(null)
+      queryClient.invalidateQueries({ queryKey: ['agent', agent.id] })
+      queryClient.invalidateQueries({ queryKey: ['agent-config-history', agent.id] })
+    } else if (configStatus.status === 'failed') {
+      setPendingHash(null)
+      setTimedOut(false)
+      queryClient.invalidateQueries({ queryKey: ['agent-config-history', agent.id] })
+      // keep editMode + draftYaml so the user can fix and retry
+    }
+  }, [configStatus, pendingHash, agent.id, queryClient])
+
+  useEffect(() => {
+    if (!pendingHash) return
+    const timer = setTimeout(() => setTimedOut(true), PUSH_TIMEOUT_MS)
+    return () => clearTimeout(timer)
+  }, [pendingHash])
+
   function enterEditMode(initialContent: string) {
     setDraftYaml(initialContent)
-    setPushError(null)
-    setValidation(null)
     setEditMode(true)
+    setTab('edit')
+    setValidation(null)
+    setPushError(null)
   }
 
   function cancelEdit() {
     setEditMode(false)
     setDraftYaml('')
-    setPushError(null)
     setValidation(null)
+    setPushError(null)
   }
 
   function onDraftChange(next: string) {
     setDraftYaml(next)
-    if (validation !== null) {
-      setValidation(null) // invalidate previous validation when user edits
-    }
+    if (validation !== null) setValidation(null)
   }
+
+  const derivedStatus = pendingHash
+    ? { status: 'applying' as const, config_hash: pendingHash, updated_at: new Date().toISOString() }
+    : configStatus
 
   const canPush =
     !!draftYaml &&
+    !pendingHash &&
     !pushMutation.isPending &&
     validation !== null &&
     validation.valid === true
 
+  // ── SDK agents: labels as "configuration" ──────────────────────────────
+  if (agent.type === 'sdk') {
+    const hasLabels = Object.keys(agent.labels).length > 0
+    if (!hasLabels) return null
+    return (
+      <>
+        <p className="section-title">Configuration</p>
+        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
+          {Object.entries(agent.labels).map(([k, v]) => (
+            <span key={k} className="label-chip">
+              <span className="label-chip-key">{k}</span>
+              <span className="label-chip-eq">=</span>
+              <span className="label-chip-val">{v}</span>
+            </span>
+          ))}
+        </div>
+      </>
+    )
+  }
+
+  const activeContent = config?.content ?? ''
+
   const editorPanel = (
     <div>
-      <YamlEditor value={draftYaml} onChange={onDraftChange} />
+      <div className="tabstrip">
+        <button className={`tab ${tab === 'edit' ? 'tab-active' : ''}`} onClick={() => setTab('edit')}>Edit</button>
+        <button
+          className={`tab ${tab === 'diff' ? 'tab-active' : ''}`}
+          onClick={() => setTab('diff')}
+          disabled={!agent.active_config_id}
+          title={agent.active_config_id ? '' : 'No active config to diff against'}
+        >
+          Diff
+        </button>
+      </div>
+
+      {tab === 'edit' && <YamlEditor value={draftYaml} onChange={onDraftChange} />}
+      {tab === 'diff' && <ConfigDiffView oldYaml={activeContent} newYaml={draftYaml} />}
 
       {validation && (
         <div
@@ -120,8 +196,7 @@ export default function AgentConfigSection({ agent }: Props) {
         <button
           className="btn"
           onClick={() => validateMutation.mutate()}
-          disabled={!draftYaml || validateMutation.isPending}
-          title="Check the configuration against installed collector components"
+          disabled={!draftYaml || validateMutation.isPending || !!pendingHash}
         >
           {validateMutation.isPending ? 'Validating...' : 'Validate'}
         </button>
@@ -137,33 +212,17 @@ export default function AgentConfigSection({ agent }: Props) {
                 : ''
           }
         >
-          {pushMutation.isPending ? 'Pushing...' : 'Push'}
+          {pendingHash ? 'Applying...' : pushMutation.isPending ? 'Pushing...' : 'Push'}
         </button>
-        <button className="btn" onClick={cancelEdit}>Cancel</button>
+        <button className="btn" onClick={cancelEdit} disabled={!!pendingHash}>Cancel</button>
+        {timedOut && (
+          <span className="error-text" style={{ alignSelf: 'center' }}>
+            No response from agent — still applying?
+          </span>
+        )}
       </div>
     </div>
   )
-
-  // ── SDK agents ──────────────────────────────────────────────────────────
-  if (agent.type === 'sdk') {
-    const hasLabels = Object.keys(agent.labels).length > 0
-    if (!hasLabels) return null
-
-    return (
-      <>
-        <p className="section-title">Configuration</p>
-        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-          {Object.entries(agent.labels).map(([k, v]) => (
-            <span key={k} className="label-chip">
-              <span className="label-chip-key">{k}</span>
-              <span className="label-chip-eq">=</span>
-              <span className="label-chip-val">{v}</span>
-            </span>
-          ))}
-        </div>
-      </>
-    )
-  }
 
   // ── Collector without active config ──────────────────────────────────────
   if (!agent.active_config_id) {
@@ -173,11 +232,16 @@ export default function AgentConfigSection({ agent }: Props) {
         {editMode ? editorPanel : (
           <button className="btn" onClick={() => enterEditMode('')}>Push a config</button>
         )}
+        <PushStatusBanner
+          status={derivedStatus}
+          rollback={rollback}
+          onDismissRollback={() => clearRollback(agent.id)}
+        />
+        <PushHistoryTable agentId={agent.id} />
       </>
     )
   }
 
-  // ── Collector with active config ─────────────────────────────────────────
   if (isLoading) {
     return (
       <>
@@ -186,7 +250,6 @@ export default function AgentConfigSection({ agent }: Props) {
       </>
     )
   }
-
   if (isError) {
     return (
       <>
@@ -199,16 +262,23 @@ export default function AgentConfigSection({ agent }: Props) {
   return (
     <>
       <p className="section-title">Configuration</p>
-      {editMode ? editorPanel : (
+
+      {!editMode ? (
         <div>
-          <YamlEditor value={config?.content ?? ''} readOnly />
+          <YamlEditor value={activeContent} readOnly />
           <div style={{ marginTop: '0.75rem' }}>
-            <button className="btn" onClick={() => enterEditMode(config?.content ?? '')}>
-              Edit
-            </button>
+            <button className="btn" onClick={() => enterEditMode(activeContent)}>Edit</button>
           </div>
         </div>
-      )}
+      ) : editorPanel}
+
+      <PushStatusBanner
+        status={derivedStatus}
+        rollback={rollback}
+        onDismissRollback={() => clearRollback(agent.id)}
+      />
+
+      <PushHistoryTable agentId={agent.id} />
     </>
   )
 }
