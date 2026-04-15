@@ -2,6 +2,7 @@ package models
 
 import (
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -28,14 +29,46 @@ func (l *Labels) Scan(src any) error {
 }
 
 type Agent struct {
-	ID             string         `json:"id"`
-	DisplayName    string         `json:"display_name"`
-	Type           string         `json:"type"`    // "collector" | "sdk"
-	Version        string         `json:"version"`
-	Status         string         `json:"status"`  // "connected" | "disconnected" | "degraded"
-	LastSeenAt     time.Time      `json:"last_seen_at"`
-	Labels         Labels         `json:"labels"`
-	ActiveConfigID *string `json:"active_config_id,omitempty"`
+	ID                 string              `json:"id"`
+	DisplayName        string              `json:"display_name"`
+	Type               string              `json:"type"`   // "collector" | "sdk"
+	Version            string              `json:"version"`
+	Status             string              `json:"status"` // "connected" | "disconnected" | "degraded"
+	LastSeenAt         time.Time           `json:"last_seen_at"`
+	Labels             Labels              `json:"labels"`
+	ActiveConfigID     *string             `json:"active_config_id,omitempty"`
+	RemoteConfigStatus *RemoteConfigStatus `json:"remote_config_status,omitempty"`
+}
+
+type RemoteConfigStatus struct {
+	Status       string    `json:"status"` // "applying" | "applied" | "failed"
+	ConfigHash   string    `json:"config_hash"`
+	ErrorMessage string    `json:"error_message,omitempty"`
+	UpdatedAt    time.Time `json:"updated_at"`
+}
+
+func (r RemoteConfigStatus) Value() (string, error) {
+	b, err := json.Marshal(r)
+	return string(b), err
+}
+
+func (r *RemoteConfigStatus) Scan(src any) error {
+	switch v := src.(type) {
+	case string:
+		if v == "" {
+			return nil
+		}
+		return json.Unmarshal([]byte(v), r)
+	case []byte:
+		if len(v) == 0 {
+			return nil
+		}
+		return json.Unmarshal(v, r)
+	case nil:
+		return nil
+	default:
+		return fmt.Errorf("unsupported type for RemoteConfigStatus: %T", src)
+	}
 }
 
 type Config struct {
@@ -47,10 +80,13 @@ type Config struct {
 }
 
 type AgentConfig struct {
-	AgentID   string    `json:"agent_id"`
-	ConfigID  string    `json:"config_id"`
-	AppliedAt time.Time `json:"applied_at"`
-	Status    string    `json:"status"` // "pending" | "applied" | "failed"
+	AgentID      string    `json:"agent_id"`
+	ConfigID     string    `json:"config_id"`
+	AppliedAt    time.Time `json:"applied_at"`
+	Status       string    `json:"status"` // "pending" | "applied" | "failed"
+	ErrorMessage string    `json:"error_message,omitempty"`
+	PushedBy     string    `json:"pushed_by,omitempty"`
+	Content      string    `json:"content,omitempty"` // filled by JOIN in history queries
 }
 
 type Alert struct {
