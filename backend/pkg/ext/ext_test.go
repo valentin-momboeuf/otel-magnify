@@ -4,16 +4,18 @@ import (
 	"context"
 	"testing"
 
-	"otel-magnify/internal/alerts"
 	"otel-magnify/internal/store"
 	"otel-magnify/pkg/ext"
 )
 
 // Compile-time interface satisfaction checks.
+// Note: ext.AuthProvider check for *auth.Auth lives in internal/auth/auth_test.go.
+// Note: ext.AlertNotifier check for *alerts.WebhookNotifier is temporarily removed
+// because internal/alerts imports internal/api which still uses the old auth API.
+// It will be restored once internal/api is refactored (Task 5).
 var (
-	_ ext.Store         = (*store.DB)(nil)
-	_ ext.AlertNotifier = (*alerts.WebhookNotifier)(nil)
-	_ ext.AuditLogger   = ext.NopAuditLogger{}
+	_ ext.Store       = (*store.DB)(nil)
+	_ ext.AuditLogger = ext.NopAuditLogger{}
 )
 
 func TestUserInfoContextRoundTrip(t *testing.T) {
