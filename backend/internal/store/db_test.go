@@ -30,3 +30,18 @@ func TestMigrate(t *testing.T) {
 		}
 	}
 }
+
+func TestMigrate_AgentConfigPushFields(t *testing.T) {
+	db := newTestDB(t)
+	rows, err := db.Query("SELECT error_message, pushed_by FROM agent_configs LIMIT 0")
+	if err != nil {
+		t.Fatalf("agent_configs missing new columns: %v", err)
+	}
+	rows.Close()
+
+	rows, err = db.Query("SELECT remote_config_status FROM agents LIMIT 0")
+	if err != nil {
+		t.Fatalf("agents missing remote_config_status: %v", err)
+	}
+	rows.Close()
+}
