@@ -103,3 +103,26 @@ func TestUpdateAgentStatus(t *testing.T) {
 		t.Errorf("Status = %q, want disconnected", got.Status)
 	}
 }
+
+func TestUpsertAgent_RoundtripsRemoteConfigStatus(t *testing.T) {
+	db := newTestDB(t)
+	agent := models.Agent{
+		ID: "a1", Type: "collector", Status: "connected",
+		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+		RemoteConfigStatus: &models.RemoteConfigStatus{
+			Status:     "applied",
+			ConfigHash: "abc",
+			UpdatedAt:  time.Now().UTC().Truncate(time.Second),
+		},
+	}
+	if err := db.UpsertAgent(agent); err != nil {
+		t.Fatal(err)
+	}
+	got, err := db.GetAgent("a1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.RemoteConfigStatus == nil || got.RemoteConfigStatus.ConfigHash != "abc" {
+		t.Fatalf("remote_config_status not persisted: %+v", got.RemoteConfigStatus)
+	}
+}

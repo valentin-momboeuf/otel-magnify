@@ -13,9 +13,17 @@ func (d *DB) UpsertAgent(a models.Agent) error {
 	if err != nil {
 		return fmt.Errorf("marshal labels: %w", err)
 	}
+	var statusJSON any
+	if a.RemoteConfigStatus != nil {
+		s, err := a.RemoteConfigStatus.Value()
+		if err != nil {
+			return fmt.Errorf("marshal remote_config_status: %w", err)
+		}
+		statusJSON = s
+	}
 	_, err = d.Exec(`
-		INSERT INTO agents (id, display_name, type, version, status, last_seen_at, labels, active_config_id)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+		INSERT INTO agents (id, display_name, type, version, status, last_seen_at, labels, active_config_id, remote_config_status)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(id) DO UPDATE SET
 			display_name = excluded.display_name,
 			type = excluded.type,
@@ -23,8 +31,9 @@ func (d *DB) UpsertAgent(a models.Agent) error {
 			status = excluded.status,
 			last_seen_at = excluded.last_seen_at,
 			labels = excluded.labels,
-			active_config_id = excluded.active_config_id`,
-		a.ID, a.DisplayName, a.Type, a.Version, a.Status, a.LastSeenAt.UTC(), labelsJSON, a.ActiveConfigID,
+			active_config_id = excluded.active_config_id,
+			remote_config_status = COALESCE(excluded.remote_config_status, agents.remote_config_status)`,
+		a.ID, a.DisplayName, a.Type, a.Version, a.Status, a.LastSeenAt.UTC(), labelsJSON, a.ActiveConfigID, statusJSON,
 	)
 	return err
 }
@@ -32,22 +41,29 @@ func (d *DB) UpsertAgent(a models.Agent) error {
 func (d *DB) GetAgent(id string) (models.Agent, error) {
 	var a models.Agent
 	var labelsJSON string
+	var statusJSON sql.NullString
 	err := d.QueryRow(`
-		SELECT id, display_name, type, version, status, last_seen_at, labels, active_config_id
+		SELECT id, display_name, type, version, status, last_seen_at, labels, active_config_id, remote_config_status
 		FROM agents WHERE id = ?`, id,
-	).Scan(&a.ID, &a.DisplayName, &a.Type, &a.Version, &a.Status, &a.LastSeenAt, &labelsJSON, &a.ActiveConfigID)
+	).Scan(&a.ID, &a.DisplayName, &a.Type, &a.Version, &a.Status, &a.LastSeenAt, &labelsJSON, &a.ActiveConfigID, &statusJSON)
 	if err != nil {
 		return a, fmt.Errorf("get agent %s: %w", id, err)
 	}
 	if err := a.Labels.Scan(labelsJSON); err != nil {
 		return a, fmt.Errorf("scan labels: %w", err)
 	}
+	if statusJSON.Valid && statusJSON.String != "" {
+		a.RemoteConfigStatus = &models.RemoteConfigStatus{}
+		if err := a.RemoteConfigStatus.Scan(statusJSON.String); err != nil {
+			return a, fmt.Errorf("scan remote_config_status: %w", err)
+		}
+	}
 	return a, nil
 }
 
 func (d *DB) ListAgents() ([]models.Agent, error) {
 	rows, err := d.Query(`
-		SELECT id, display_name, type, version, status, last_seen_at, labels, active_config_id
+		SELECT id, display_name, type, version, status, last_seen_at, labels, active_config_id, remote_config_status
 		FROM agents ORDER BY display_name`)
 	if err != nil {
 		return nil, err
@@ -58,11 +74,18 @@ func (d *DB) ListAgents() ([]models.Agent, error) {
 	for rows.Next() {
 		var a models.Agent
 		var labelsJSON string
-		if err := rows.Scan(&a.ID, &a.DisplayName, &a.Type, &a.Version, &a.Status, &a.LastSeenAt, &labelsJSON, &a.ActiveConfigID); err != nil {
+		var statusJSON sql.NullString
+		if err := rows.Scan(&a.ID, &a.DisplayName, &a.Type, &a.Version, &a.Status, &a.LastSeenAt, &labelsJSON, &a.ActiveConfigID, &statusJSON); err != nil {
 			return nil, err
 		}
 		if err := a.Labels.Scan(labelsJSON); err != nil {
 			return nil, err
+		}
+		if statusJSON.Valid && statusJSON.String != "" {
+			a.RemoteConfigStatus = &models.RemoteConfigStatus{}
+			if err := a.RemoteConfigStatus.Scan(statusJSON.String); err != nil {
+				return nil, err
+			}
 		}
 		agents = append(agents, a)
 	}

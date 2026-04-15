@@ -45,11 +45,27 @@ func (d *DB) ListConfigs() ([]models.Config, error) {
 	return configs, rows.Err()
 }
 
-func (d *DB) RecordAgentConfig(agentID, configID, status string) error {
+func (d *DB) RecordAgentConfig(ac models.AgentConfig) error {
+	t := ac.AppliedAt
+	if t.IsZero() {
+		t = time.Now().UTC()
+	}
 	_, err := d.Exec(`
-		INSERT INTO agent_configs (agent_id, config_id, applied_at, status)
-		VALUES (?, ?, ?, ?)`,
-		agentID, configID, time.Now().UTC(), status,
+		INSERT INTO agent_configs (agent_id, config_id, applied_at, status, error_message, pushed_by)
+		VALUES (?, ?, ?, ?, ?, ?)`,
+		ac.AgentID, ac.ConfigID, t, ac.Status, nullIfEmpty(ac.ErrorMessage), nullIfEmpty(ac.PushedBy),
+	)
+	return err
+}
+
+func (d *DB) UpdateAgentConfigStatus(agentID, configID, status, errorMessage string) error {
+	_, err := d.Exec(`
+		UPDATE agent_configs SET status = ?, error_message = ?
+		WHERE agent_id = ? AND config_id = ?
+		  AND applied_at = (
+		    SELECT MAX(applied_at) FROM agent_configs WHERE agent_id = ? AND config_id = ?
+		  )`,
+		status, nullIfEmpty(errorMessage), agentID, configID, agentID, configID,
 	)
 	return err
 }
@@ -57,10 +73,11 @@ func (d *DB) RecordAgentConfig(agentID, configID, status string) error {
 func (d *DB) GetLatestPendingAgentConfig(agentID string) (*models.AgentConfig, error) {
 	var ac models.AgentConfig
 	err := d.QueryRow(`
-		SELECT agent_id, config_id, applied_at, status
+		SELECT agent_id, config_id, applied_at, status,
+		       COALESCE(error_message, ''), COALESCE(pushed_by, '')
 		FROM agent_configs WHERE agent_id = ? AND status = 'pending'
 		ORDER BY applied_at DESC LIMIT 1`, agentID,
-	).Scan(&ac.AgentID, &ac.ConfigID, &ac.AppliedAt, &ac.Status)
+	).Scan(&ac.AgentID, &ac.ConfigID, &ac.AppliedAt, &ac.Status, &ac.ErrorMessage, &ac.PushedBy)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}
@@ -72,8 +89,13 @@ func (d *DB) GetLatestPendingAgentConfig(agentID string) (*models.AgentConfig, e
 
 func (d *DB) GetAgentConfigHistory(agentID string) ([]models.AgentConfig, error) {
 	rows, err := d.Query(`
-		SELECT agent_id, config_id, applied_at, status
-		FROM agent_configs WHERE agent_id = ? ORDER BY applied_at DESC`, agentID)
+		SELECT ac.agent_id, ac.config_id, ac.applied_at, ac.status,
+		       COALESCE(ac.error_message, ''), COALESCE(ac.pushed_by, ''),
+		       COALESCE(c.content, '')
+		FROM agent_configs ac
+		LEFT JOIN configs c ON c.id = ac.config_id
+		WHERE ac.agent_id = ?
+		ORDER BY ac.applied_at DESC`, agentID)
 	if err != nil {
 		return nil, err
 	}
@@ -82,10 +104,39 @@ func (d *DB) GetAgentConfigHistory(agentID string) ([]models.AgentConfig, error)
 	var history []models.AgentConfig
 	for rows.Next() {
 		var ac models.AgentConfig
-		if err := rows.Scan(&ac.AgentID, &ac.ConfigID, &ac.AppliedAt, &ac.Status); err != nil {
+		if err := rows.Scan(&ac.AgentID, &ac.ConfigID, &ac.AppliedAt, &ac.Status,
+			&ac.ErrorMessage, &ac.PushedBy, &ac.Content); err != nil {
 			return nil, err
 		}
 		history = append(history, ac)
 	}
 	return history, rows.Err()
+}
+
+func (d *DB) GetLastAppliedAgentConfig(agentID string) (*models.AgentConfig, error) {
+	var ac models.AgentConfig
+	err := d.QueryRow(`
+		SELECT ac.agent_id, ac.config_id, ac.applied_at, ac.status,
+		       COALESCE(ac.error_message, ''), COALESCE(ac.pushed_by, ''),
+		       COALESCE(c.content, '')
+		FROM agent_configs ac
+		LEFT JOIN configs c ON c.id = ac.config_id
+		WHERE ac.agent_id = ? AND ac.status = 'applied'
+		ORDER BY ac.applied_at DESC LIMIT 1`, agentID,
+	).Scan(&ac.AgentID, &ac.ConfigID, &ac.AppliedAt, &ac.Status,
+		&ac.ErrorMessage, &ac.PushedBy, &ac.Content)
+	if err == sql.ErrNoRows {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &ac, nil
+}
+
+func nullIfEmpty(s string) any {
+	if s == "" {
+		return nil
+	}
+	return s
 }

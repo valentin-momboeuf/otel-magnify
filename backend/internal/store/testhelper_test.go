@@ -1,6 +1,11 @@
 package store
 
-import "testing"
+import (
+	"testing"
+	"time"
+
+	"otel-magnify/pkg/models"
+)
 
 // newTestDB returns a migrated in-memory SQLite DB for tests.
 func newTestDB(t *testing.T) *DB {
@@ -14,4 +19,24 @@ func newTestDB(t *testing.T) *DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	return db
+}
+
+func seedAgent(t *testing.T, db *DB, id string) {
+	t.Helper()
+	if err := db.UpsertAgent(models.Agent{
+		ID: id, Type: "collector", Status: "connected",
+		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func seedConfig(t *testing.T, db *DB, id, content string) {
+	t.Helper()
+	if err := db.CreateConfig(models.Config{
+		ID: id, Name: "test-" + id, Content: content,
+		CreatedAt: time.Now().UTC(), CreatedBy: "test",
+	}); err != nil {
+		t.Fatal(err)
+	}
 }
