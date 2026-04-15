@@ -2,8 +2,9 @@
 
 ![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-orange.svg)
 ![Status: pre-1.0](https://img.shields.io/badge/Status-pre--1.0-yellow.svg)
+[![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://valentin-momboeuf.github.io/otel-magnify/)
 
-→ [Roadmap](ROADMAP.md)
+→ [Documentation](https://valentin-momboeuf.github.io/otel-magnify/) · [Roadmap](ROADMAP.md)
 
 > **⚠️ Status: pre-1.0 — not recommended for critical deployments without commercial support**
 >
