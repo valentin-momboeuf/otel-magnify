@@ -79,20 +79,36 @@ func (h *Hub) Stop() {
 	close(h.done)
 }
 
-// BroadcastConfigStatus will broadcast config push status events. No-op until Task 6 wires the WS payload.
+// BroadcastConfigStatus fans out a remote config status update.
 func (h *Hub) BroadcastConfigStatus(agentID string, status models.RemoteConfigStatus) {
-	// implemented in Task 6
-	_ = agentID
-	_ = status
+	event := map[string]any{
+		"type":     "agent_config_status",
+		"agent_id": agentID,
+		"status":   status,
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("marshal config status: %v", err)
+		return
+	}
+	h.broadcast <- data
 }
 
-// BroadcastAutoRollback will broadcast auto-rollback events. No-op until Task 6 wires the WS payload.
+// BroadcastAutoRollback fans out an automatic rollback notification.
 func (h *Hub) BroadcastAutoRollback(agentID, fromHash, toHash, reason string) {
-	// implemented in Task 6
-	_ = agentID
-	_ = fromHash
-	_ = toHash
-	_ = reason
+	event := map[string]any{
+		"type":      "auto_rollback_applied",
+		"agent_id":  agentID,
+		"from_hash": fromHash,
+		"to_hash":   toHash,
+		"reason":    reason,
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("marshal auto rollback: %v", err)
+		return
+	}
+	h.broadcast <- data
 }
 
 // BroadcastAgentUpdate satisfies the opamp.Notifier interface.

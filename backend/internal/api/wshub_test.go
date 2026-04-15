@@ -52,3 +52,57 @@ func TestHub_BroadcastAgentUpdate(t *testing.T) {
 		t.Errorf("type = %q, want agent_update", event["type"])
 	}
 }
+
+func TestBroadcastConfigStatus_SerializesEvent(t *testing.T) {
+	h := NewHub()
+	go h.Run()
+	defer h.Stop()
+
+	ch := make(chan []byte, 1)
+	h.mu.Lock()
+	h.clients[&wsClient{send: ch}] = true
+	h.mu.Unlock()
+
+	h.BroadcastConfigStatus("agent-1", models.RemoteConfigStatus{
+		Status: "failed", ConfigHash: "abc", ErrorMessage: "boom",
+		UpdatedAt: time.Unix(0, 0).UTC(),
+	})
+
+	select {
+	case b := <-ch:
+		var ev map[string]any
+		_ = json.Unmarshal(b, &ev)
+		if ev["type"] != "agent_config_status" || ev["agent_id"] != "agent-1" {
+			t.Fatalf("unexpected event: %s", string(b))
+		}
+		st := ev["status"].(map[string]any)
+		if st["status"] != "failed" || st["error_message"] != "boom" {
+			t.Fatalf("status payload: %+v", st)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no broadcast received")
+	}
+}
+
+func TestBroadcastAutoRollback_SerializesEvent(t *testing.T) {
+	h := NewHub()
+	go h.Run()
+	defer h.Stop()
+
+	ch := make(chan []byte, 1)
+	h.mu.Lock()
+	h.clients[&wsClient{send: ch}] = true
+	h.mu.Unlock()
+
+	h.BroadcastAutoRollback("agent-1", "bbbbbbbb", "aaaaaaaa", "oops")
+	select {
+	case b := <-ch:
+		var ev map[string]any
+		_ = json.Unmarshal(b, &ev)
+		if ev["type"] != "auto_rollback_applied" || ev["from_hash"] != "bbbbbbbb" || ev["to_hash"] != "aaaaaaaa" {
+			t.Fatalf("payload: %s", string(b))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no broadcast")
+	}
+}
