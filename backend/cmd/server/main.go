@@ -20,6 +20,7 @@ import (
 	"otel-magnify/internal/config"
 	"otel-magnify/internal/opamp"
 	"otel-magnify/internal/store"
+	"otel-magnify/pkg/ext"
 	"otel-magnify/pkg/models"
 )
 
@@ -77,7 +78,11 @@ func main() {
 	// Alert engine
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	alertEngine := alerts.New(db, hub, 5*time.Minute, cfg.MinAgentVersion, cfg.WebhookURL)
+	var notifiers []ext.AlertNotifier
+	if wh := alerts.NewWebhookNotifier(cfg.WebhookURL); wh != nil {
+		notifiers = append(notifiers, wh)
+	}
+	alertEngine := alerts.New(db, hub, 5*time.Minute, cfg.MinAgentVersion, notifiers...)
 	go alertEngine.Start(ctx, 30*time.Second)
 	log.Println("Alert engine started (30s interval)")
 
