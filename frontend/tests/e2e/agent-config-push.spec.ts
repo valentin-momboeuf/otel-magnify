@@ -175,6 +175,51 @@ test('diff tab shows two editor panels', async ({ loggedInPage: page }) => {
   await expect(page.locator('.cm-mergeView .cm-editor')).toHaveCount(2)
 })
 
+test('history refreshes when WS agent_config_status arrives from another session', async ({ loggedInPage: page }) => {
+  await mockAgent(page)
+  await mockConfig(page, 'a: 1\n')
+
+  let call = 0
+  await page.route(`**/api/agents/${AGENT_ID}/configs`, (route) => {
+    call += 1
+    const rows = call === 1 ? [] : [{
+      agent_id: AGENT_ID,
+      config_id: 'ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
+      applied_at: new Date().toISOString(),
+      status: 'applied',
+      pushed_by: 'other@user',
+      error_message: '',
+    }]
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(rows),
+    })
+  })
+
+  await page.goto(`/inventory/${AGENT_ID}`)
+  // No history yet: table not rendered
+  await expect(page.locator('.history-table')).toHaveCount(0)
+
+  // Simulate a config applied event from another session (not our local push)
+  await page.evaluate((agentId) => {
+    const evt = {
+      type: 'agent_config_status',
+      agent_id: agentId,
+      status: {
+        status: 'applied',
+        config_hash: 'cccccccc',
+        updated_at: new Date().toISOString(),
+      },
+    }
+    ;(window as unknown as { __testWsInject?: (ev: unknown) => void }).__testWsInject?.(evt)
+  }, AGENT_ID)
+
+  // Table appears because the query was invalidated and refetched
+  await expect(page.locator('.history-table tbody tr')).toHaveCount(1)
+  await expect(page.locator('.history-table')).toContainText('other@user')
+})
+
 test('history table renders with rollback action', async ({ loggedInPage: page }) => {
   await mockAgent(page)
   await mockConfig(page, 'a: 1\n')

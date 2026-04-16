@@ -1,7 +1,51 @@
 import { useStore } from '../store'
+import { queryClient } from './queryClient'
 
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
+
+function dispatch(data: {
+  type: string
+  agent_id?: string
+  agent?: Parameters<ReturnType<typeof useStore.getState>['updateAgent']>[0]
+  alert?: Parameters<ReturnType<typeof useStore.getState>['addAlert']>[0]
+  status?: Parameters<ReturnType<typeof useStore.getState>['setConfigStatus']>[1]
+  from_hash?: string
+  to_hash?: string
+  reason?: string
+}) {
+  const store = useStore.getState()
+
+  switch (data.type) {
+    case 'agent_update':
+      if (!data.agent) break
+      store.updateAgent(data.agent)
+      queryClient.invalidateQueries({ queryKey: ['agents'] })
+      queryClient.invalidateQueries({ queryKey: ['agent', data.agent.id] })
+      break
+    case 'alert_update':
+      if (data.alert) store.addAlert(data.alert)
+      queryClient.invalidateQueries({ queryKey: ['alerts'] })
+      break
+    case 'agent_config_status':
+      if (!data.agent_id || !data.status) break
+      store.setConfigStatus(data.agent_id, data.status)
+      queryClient.invalidateQueries({ queryKey: ['agent', data.agent_id] })
+      queryClient.invalidateQueries({ queryKey: ['agent-config-history', data.agent_id] })
+      break
+    case 'auto_rollback_applied':
+      if (!data.agent_id || !data.from_hash || !data.to_hash) break
+      store.setAutoRollback({
+        agent_id: data.agent_id,
+        from_hash: data.from_hash,
+        to_hash: data.to_hash,
+        reason: data.reason ?? '',
+      })
+      queryClient.invalidateQueries({ queryKey: ['agent', data.agent_id] })
+      queryClient.invalidateQueries({ queryKey: ['agent-config-history', data.agent_id] })
+      break
+  }
+}
 
 export function connectWS() {
   if (ws?.readyState === WebSocket.OPEN) return
@@ -13,28 +57,7 @@ export function connectWS() {
   ws = new WebSocket(`${protocol}//${window.location.host}/ws?token=${token}`)
 
   ws.onmessage = (event) => {
-    const data = JSON.parse(event.data)
-    const store = useStore.getState()
-
-    switch (data.type) {
-      case 'agent_update':
-        store.updateAgent(data.agent)
-        break
-      case 'alert_update':
-        store.addAlert(data.alert)
-        break
-      case 'agent_config_status':
-        store.setConfigStatus(data.agent_id, data.status)
-        break
-      case 'auto_rollback_applied':
-        store.setAutoRollback({
-          agent_id: data.agent_id,
-          from_hash: data.from_hash,
-          to_hash: data.to_hash,
-          reason: data.reason,
-        })
-        break
-    }
+    dispatch(JSON.parse(event.data))
   }
 
   ws.onclose = () => {
@@ -59,37 +82,6 @@ if (typeof window !== 'undefined') {
     __testWsInject?: (ev: unknown) => void
   }
   ;(window as unknown as TestWindow).__testWsInject = (ev) => {
-    const store = useStore.getState()
-    const data = ev as {
-      type: string
-      agent_id?: string
-      agent?: Parameters<typeof store.updateAgent>[0]
-      alert?: Parameters<typeof store.addAlert>[0]
-      status?: Parameters<typeof store.setConfigStatus>[1]
-      from_hash?: string
-      to_hash?: string
-      reason?: string
-    }
-    switch (data.type) {
-      case 'agent_update':
-        if (data.agent) store.updateAgent(data.agent)
-        break
-      case 'alert_update':
-        if (data.alert) store.addAlert(data.alert)
-        break
-      case 'agent_config_status':
-        if (data.agent_id && data.status) store.setConfigStatus(data.agent_id, data.status)
-        break
-      case 'auto_rollback_applied':
-        if (data.agent_id && data.from_hash && data.to_hash) {
-          store.setAutoRollback({
-            agent_id: data.agent_id,
-            from_hash: data.from_hash,
-            to_hash: data.to_hash,
-            reason: data.reason ?? '',
-          })
-        }
-        break
-    }
+    dispatch(ev as Parameters<typeof dispatch>[0])
   }
 }
