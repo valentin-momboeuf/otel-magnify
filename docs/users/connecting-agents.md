@@ -42,6 +42,69 @@ docker run -d --name collector-prod-eu --network otel-magnify_default \
   otel/opentelemetry-collector-contrib:0.98.0
 ```
 
+## Running a Collector via OpAMP Supervisor
+
+The Collector's built-in `opamp` extension reports status and effective config,
+but **does not apply remote configs**. To enable config push, run the Collector
+under the [OpAMP Supervisor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/cmd/opampsupervisor).
+
+The supervisor is not shipped as an official Docker image, so you build it
+yourself. Minimal recipe:
+
+```dockerfile
+FROM golang:1.25 AS build
+WORKDIR /src
+RUN git clone --depth=1 --branch=v0.150.0 \
+    https://github.com/open-telemetry/opentelemetry-collector-contrib.git
+WORKDIR /src/opentelemetry-collector-contrib/cmd/opampsupervisor
+RUN CGO_ENABLED=0 go build -o /out/opampsupervisor .
+
+FROM otel/opentelemetry-collector-contrib:latest
+COPY --from=build /out/opampsupervisor /usr/local/bin/opampsupervisor
+ENTRYPOINT ["/usr/local/bin/opampsupervisor"]
+CMD ["--config", "/etc/otelcol/supervisor.yaml"]
+```
+
+Supervisor configuration (`supervisor.yaml`):
+
+```yaml
+server:
+  endpoint: ws://otel-magnify:4320/v1/opamp
+  tls:
+    insecure: true
+
+capabilities:
+  accepts_remote_config: true     # required for config push
+  reports_effective_config: true
+  reports_health: true
+  reports_remote_config: true
+
+agent:
+  executable: /otelcol-contrib    # path inside the contrib image
+  description:
+    identifying_attributes:
+      service.name: otelcol-contrib    # must match otelcol* to be classified as a collector
+      service.version: 0.150.0
+      service.instance.id: collector-supervised-eu
+    non_identifying_attributes:
+      deployment.environment: production
+
+storage:
+  directory: /tmp/supervisor       # needs a writable dir inside the container
+```
+
+Run it:
+
+```bash
+docker run -d --name collector-supervised-eu --network otel-magnify_default \
+  --user 0 --tmpfs /tmp:exec \
+  -v $(pwd)/supervisor.yaml:/etc/otelcol/supervisor.yaml:ro \
+  otel-magnify-opampsupervisor:latest
+```
+
+`--user 0` + `--tmpfs /tmp:exec` are needed because the contrib base image is
+distroless and otherwise has no writable path for the supervisor storage dir.
+
 ## Simulating an SDK agent
 
 For development and testing, the repo ships a small simulator at `backend/cmd/sdkagent/` that connects as a fake SDK agent.
