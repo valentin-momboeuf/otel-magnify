@@ -237,4 +237,4 @@ helm/otel-magnify/      # Kubernetes Helm chart
 
 ## License
 
-[Business Source License 1.1](LICENSE) — free use up to 20 agents, converts to Apache 2.0 on 2030-04-14.
+[Business Source License 1.1](LICENSE) — free production use without agent limit, except for hosted or embedded offerings competing with the Licensor's paid version. Each release converts to the Apache License, Version 2.0 four years after its publication date (rolling Change Date).
