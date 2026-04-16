@@ -58,6 +58,22 @@ func NewRouter(db *store.DB, a *auth.Auth, hub *Hub, opampSrv OpAMPPusher, corsO
 	// Public routes
 	r.Post("/api/auth/login", api.handleLogin)
 
+	// WebSocket validates its own token via ?token= query param
+	// (browsers cannot set Authorization headers on WS handshakes, so it
+	// cannot live behind the Bearer-token middleware).
+	r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
+		token := r.URL.Query().Get("token")
+		if token == "" {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		if _, err := a.ValidateToken(token); err != nil {
+			http.Error(w, "Unauthorized", http.StatusUnauthorized)
+			return
+		}
+		hub.HandleWS(w, r)
+	})
+
 	// Protected routes
 	r.Group(func(r chi.Router) {
 		r.Use(a.Middleware)
@@ -74,20 +90,6 @@ func NewRouter(db *store.DB, a *auth.Auth, hub *Hub, opampSrv OpAMPPusher, corsO
 
 		r.Get("/api/alerts", api.handleListAlerts)
 		r.Post("/api/alerts/{id}/resolve", api.handleResolveAlert)
-
-		// WebSocket with token validation via query parameter
-		r.Get("/ws", func(w http.ResponseWriter, r *http.Request) {
-			token := r.URL.Query().Get("token")
-			if token == "" {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			if _, err := a.ValidateToken(token); err != nil {
-				http.Error(w, "Unauthorized", http.StatusUnauthorized)
-				return
-			}
-			hub.HandleWS(w, r)
-		})
 	})
 
 	// Serve embedded frontend assets as catch-all (SPA fallback)

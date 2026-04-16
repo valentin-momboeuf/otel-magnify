@@ -138,6 +138,22 @@ func TestUpdateAgentConfigStatus_SetsFailedWithError(t *testing.T) {
 	}
 }
 
+func TestUpdateAgentConfigStatus_AcceptsApplying(t *testing.T) {
+	db := newTestDB(t)
+	seedAgent(t, db, "a1")
+	seedConfig(t, db, "c1", "x")
+	_ = db.RecordAgentConfig(models.AgentConfig{AgentID: "a1", ConfigID: "c1", Status: "pending"})
+
+	if err := db.UpdateAgentConfigStatus("a1", "c1", "applying", ""); err != nil {
+		t.Fatalf("applying should be a valid status: %v", err)
+	}
+
+	hist, _ := db.GetAgentConfigHistory("a1")
+	if hist[0].Status != "applying" {
+		t.Fatalf("expected applying, got %q", hist[0].Status)
+	}
+}
+
 func TestGetLastAppliedAgentConfig(t *testing.T) {
 	db := newTestDB(t)
 	seedAgent(t, db, "a1")
