@@ -543,6 +543,59 @@ body {
   border: 1px solid rgba(96, 165, 250, 0.2);
 }
 
+/* Supervised collector pill — shown next to the .agent-type badge */
+.agent-supervised-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  margin-left: 4px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--gold);
+  background: transparent;
+  border: 1px solid rgba(212, 165, 55, 0.35);
+}
+
+.agent-supervised-pill::before {
+  content: '●';
+  font-size: 0.6rem;
+  line-height: 1;
+  color: var(--gold);
+}
+
+/* Secondary (muted) sub-line for detail-cell values — used by the Control cell */
+.detail-cell-sub {
+  display: block;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 400;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+
+/* Read-only note under the YAML when a collector does not accept remote config */
+.config-readonly-note {
+  margin-top: 0.75rem;
+  padding: 0.65rem 0.8rem;
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--gold);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  color: var(--text);
+  font-size: 0.82rem;
+  line-height: 1.5;
+}
+.config-readonly-note a {
+  color: var(--gold);
+  text-decoration: none;
+  border-bottom: 1px dotted var(--gold);
+}
+.config-readonly-note a:hover { color: var(--gold-soft); }
+
 /* ── Filters ── */
 .filter-bar {
   display: flex;

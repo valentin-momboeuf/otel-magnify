@@ -18,6 +18,7 @@ export interface Agent {
   active_config_id?: string
   remote_config_status?: RemoteConfigStatus
   available_components?: AvailableComponents
+  accepts_remote_config?: boolean
 }
 
 export interface Config {
