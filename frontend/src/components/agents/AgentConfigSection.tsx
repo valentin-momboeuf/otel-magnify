@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { configsAPI, agentsAPI } from '../../api/client'
+import { DOCS_BASE_URL } from '../../constants'
 import YamlEditor from '../config/YamlEditor'
 import PushStatusBanner from './PushStatusBanner'
 import ConfigDiffView from './ConfigDiffView'
@@ -169,7 +170,7 @@ export default function AgentConfigSection({ agent }: Props) {
         <div className="config-readonly-note">
           Read-only — this collector uses the <code>opamp</code> extension which can only report its config. Run it under the OpAMP Supervisor to enable config push.{' '}
           <a
-            href="https://github.com/valentin-momboeuf/otel-magnify/blob/main/docs/users/connecting-agents.md#running-a-collector-via-opamp-supervisor"
+            href={`${DOCS_BASE_URL}/users/connecting-agents.md#running-a-collector-via-opamp-supervisor`}
             target="_blank"
             rel="noreferrer"
           >
