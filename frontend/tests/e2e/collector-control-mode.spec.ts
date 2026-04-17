@@ -121,6 +121,45 @@ test('Supervised collector detail page shows Edit button and Supervised cell', a
   await expect(page.locator('.config-readonly-note')).toHaveCount(0)
 })
 
+test('Inventory control filter excludes SDK agents entirely', async ({ loggedInPage: page }) => {
+  const SDK_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
+  await page.route('**/api/agents', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        baseAgent(SUPERVISED_ID, 'collector-supervised', true),
+        baseAgent(READONLY_ID,   'collector-readonly',   false),
+        {
+          id: SDK_ID,
+          display_name: 'sdk-service',
+          type: 'sdk',
+          version: '1.0.0',
+          status: 'connected',
+          last_seen_at: new Date().toISOString(),
+          labels: {},
+        },
+      ]),
+    }),
+  )
+
+  // Baseline: all three visible with no control filter
+  await page.goto('/inventory')
+  await expect(page.locator('.agent-card')).toHaveCount(3)
+
+  // control=supervised → SDK excluded, only supervised collector shown
+  await page.goto('/inventory?control=supervised')
+  await expect(page.locator('.agent-card')).toHaveCount(1)
+  await expect(page.locator('.agent-card')).toContainText('collector-supervised')
+  await expect(page.locator('.agent-card', { hasText: 'sdk-service' })).toHaveCount(0)
+
+  // control=readonly → SDK also excluded, only read-only collector shown
+  await page.goto('/inventory?control=readonly')
+  await expect(page.locator('.agent-card')).toHaveCount(1)
+  await expect(page.locator('.agent-card')).toContainText('collector-readonly')
+  await expect(page.locator('.agent-card', { hasText: 'sdk-service' })).toHaveCount(0)
+})
+
 test('Dashboard Supervised stat card links to filtered Inventory', async ({ loggedInPage: page }) => {
   await mockList(page)
   await mockAlerts(page)

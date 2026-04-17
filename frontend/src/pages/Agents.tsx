@@ -27,8 +27,9 @@ export default function Inventory() {
   const filtered = (agents ?? []).filter((a) => {
     if (filterType   && a.type   !== filterType)   return false
     if (filterStatus && a.status !== filterStatus) return false
-    if (filterControl && a.type === 'collector') {
-      if (filterControl === 'supervised' && !isSupervised(a))       return false
+    if (filterControl) {
+      if (a.type !== 'collector')                                    return false
+      if (filterControl === 'supervised' && !isSupervised(a))        return false
       if (filterControl === 'readonly'   && !isReadOnlyCollector(a)) return false
     }
     return true
