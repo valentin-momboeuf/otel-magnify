@@ -18,6 +18,7 @@ function mockAgent(page: Page, overrides: Record<string, unknown> = {}) {
         last_seen_at: new Date().toISOString(),
         labels: {},
         active_config_id: ACTIVE_CONFIG_ID,
+        accepts_remote_config: true,
         available_components: {
           components: {
             receivers: ['otlp'],
