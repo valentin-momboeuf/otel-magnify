@@ -278,6 +278,21 @@ func flattenAvailableComponents(ac *protobufs.AvailableComponents) *models.Avail
 	return out
 }
 
+// broadcastDisconnect emits an agent_update with the agent's full persisted
+// state plus Status="disconnected" and LastSeenAt=now. If the store read
+// fails, it falls back to the pre-fix minimal broadcast so the UI still sees
+// the status change (graceful degradation).
+func (s *Server) broadcastDisconnect(uid string) {
+	agent, err := s.store.GetAgent(uid)
+	if err != nil {
+		log.Printf("Failed to reload agent %s for disconnect broadcast: %v", uid, err)
+		agent = models.Agent{ID: uid}
+	}
+	agent.Status = "disconnected"
+	agent.LastSeenAt = time.Now().UTC()
+	s.notifier.BroadcastAgentUpdate(agent)
+}
+
 func (s *Server) onConnectionClose(conn types.Connection) {
 	s.mu.Lock()
 	defer s.mu.Unlock()

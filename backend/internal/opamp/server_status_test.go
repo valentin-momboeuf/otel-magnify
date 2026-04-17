@@ -205,3 +205,74 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 		t.Fatalf("after full-status with caps=0: accepts_remote_config stayed true")
 	}
 }
+
+func TestBroadcastDisconnect_HydratesAgent(t *testing.T) {
+	s, db, n := newTestServer(t)
+
+	uid := make([]byte, 16)
+	uid[0] = 0xDD
+	uidHex := hex.EncodeToString(uid)
+
+	cfgID := "deadbeef"
+	// agents.active_config_id has a FK to configs(id); seed the config first.
+	if err := db.CreateConfig(models.Config{
+		ID:        cfgID,
+		Name:      "cfg",
+		Content:   "x",
+		CreatedAt: time.Now().UTC(),
+		CreatedBy: "u",
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	seeded := models.Agent{
+		ID:                  uidHex,
+		DisplayName:         "prod-eu",
+		Type:                "collector",
+		Version:             "0.150.1",
+		Status:              "connected",
+		LastSeenAt:          time.Now().UTC().Add(-time.Minute),
+		Labels:              models.Labels{"env": "prod"},
+		ActiveConfigID:      &cfgID,
+		AcceptsRemoteConfig: true,
+	}
+	if err := db.UpsertAgent(seeded); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+
+	before := time.Now().UTC()
+	s.broadcastDisconnect(uidHex)
+	after := time.Now().UTC()
+
+	if len(n.agents) != 1 {
+		t.Fatalf("expected 1 broadcast, got %d", len(n.agents))
+	}
+	got := n.agents[0]
+
+	if got.ID != uidHex {
+		t.Errorf("ID: got %q, want %q", got.ID, uidHex)
+	}
+	if got.Status != "disconnected" {
+		t.Errorf("Status: got %q, want %q", got.Status, "disconnected")
+	}
+	if got.LastSeenAt.Before(before) || got.LastSeenAt.After(after) {
+		t.Errorf("LastSeenAt: got %v, want within [%v,%v]", got.LastSeenAt, before, after)
+	}
+	if got.DisplayName != "prod-eu" {
+		t.Errorf("DisplayName lost: got %q", got.DisplayName)
+	}
+	if got.Type != "collector" {
+		t.Errorf("Type lost: got %q", got.Type)
+	}
+	if got.Version != "0.150.1" {
+		t.Errorf("Version lost: got %q", got.Version)
+	}
+	if got.Labels["env"] != "prod" {
+		t.Errorf("Labels lost: got %#v", got.Labels)
+	}
+	if got.ActiveConfigID == nil || *got.ActiveConfigID != cfgID {
+		t.Errorf("ActiveConfigID lost: got %v", got.ActiveConfigID)
+	}
+	if !got.AcceptsRemoteConfig {
+		t.Errorf("AcceptsRemoteConfig lost: got false")
+	}
+}
