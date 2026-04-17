@@ -1,11 +1,14 @@
 package opamp
 
 import (
+	"context"
 	"encoding/hex"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/open-telemetry/opamp-go/protobufs"
+	"github.com/open-telemetry/opamp-go/server/types"
 
 	"otel-magnify/internal/store"
 	"otel-magnify/pkg/models"
@@ -203,5 +206,170 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 	got, _ = db.GetAgent(uidHex)
 	if got.AcceptsRemoteConfig {
 		t.Fatalf("after full-status with caps=0: accepts_remote_config stayed true")
+	}
+}
+
+func TestBroadcastDisconnect_HydratesAgent(t *testing.T) {
+	s, db, n := newTestServer(t)
+
+	uid := make([]byte, 16)
+	uid[0] = 0xDD
+	uidHex := hex.EncodeToString(uid)
+
+	cfgID := "deadbeef"
+	// agents.active_config_id has a FK to configs(id); seed the config first.
+	if err := db.CreateConfig(models.Config{
+		ID:        cfgID,
+		Name:      "cfg",
+		Content:   "x",
+		CreatedAt: time.Now().UTC(),
+		CreatedBy: "u",
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	seeded := models.Agent{
+		ID:                  uidHex,
+		DisplayName:         "prod-eu",
+		Type:                "collector",
+		Version:             "0.150.1",
+		Status:              "connected",
+		LastSeenAt:          time.Now().UTC().Add(-time.Minute),
+		Labels:              models.Labels{"env": "prod"},
+		ActiveConfigID:      &cfgID,
+		AcceptsRemoteConfig: true,
+	}
+	if err := db.UpsertAgent(seeded); err != nil {
+		t.Fatalf("seed agent: %v", err)
+	}
+
+	before := time.Now().UTC()
+	s.broadcastDisconnect(uidHex)
+	after := time.Now().UTC()
+
+	if len(n.agents) != 1 {
+		t.Fatalf("expected 1 broadcast, got %d", len(n.agents))
+	}
+	got := n.agents[0]
+
+	if got.ID != uidHex {
+		t.Errorf("ID: got %q, want %q", got.ID, uidHex)
+	}
+	if got.Status != "disconnected" {
+		t.Errorf("Status: got %q, want %q", got.Status, "disconnected")
+	}
+	if got.LastSeenAt.Before(before) || got.LastSeenAt.After(after) {
+		t.Errorf("LastSeenAt: got %v, want within [%v,%v]", got.LastSeenAt, before, after)
+	}
+	if got.DisplayName != "prod-eu" {
+		t.Errorf("DisplayName lost: got %q", got.DisplayName)
+	}
+	if got.Type != "collector" {
+		t.Errorf("Type lost: got %q", got.Type)
+	}
+	if got.Version != "0.150.1" {
+		t.Errorf("Version lost: got %q", got.Version)
+	}
+	if got.Labels["env"] != "prod" {
+		t.Errorf("Labels lost: got %#v", got.Labels)
+	}
+	if got.ActiveConfigID == nil || *got.ActiveConfigID != cfgID {
+		t.Errorf("ActiveConfigID lost: got %v", got.ActiveConfigID)
+	}
+	if !got.AcceptsRemoteConfig {
+		t.Errorf("AcceptsRemoteConfig lost: got false")
+	}
+}
+
+func TestBroadcastDisconnect_FallbackOnDBError(t *testing.T) {
+	s, db, n := newTestServer(t)
+
+	uid := make([]byte, 16)
+	uid[0] = 0xEE
+	uidHex := hex.EncodeToString(uid)
+	if err := db.UpsertAgent(models.Agent{
+		ID:         uidHex,
+		Type:       "collector",
+		Status:     "connected",
+		LastSeenAt: time.Now().UTC(),
+		Labels:     models.Labels{},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Force GetAgent to fail by closing the underlying DB before the call.
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	before := time.Now().UTC()
+	s.broadcastDisconnect(uidHex) // must not panic
+	after := time.Now().UTC()
+
+	if len(n.agents) != 1 {
+		t.Fatalf("expected 1 broadcast, got %d", len(n.agents))
+	}
+	got := n.agents[0]
+	if got.ID != uidHex {
+		t.Errorf("ID: got %q, want %q", got.ID, uidHex)
+	}
+	if got.Status != "disconnected" {
+		t.Errorf("Status: got %q, want %q", got.Status, "disconnected")
+	}
+	if got.LastSeenAt.Before(before) || got.LastSeenAt.After(after) {
+		t.Errorf("LastSeenAt: got %v, want within [%v,%v]", got.LastSeenAt, before, after)
+	}
+}
+
+// fakeConn is a no-op types.Connection for exercising onConnectionClose.
+// onConnectionClose only uses the value as a map key and does not invoke
+// any of the methods.
+type fakeConn struct{}
+
+func (fakeConn) Connection() net.Conn                                      { return nil }
+func (fakeConn) Send(_ context.Context, _ *protobufs.ServerToAgent) error { return nil }
+func (fakeConn) Disconnect() error                                         { return nil }
+
+func TestOnConnectionClose_BroadcastsHydratedAgent(t *testing.T) {
+	s, db, n := newTestServer(t)
+
+	uid := make([]byte, 16)
+	uid[0] = 0xFF
+	uidHex := hex.EncodeToString(uid)
+
+	if err := db.UpsertAgent(models.Agent{
+		ID:                  uidHex,
+		Type:                "collector",
+		Version:             "0.150.1",
+		Status:              "connected",
+		LastSeenAt:          time.Now().UTC(),
+		Labels:              models.Labels{"env": "prod"},
+		AcceptsRemoteConfig: true,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var conn types.Connection = fakeConn{}
+	s.mu.Lock()
+	s.conns[uidHex] = conn
+	s.connToUID[conn] = uidHex
+	s.mu.Unlock()
+
+	s.onConnectionClose(conn)
+
+	if len(n.agents) == 0 {
+		t.Fatal("expected a broadcast after onConnectionClose")
+	}
+	last := n.agents[len(n.agents)-1]
+	if last.Status != "disconnected" {
+		t.Errorf("Status: got %q, want %q", last.Status, "disconnected")
+	}
+	if last.Type != "collector" {
+		t.Errorf("Type lost: got %q", last.Type)
+	}
+	if !last.AcceptsRemoteConfig {
+		t.Errorf("AcceptsRemoteConfig lost")
+	}
+	if last.Labels["env"] != "prod" {
+		t.Errorf("Labels lost: %#v", last.Labels)
 	}
 }
