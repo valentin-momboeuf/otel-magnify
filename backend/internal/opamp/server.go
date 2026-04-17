@@ -295,24 +295,24 @@ func (s *Server) broadcastDisconnect(uid string) {
 
 func (s *Server) onConnectionClose(conn types.Connection) {
 	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	uid, ok := s.connToUID[conn]
 	if !ok {
-		// Connection was never registered (e.g. closed before first message)
+		// Connection was never registered (e.g. closed before first message).
+		s.mu.Unlock()
 		return
 	}
-
 	delete(s.conns, uid)
 	delete(s.connToUID, conn)
+	s.mu.Unlock()
 
-	if s.store != nil {
-		if err := s.store.UpdateAgentStatus(uid, "disconnected"); err != nil {
-			log.Printf("Failed to update agent %s status: %v", uid, err)
-		}
-		if s.notifier != nil {
-			s.broadcastDisconnect(uid)
-		}
+	if s.store == nil {
+		return
+	}
+	if err := s.store.UpdateAgentStatus(uid, "disconnected"); err != nil {
+		log.Printf("Failed to update agent %s status: %v", uid, err)
+	}
+	if s.notifier != nil {
+		s.broadcastDisconnect(uid)
 	}
 }
 

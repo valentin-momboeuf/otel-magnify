@@ -373,3 +373,58 @@ func TestOnConnectionClose_BroadcastsHydratedAgent(t *testing.T) {
 		t.Errorf("Labels lost: %#v", last.Labels)
 	}
 }
+
+func TestOnConnectionClose_UnknownConnection_NoLockLeak(t *testing.T) {
+	s, db, n := newTestServer(t)
+
+	uid := make([]byte, 16)
+	uid[0] = 0x11
+	uidHex := hex.EncodeToString(uid)
+	if err := db.UpsertAgent(models.Agent{
+		ID:         uidHex,
+		Type:       "collector",
+		Status:     "connected",
+		LastSeenAt: time.Now().UTC(),
+		Labels:     models.Labels{},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var conn types.Connection = fakeConn{}
+
+	// First call: conn is NOT registered in s.conns / s.connToUID.
+	// Triggers the early-return branch of onConnectionClose. A missing
+	// Unlock on that branch would leak the mutex.
+	s.onConnectionClose(conn)
+
+	// Register the same conn so the second call exercises the full path.
+	s.mu.Lock()
+	s.conns[uidHex] = conn
+	s.connToUID[conn] = uidHex
+	s.mu.Unlock()
+
+	// Second call: must complete without deadlocking on s.mu. If Task 3's
+	// refactor leaked the lock on the first call's early-return, the second
+	// call would block forever trying to s.mu.Lock(). A 1s select timeout
+	// turns that deadlock into a deterministic test failure.
+	done := make(chan struct{})
+	go func() {
+		s.onConnectionClose(conn)
+		close(done)
+	}()
+	select {
+	case <-done:
+		// Success: no deadlock.
+	case <-time.After(1 * time.Second):
+		t.Fatal("onConnectionClose deadlocked after an unknown-connection early return — s.mu was leaked")
+	}
+
+	// Only the second call should have produced a broadcast; the first
+	// returned before any I/O.
+	if len(n.agents) != 1 {
+		t.Fatalf("expected 1 broadcast (from the registered-conn call), got %d", len(n.agents))
+	}
+	if got := n.agents[0]; got.Status != "disconnected" {
+		t.Errorf("Status: got %q, want %q", got.Status, "disconnected")
+	}
+}
