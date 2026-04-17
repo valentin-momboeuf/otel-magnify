@@ -361,3 +361,47 @@ func TestHandleGetAgentConfigHistory_IncludesErrorAndContent(t *testing.T) {
 		t.Fatalf("history shape: %+v", hist)
 	}
 }
+
+func TestHandlePushConfig_RejectsSDKWithoutCapability(t *testing.T) {
+	db, router, opampFake := newTestAPI(t)
+	_ = db.UpsertAgent(models.Agent{
+		ID:                  "sdk-1",
+		Type:                "sdk",
+		Status:              "connected",
+		LastSeenAt:          time.Now().UTC(),
+		Labels:              models.Labels{},
+		AcceptsRemoteConfig: false,
+	})
+
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+
+	validYAML := `receivers:
+  otlp: {}
+exporters:
+  logging: {}
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [logging]
+`
+	req := httptest.NewRequest("POST", "/api/agents/sdk-1/config", strings.NewReader(validYAML))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "text/yaml")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409, body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["code"] != "remote_config_unsupported" {
+		t.Fatalf("code = %q, want %q", body["code"], "remote_config_unsupported")
+	}
+	if len(opampFake.pushed) != 0 {
+		t.Fatalf("expected 0 opamp pushes, got %d", len(opampFake.pushed))
+	}
+}

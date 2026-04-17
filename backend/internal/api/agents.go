@@ -69,7 +69,7 @@ func (a *API) handlePushConfig(w http.ResponseWriter, r *http.Request) {
 		respondError(w, 500, "failed to load agent")
 		return
 	}
-	if err == nil && agent.Type == "collector" && !agent.AcceptsRemoteConfig {
+	if err == nil && !agent.AcceptsRemoteConfig {
 		respondJSON(w, http.StatusConflict, map[string]string{
 			"error": "agent does not accept remote config",
 			"code":  "remote_config_unsupported",
