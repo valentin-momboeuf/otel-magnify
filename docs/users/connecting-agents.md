@@ -59,7 +59,7 @@ RUN git clone --depth=1 --branch=v0.150.0 \
 WORKDIR /src/opentelemetry-collector-contrib/cmd/opampsupervisor
 RUN CGO_ENABLED=0 go build -o /out/opampsupervisor .
 
-FROM otel/opentelemetry-collector-contrib:latest
+FROM otel/opentelemetry-collector-contrib:0.150.1
 COPY --from=build /out/opampsupervisor /usr/local/bin/opampsupervisor
 ENTRYPOINT ["/usr/local/bin/opampsupervisor"]
 CMD ["--config", "/etc/otelcol/supervisor.yaml"]
@@ -84,7 +84,7 @@ agent:
   description:
     identifying_attributes:
       service.name: otelcol-contrib    # must match otelcol* to be classified as a collector
-      service.version: 0.150.0
+      service.version: 0.150.1
       service.instance.id: collector-supervised-eu
     non_identifying_attributes:
       deployment.environment: production
