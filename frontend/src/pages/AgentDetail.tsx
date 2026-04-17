@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query'
 import { agentsAPI } from '../api/client'
 import StatusBadge from '../components/agents/StatusBadge'
 import AgentConfigSection from '../components/agents/AgentConfigSection'
+import { isSupervised } from '../lib/agentCapabilities'
 
 export default function AgentDetail() {
   const { id } = useParams<{ id: string }>()
@@ -14,6 +15,9 @@ export default function AgentDetail() {
 
   if (isLoading) return <div className="loading">Loading agent...</div>
   if (!agent)   return <div className="error-text">Agent not found.</div>
+
+  const supervised = isSupervised(agent)
+  const isCollector = agent.type === 'collector'
 
   return (
     <div>
@@ -40,6 +44,17 @@ export default function AgentDetail() {
             <StatusBadge status={agent.status} />
           </div>
         </div>
+        {isCollector && (
+          <div className="detail-cell">
+            <div className="detail-cell-label">Control</div>
+            <div className="detail-cell-value" style={{ color: supervised ? 'var(--gold)' : 'var(--text-muted)' }}>
+              {supervised ? 'Supervised' : 'Read-only'}
+              <span className="detail-cell-sub">
+                {supervised ? 'OpAMP Supervisor' : 'opamp extension only'}
+              </span>
+            </div>
+          </div>
+        )}
         <div className="detail-cell">
           <div className="detail-cell-label">Last seen</div>
           <div className="detail-cell-value" style={{ fontSize: '0.78rem' }}>
