@@ -1,11 +1,14 @@
 package opamp
 
 import (
+	"context"
 	"encoding/hex"
+	"net"
 	"testing"
 	"time"
 
 	"github.com/open-telemetry/opamp-go/protobufs"
+	"github.com/open-telemetry/opamp-go/server/types"
 
 	"otel-magnify/internal/store"
 	"otel-magnify/pkg/models"
@@ -314,5 +317,59 @@ func TestBroadcastDisconnect_FallbackOnDBError(t *testing.T) {
 	}
 	if got.LastSeenAt.Before(before) || got.LastSeenAt.After(after) {
 		t.Errorf("LastSeenAt: got %v, want within [%v,%v]", got.LastSeenAt, before, after)
+	}
+}
+
+// fakeConn is a no-op types.Connection for exercising onConnectionClose.
+// onConnectionClose only uses the value as a map key and does not invoke
+// any of the methods.
+type fakeConn struct{}
+
+func (fakeConn) Connection() net.Conn                                      { return nil }
+func (fakeConn) Send(_ context.Context, _ *protobufs.ServerToAgent) error { return nil }
+func (fakeConn) Disconnect() error                                         { return nil }
+
+func TestOnConnectionClose_BroadcastsHydratedAgent(t *testing.T) {
+	s, db, n := newTestServer(t)
+
+	uid := make([]byte, 16)
+	uid[0] = 0xFF
+	uidHex := hex.EncodeToString(uid)
+
+	if err := db.UpsertAgent(models.Agent{
+		ID:                  uidHex,
+		Type:                "collector",
+		Version:             "0.150.1",
+		Status:              "connected",
+		LastSeenAt:          time.Now().UTC(),
+		Labels:              models.Labels{"env": "prod"},
+		AcceptsRemoteConfig: true,
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	var conn types.Connection = fakeConn{}
+	s.mu.Lock()
+	s.conns[uidHex] = conn
+	s.connToUID[conn] = uidHex
+	s.mu.Unlock()
+
+	s.onConnectionClose(conn)
+
+	if len(n.agents) == 0 {
+		t.Fatal("expected a broadcast after onConnectionClose")
+	}
+	last := n.agents[len(n.agents)-1]
+	if last.Status != "disconnected" {
+		t.Errorf("Status: got %q, want %q", last.Status, "disconnected")
+	}
+	if last.Type != "collector" {
+		t.Errorf("Type lost: got %q", last.Type)
+	}
+	if !last.AcceptsRemoteConfig {
+		t.Errorf("AcceptsRemoteConfig lost")
+	}
+	if last.Labels["env"] != "prod" {
+		t.Errorf("Labels lost: %#v", last.Labels)
 	}
 }
