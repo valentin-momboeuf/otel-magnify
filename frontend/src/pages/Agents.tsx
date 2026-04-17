@@ -3,23 +3,35 @@ import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { agentsAPI } from '../api/client'
 import AgentCard from '../components/agents/AgentCard'
+import { isSupervised, isReadOnlyCollector } from '../lib/agentCapabilities'
+
+type ControlFilter = '' | 'supervised' | 'readonly'
 
 export default function Inventory() {
   const { data: agents, isLoading } = useQuery({ queryKey: ['agents'], queryFn: agentsAPI.list })
   const [searchParams] = useSearchParams()
 
-  const [filterType,   setFilterType]   = useState<string>(searchParams.get('type') ?? '')
-  const [filterStatus, setFilterStatus] = useState<string>('')
+  const [filterType,    setFilterType]    = useState<string>(searchParams.get('type') ?? '')
+  const [filterStatus,  setFilterStatus]  = useState<string>('')
+  const [filterControl, setFilterControl] = useState<ControlFilter>(
+    (searchParams.get('control') as ControlFilter) ?? ''
+  )
 
-  // Sync filter when navigating from Dashboard stat cards
   useEffect(() => {
     const type = searchParams.get('type')
     if (type) setFilterType(type)
+    const control = searchParams.get('control') as ControlFilter | null
+    if (control) setFilterControl(control)
   }, [searchParams])
 
   const filtered = (agents ?? []).filter((a) => {
     if (filterType   && a.type   !== filterType)   return false
     if (filterStatus && a.status !== filterStatus) return false
+    if (filterControl) {
+      if (a.type !== 'collector')                                    return false
+      if (filterControl === 'supervised' && !isSupervised(a))        return false
+      if (filterControl === 'readonly'   && !isReadOnlyCollector(a)) return false
+    }
     return true
   })
 
@@ -51,6 +63,15 @@ export default function Inventory() {
           <option value="connected">connected</option>
           <option value="disconnected">disconnected</option>
           <option value="degraded">degraded</option>
+        </select>
+        <select
+          className="filter-select"
+          value={filterControl}
+          onChange={(e) => setFilterControl(e.target.value as ControlFilter)}
+        >
+          <option value="">All control</option>
+          <option value="supervised">supervised</option>
+          <option value="readonly">read-only</option>
         </select>
       </div>
 

@@ -125,7 +125,11 @@ func TestGetAgent_NotFound(t *testing.T) {
 
 func TestHandlePushConfig_PersistsAndReturnsHash(t *testing.T) {
 	db, router, opampFake := newTestAPI(t)
-	_ = db.UpsertAgent(models.Agent{ID: "a1", Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
+	_ = db.UpsertAgent(models.Agent{
+		ID: "a1", Type: "collector", Status: "connected",
+		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+		AcceptsRemoteConfig: true,
+	})
 
 	a := auth.New("test-secret-key-at-least-32-bytes!")
 	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
@@ -261,7 +265,11 @@ service:
 
 func TestHandlePushConfig_RejectsInvalidYAML(t *testing.T) {
 	db, router, opampFake := newTestAPI(t)
-	_ = db.UpsertAgent(models.Agent{ID: "a1", Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
+	_ = db.UpsertAgent(models.Agent{
+		ID: "a1", Type: "collector", Status: "connected",
+		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+		AcceptsRemoteConfig: true,
+	})
 
 	a := auth.New("test-secret-key-at-least-32-bytes!")
 	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
@@ -275,6 +283,63 @@ func TestHandlePushConfig_RejectsInvalidYAML(t *testing.T) {
 	}
 	if len(opampFake.pushed) != 0 {
 		t.Errorf("opamp push should not have been called on invalid config")
+	}
+}
+
+func TestHandlePushConfig_RejectsWhenRemoteConfigNotAccepted(t *testing.T) {
+	db, router, opampFake := newTestAPI(t)
+	_ = db.UpsertAgent(models.Agent{
+		ID: "a-ro", Type: "collector", Status: "connected",
+		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+		AcceptsRemoteConfig: false,
+	})
+
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+
+	validYAML := `receivers:
+  otlp: {}
+exporters:
+  logging: {}
+service:
+  pipelines:
+    traces:
+      receivers: [otlp]
+      exporters: [logging]
+`
+	req := httptest.NewRequest("POST", "/api/agents/a-ro/config", strings.NewReader(validYAML))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "text/yaml")
+
+	rec := httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusConflict {
+		t.Fatalf("status = %d, want 409, body=%s", rec.Code, rec.Body.String())
+	}
+	var body map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["code"] != "remote_config_unsupported" {
+		t.Fatalf("code = %q, want %q", body["code"], "remote_config_unsupported")
+	}
+	// Guard runs before the OpAMP push: nothing should have been sent to the agent.
+	if len(opampFake.pushed) != 0 {
+		t.Fatalf("expected 0 opamp pushes, got %d", len(opampFake.pushed))
+	}
+
+	// Flip the flag to true and push must now succeed (regression guard).
+	_ = db.UpsertAgent(models.Agent{
+		ID: "a-ro", Type: "collector", Status: "connected",
+		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+		AcceptsRemoteConfig: true,
+	})
+	req = httptest.NewRequest("POST", "/api/agents/a-ro/config", strings.NewReader(validYAML))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "text/yaml")
+	rec = httptest.NewRecorder()
+	router.ServeHTTP(rec, req)
+	if rec.Code != 202 {
+		t.Fatalf("status = %d after flip-on, want 202, body=%s", rec.Code, rec.Body.String())
 	}
 }
 

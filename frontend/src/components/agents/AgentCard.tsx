@@ -1,6 +1,7 @@
 import { Link } from 'react-router-dom'
 import type { Agent } from '../../types'
 import StatusBadge from './StatusBadge'
+import { isSupervised } from '../../lib/agentCapabilities'
 
 function TypeIcon({ type }: { type: string }) {
   if (type === 'collector') {
@@ -30,6 +31,14 @@ export default function AgentCard({ agent }: { agent: Agent }) {
           <div className="agent-name">{agent.display_name || agent.id}</div>
           <div className="agent-meta">
             <span className={`agent-type agent-type-${agent.type}`}>{agent.type}</span>
+            {isSupervised(agent) && (
+              <span
+                className="agent-supervised-pill"
+                title="Managed by an OpAMP Supervisor — accepts remote config pushes"
+              >
+                supervised
+              </span>
+            )}
             &nbsp;&nbsp;v{agent.version}
           </div>
         </div>

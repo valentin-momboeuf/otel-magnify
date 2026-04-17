@@ -7,6 +7,7 @@ import PushStatusBanner from './PushStatusBanner'
 import ConfigDiffView from './ConfigDiffView'
 import PushHistoryTable from './PushHistoryTable'
 import { useStore } from '../../store'
+import { isReadOnlyCollector } from '../../lib/agentCapabilities'
 import type { Agent, ValidationResult } from '../../types'
 
 interface Props {
@@ -36,6 +37,8 @@ export default function AgentConfigSection({ agent }: Props) {
     queryFn: () => configsAPI.get(agent.active_config_id!),
     enabled: agent.type === 'collector' && !!agent.active_config_id,
   })
+
+  const activeContent = config?.content ?? ''
 
   const validateMutation = useMutation({
     mutationFn: () => agentsAPI.validateConfig(agent.id, draftYaml),
@@ -148,7 +151,35 @@ export default function AgentConfigSection({ agent }: Props) {
     )
   }
 
-  const activeContent = config?.content ?? ''
+  // ── Collector that does not accept remote config: read-only view ─────────
+  if (isReadOnlyCollector(agent)) {
+    const hasConfig = !!agent.active_config_id
+    return (
+      <>
+        <p className="section-title">Configuration</p>
+        {hasConfig && isLoading ? (
+          <div className="loading">Loading configuration...</div>
+        ) : hasConfig && isError ? (
+          <div className="error-text">Failed to load configuration</div>
+        ) : hasConfig ? (
+          <YamlEditor value={activeContent} readOnly />
+        ) : (
+          <div className="empty-state">No config reported yet.</div>
+        )}
+        <div className="config-readonly-note">
+          Read-only — this collector uses the <code>opamp</code> extension which can only report its config. Run it under the OpAMP Supervisor to enable config push.{' '}
+          <a
+            href="https://github.com/valentin-momboeuf/otel-magnify/blob/main/docs/users/connecting-agents.md#running-a-collector-via-opamp-supervisor"
+            target="_blank"
+            rel="noreferrer"
+          >
+            Learn more →
+          </a>
+        </div>
+        <PushHistoryTable agentId={agent.id} />
+      </>
+    )
+  }
 
   const editorPanel = (
     <div>

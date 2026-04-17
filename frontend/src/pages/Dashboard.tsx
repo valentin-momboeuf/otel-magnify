@@ -4,6 +4,7 @@ import { useQuery } from '@tanstack/react-query'
 import { agentsAPI, alertsAPI } from '../api/client'
 import { useStore } from '../store'
 import StatusBadge from '../components/agents/StatusBadge'
+import { isSupervised } from '../lib/agentCapabilities'
 
 export default function Dashboard() {
   const { data: agents } = useQuery({ queryKey: ['agents'], queryFn: agentsAPI.list })
@@ -23,6 +24,7 @@ export default function Dashboard() {
   const degraded   = agents?.filter((a) => a.status === 'degraded').length ?? 0
   const collectors = agents?.filter((a) => a.type === 'collector').length ?? 0
   const sdks       = agents?.filter((a) => a.type === 'sdk').length ?? 0
+  const supervised = agents?.filter(isSupervised).length ?? 0
 
   return (
     <div>
@@ -33,6 +35,7 @@ export default function Dashboard() {
       <div className="stat-grid">
         <StatCard label="Collectors"    value={collectors}         link="/inventory?type=collector" />
         <StatCard label="SDK Agents"    value={sdks}               link="/inventory?type=sdk" />
+        <StatCard label="Supervised"    value={supervised}         link="/inventory?control=supervised" />
         <StatCard label="Connected"     value={connected}          />
         <StatCard label="Degraded"      value={degraded}           />
         <StatCard label="Active Alerts" value={alerts?.length ?? 0} />

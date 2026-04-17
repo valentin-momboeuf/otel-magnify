@@ -126,3 +126,40 @@ func TestUpsertAgent_RoundtripsRemoteConfigStatus(t *testing.T) {
 		t.Fatalf("remote_config_status not persisted: %+v", got.RemoteConfigStatus)
 	}
 }
+
+func TestAgent_AcceptsRemoteConfig_RoundTrip(t *testing.T) {
+	db := newTestDB(t)
+
+	want := models.Agent{
+		ID: "a-supervised", DisplayName: "c1", Type: "collector",
+		Version: "0.98.0", Status: "connected",
+		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+		AcceptsRemoteConfig: true,
+	}
+	if err := db.UpsertAgent(want); err != nil {
+		t.Fatalf("upsert: %v", err)
+	}
+	got, err := db.GetAgent("a-supervised")
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.AcceptsRemoteConfig {
+		t.Fatalf("accepts_remote_config: got false, want true")
+	}
+
+	// Flip back to false, confirm round-trip works both ways.
+	want.AcceptsRemoteConfig = false
+	if err := db.UpsertAgent(want); err != nil {
+		t.Fatalf("upsert false: %v", err)
+	}
+	got, _ = db.GetAgent("a-supervised")
+	if got.AcceptsRemoteConfig {
+		t.Fatalf("accepts_remote_config: got true, want false")
+	}
+
+	// ListAgents must also carry the flag.
+	list, _ := db.ListAgents()
+	if len(list) != 1 || list[0].AcceptsRemoteConfig {
+		t.Fatalf("ListAgents carried wrong value: %+v", list)
+	}
+}

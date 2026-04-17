@@ -39,6 +39,7 @@ type Agent struct {
 	ActiveConfigID      *string              `json:"active_config_id,omitempty"`
 	RemoteConfigStatus  *RemoteConfigStatus  `json:"remote_config_status,omitempty"`
 	AvailableComponents *AvailableComponents `json:"available_components,omitempty"`
+	AcceptsRemoteConfig bool                 `json:"accepts_remote_config"`
 }
 
 // AvailableComponents maps OTel Collector categories (receivers, processors,

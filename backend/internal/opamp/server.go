@@ -23,6 +23,12 @@ import (
 // send AgentToServer.available_components. Defined in OpAMP spec ≥ v0.14.
 const reportsAvailableComponentsCap = uint64(protobufs.AgentCapabilities_AgentCapabilities_ReportsAvailableComponents)
 
+// acceptsRemoteConfigCap signals that the agent (or the supervisor fronting it)
+// can apply a remote config. For bare collectors with the opamp extension this
+// bit is unset — only opamp-supervisor sets it. Exposed in the Agent JSON so
+// the UI can gate config editing affordances.
+const acceptsRemoteConfigCap = uint64(protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig)
+
 // OpAMPStore is the subset of store.DB used by the OpAMP server.
 type OpAMPStore interface {
 	GetAgent(id string) (models.Agent, error)
@@ -189,6 +195,10 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 				agent.Labels[kv.Key] = sv
 			}
 		}
+		// Capture capability. AgentDescription presence is our marker for a
+		// full-status message; heartbeats omit it, so we preserve the previous
+		// value (already seeded from the DB at the top of onMessage).
+		agent.AcceptsRemoteConfig = msg.Capabilities&acceptsRemoteConfigCap != 0
 	}
 
 	// Extract health

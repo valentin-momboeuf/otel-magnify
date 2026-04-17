@@ -60,11 +60,28 @@ func (a *API) handlePushConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Load the agent once: we need both the capability flag (gate) and
+	// AvailableComponents (validation). Treat sql.ErrNoRows as "unknown
+	// agent" — the OpAMP push attempt below will return a clearer
+	// "not connected" error in that case.
+	agent, err := a.db.GetAgent(agentID)
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		respondError(w, 500, "failed to load agent")
+		return
+	}
+	if err == nil && agent.Type == "collector" && !agent.AcceptsRemoteConfig {
+		respondJSON(w, http.StatusConflict, map[string]string{
+			"error": "agent does not accept remote config",
+			"code":  "remote_config_unsupported",
+		})
+		return
+	}
+
 	// Safety net: refuse to push a config that fails light validation.
 	// The frontend should have called /validate first for UX feedback;
 	// this blocks API-level bypass.
 	var available *models.AvailableComponents
-	if agent, err := a.db.GetAgent(agentID); err == nil {
+	if agent.AvailableComponents != nil {
 		available = agent.AvailableComponents
 	}
 	if result := validator.Validate(body, available); !result.Valid {
