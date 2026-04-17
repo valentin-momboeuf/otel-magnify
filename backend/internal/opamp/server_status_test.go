@@ -156,3 +156,52 @@ func TestOnMessage_RemoteConfigStatusFailed_NoRollbackTarget(t *testing.T) {
 		t.Fatalf("expected no rollback notification")
 	}
 }
+
+func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
+	s, db, _ := newTestServer(t)
+
+	uid := make([]byte, 16)
+	uid[0] = 0xCC
+	uidHex := hex.EncodeToString(uid)
+
+	// Full-status message with AcceptsRemoteConfig set.
+	full := &protobufs.AgentToServer{
+		InstanceUid: uid,
+		AgentDescription: &protobufs.AgentDescription{
+			IdentifyingAttributes: []*protobufs.KeyValue{
+				{Key: "service.name", Value: &protobufs.AnyValue{Value: &protobufs.AnyValue_StringValue{StringValue: "otelcol-contrib"}}},
+				{Key: "service.version", Value: &protobufs.AnyValue{Value: &protobufs.AnyValue_StringValue{StringValue: "0.150.1"}}},
+			},
+		},
+		Capabilities: uint64(protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig),
+	}
+	s.onMessage(nil, nil, full)
+
+	got, err := db.GetAgent(uidHex)
+	if err != nil {
+		t.Fatalf("get: %v", err)
+	}
+	if !got.AcceptsRemoteConfig {
+		t.Fatalf("after full-status: accepts_remote_config=false, want true")
+	}
+
+	// Heartbeat (no AgentDescription, Capabilities=0) must preserve the previous value.
+	hb := &protobufs.AgentToServer{InstanceUid: uid}
+	s.onMessage(nil, nil, hb)
+	got, _ = db.GetAgent(uidHex)
+	if !got.AcceptsRemoteConfig {
+		t.Fatalf("after heartbeat: accepts_remote_config flipped to false — should be preserved")
+	}
+
+	// A full-status without the bit flips it off.
+	fullOff := &protobufs.AgentToServer{
+		InstanceUid:      uid,
+		AgentDescription: full.AgentDescription,
+		Capabilities:     0,
+	}
+	s.onMessage(nil, nil, fullOff)
+	got, _ = db.GetAgent(uidHex)
+	if got.AcceptsRemoteConfig {
+		t.Fatalf("after full-status with caps=0: accepts_remote_config stayed true")
+	}
+}
