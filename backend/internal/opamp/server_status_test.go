@@ -276,3 +276,43 @@ func TestBroadcastDisconnect_HydratesAgent(t *testing.T) {
 		t.Errorf("AcceptsRemoteConfig lost: got false")
 	}
 }
+
+func TestBroadcastDisconnect_FallbackOnDBError(t *testing.T) {
+	s, db, n := newTestServer(t)
+
+	uid := make([]byte, 16)
+	uid[0] = 0xEE
+	uidHex := hex.EncodeToString(uid)
+	if err := db.UpsertAgent(models.Agent{
+		ID:         uidHex,
+		Type:       "collector",
+		Status:     "connected",
+		LastSeenAt: time.Now().UTC(),
+		Labels:     models.Labels{},
+	}); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+
+	// Force GetAgent to fail by closing the underlying DB before the call.
+	if err := db.Close(); err != nil {
+		t.Fatalf("close db: %v", err)
+	}
+
+	before := time.Now().UTC()
+	s.broadcastDisconnect(uidHex) // must not panic
+	after := time.Now().UTC()
+
+	if len(n.agents) != 1 {
+		t.Fatalf("expected 1 broadcast, got %d", len(n.agents))
+	}
+	got := n.agents[0]
+	if got.ID != uidHex {
+		t.Errorf("ID: got %q, want %q", got.ID, uidHex)
+	}
+	if got.Status != "disconnected" {
+		t.Errorf("Status: got %q, want %q", got.Status, "disconnected")
+	}
+	if got.LastSeenAt.Before(before) || got.LastSeenAt.After(after) {
+		t.Errorf("LastSeenAt: got %v, want within [%v,%v]", got.LastSeenAt, before, after)
+	}
+}
