@@ -3,3 +3,6 @@
 
 # MkDocs build output
 site/
+
+# Superpowers artifacts (specs / plans) belong in the Obsidian vault, not the repo
+docs/superpowers/
