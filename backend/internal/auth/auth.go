@@ -2,21 +2,18 @@
 package auth
 
 import (
-	"context"
 	"fmt"
 	"net/http"
 	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
+
+	"otel-magnify/pkg/ext"
 )
 
-// contextKey is an unexported type to avoid context key collisions across packages.
-type contextKey struct{}
-
-// Claims holds the JWT payload fields we care about, embedded alongside
-// the standard registered claims (exp, iat, etc.).
-type Claims struct {
+// claims holds the JWT payload. Internal to this package.
+type claims struct {
 	UserID string `json:"user_id"`
 	Email  string `json:"email"`
 	Role   string `json:"role"`
@@ -37,7 +34,7 @@ func New(secret string) *Auth {
 // GenerateToken mints a signed JWT for the given user attributes.
 // Tokens expire after 24 hours.
 func (a *Auth) GenerateToken(userID, email, role string) (string, error) {
-	claims := Claims{
+	c := claims{
 		UserID: userID,
 		Email:  email,
 		Role:   role,
@@ -46,15 +43,15 @@ func (a *Auth) GenerateToken(userID, email, role string) (string, error) {
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
 		},
 	}
-	token := jwt.NewWithClaims(jwt.SigningMethodHS256, claims)
+	token := jwt.NewWithClaims(jwt.SigningMethodHS256, c)
 	return token.SignedString(a.secret)
 }
 
 // ValidateToken parses and verifies the token string, returning the embedded
-// claims on success. It explicitly rejects tokens signed with a non-HMAC
+// user info on success. It explicitly rejects tokens signed with a non-HMAC
 // algorithm to prevent the "alg:none" attack.
-func (a *Auth) ValidateToken(tokenStr string) (*Claims, error) {
-	token, err := jwt.ParseWithClaims(tokenStr, &Claims{}, func(token *jwt.Token) (any, error) {
+func (a *Auth) ValidateToken(tokenStr string) (*ext.UserInfo, error) {
+	token, err := jwt.ParseWithClaims(tokenStr, &claims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
 			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
 		}
@@ -63,16 +60,16 @@ func (a *Auth) ValidateToken(tokenStr string) (*Claims, error) {
 	if err != nil {
 		return nil, err
 	}
-	claims, ok := token.Claims.(*Claims)
+	c, ok := token.Claims.(*claims)
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid token claims")
 	}
-	return claims, nil
+	return &ext.UserInfo{UserID: c.UserID, Email: c.Email, Role: c.Role}, nil
 }
 
 // Middleware returns an HTTP handler that enforces Bearer token authentication.
-// On success it stores the validated Claims in the request context so downstream
-// handlers can retrieve them via ClaimsFromContext.
+// On success it stores the validated UserInfo in the request context so downstream
+// handlers can retrieve it via ext.UserInfoFromContext.
 func (a *Auth) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		header := r.Header.Get("Authorization")
@@ -81,25 +78,12 @@ func (a *Auth) Middleware(next http.Handler) http.Handler {
 			return
 		}
 		tokenStr := strings.TrimPrefix(header, "Bearer ")
-		claims, err := a.ValidateToken(tokenStr)
+		info, err := a.ValidateToken(tokenStr)
 		if err != nil {
 			http.Error(w, "Unauthorized", http.StatusUnauthorized)
 			return
 		}
-		ctx := context.WithValue(r.Context(), contextKey{}, claims)
+		ctx := ext.ContextWithUserInfo(r.Context(), info)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-// ClaimsFromContext retrieves the Claims stored by Middleware.
-// Returns nil if no claims are present (e.g. unauthenticated route).
-func ClaimsFromContext(ctx context.Context) *Claims {
-	claims, _ := ctx.Value(contextKey{}).(*Claims)
-	return claims
-}
-
-// ContextWithClaims returns a new context carrying the given claims.
-// Used in tests and places where we construct a request outside the middleware.
-func ContextWithClaims(ctx context.Context, c *Claims) context.Context {
-	return context.WithValue(ctx, contextKey{}, c)
 }

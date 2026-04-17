@@ -6,21 +6,19 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
-	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"golang.org/x/crypto/bcrypt"
 
 	"otel-magnify/internal/alerts"
-	"otel-magnify/internal/api"
 	"otel-magnify/internal/auth"
 	"otel-magnify/internal/config"
-	"otel-magnify/internal/opamp"
 	"otel-magnify/internal/store"
+	"otel-magnify/pkg/ext"
 	"otel-magnify/pkg/models"
+	"otel-magnify/pkg/server"
 )
 
 //go:embed dist
@@ -45,93 +43,52 @@ func main() {
 	}
 	log.Println("Database migrations applied")
 
-	// Seed admin user if env vars are set (idempotent)
 	seedAdmin(db)
 
-	// WebSocket hub
-	hub := api.NewHub()
-	go hub.Run()
-
-	// OpAMP server
-	opampSrv := opamp.New(db, hub)
-	opampHandler, connCtx, err := opampSrv.Attach()
-	if err != nil {
-		log.Fatalf("Failed to attach OpAMP server: %v", err)
-	}
-
-	// Start OpAMP HTTP server on separate port
-	opampMux := http.NewServeMux()
-	opampMux.HandleFunc("/v1/opamp", opampHandler)
-	opampHTTP := &http.Server{
-		Addr:        cfg.OpAMPAddr,
-		Handler:     opampMux,
-		ConnContext: connCtx,
-	}
-	go func() {
-		log.Printf("OpAMP server listening on %s", cfg.OpAMPAddr)
-		if err := opampHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("OpAMP server: %v", err)
-		}
-	}()
-
-	// Alert engine
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	alertEngine := alerts.New(db, hub, 5*time.Minute, cfg.MinAgentVersion, cfg.WebhookURL)
-	go alertEngine.Start(ctx, 30*time.Second)
-	log.Println("Alert engine started (30s interval)")
-
-	// Embedded frontend assets
-	var staticFS fs.FS
-	sub, err := fs.Sub(frontendDist, "dist")
-	if err == nil {
-		staticFS = sub
-	}
-
-	// REST API
+	// Auth
 	a := auth.New(cfg.JWTSecret)
-	router := api.NewRouter(db, a, hub, opampSrv, cfg.CORSOrigins, staticFS)
 
-	apiHTTP := &http.Server{
-		Addr:    cfg.ListenAddr,
-		Handler: router,
+	// Server options
+	var opts []server.Option
+
+	if wh := alerts.NewWebhookNotifier(cfg.WebhookURL); wh != nil {
+		opts = append(opts, server.WithNotifier(wh))
 	}
 
-	go func() {
-		log.Printf("API server listening on %s", cfg.ListenAddr)
-		if err := apiHTTP.ListenAndServe(); err != nil && err != http.ErrServerClosed {
-			log.Fatalf("API server: %v", err)
-		}
-	}()
+	if sub, err := fs.Sub(frontendDist, "dist"); err == nil {
+		opts = append(opts, server.WithStaticFS(sub))
+	}
+
+	srv := server.New(server.Config{
+		ListenAddr:      cfg.ListenAddr,
+		OpAMPAddr:       cfg.OpAMPAddr,
+		CORSOrigins:     cfg.CORSOrigins,
+		MinAgentVersion: cfg.MinAgentVersion,
+	}, db, a, opts...)
 
 	// Graceful shutdown
+	ctx, cancel := context.WithCancel(context.Background())
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
-	<-sig
+	go func() {
+		<-sig
+		cancel()
+	}()
 
-	log.Println("Shutting down...")
-	cancel()
-
-	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer shutdownCancel()
-
-	apiHTTP.Shutdown(shutdownCtx)
-	opampHTTP.Shutdown(shutdownCtx)
-	opampSrv.Stop(shutdownCtx)
-	hub.Stop()
-	log.Println("Shutdown complete")
+	if err := srv.Run(ctx); err != nil {
+		log.Fatalf("Server error: %v", err)
+	}
 }
 
 // seedAdmin creates an admin user on startup if SEED_ADMIN_EMAIL and
 // SEED_ADMIN_PASSWORD are set. Skips silently if the email already exists.
-func seedAdmin(db *store.DB) {
+func seedAdmin(db ext.Store) {
 	email := os.Getenv("SEED_ADMIN_EMAIL")
 	password := os.Getenv("SEED_ADMIN_PASSWORD")
 	if email == "" || password == "" {
 		return
 	}
 
-	// Idempotent: skip if already exists
 	if _, err := db.GetUserByEmail(email); err == nil {
 		log.Printf("Seed admin: user %s already exists, skipping", email)
 		return

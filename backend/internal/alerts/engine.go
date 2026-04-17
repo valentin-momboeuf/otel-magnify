@@ -7,26 +7,39 @@ import (
 	"log"
 	"time"
 
-	"otel-magnify/internal/api"
-	"otel-magnify/internal/store"
+	"otel-magnify/pkg/ext"
 	"otel-magnify/pkg/models"
 )
 
-type Engine struct {
-	db          *store.DB
-	hub         *api.Hub
-	downTimeout time.Duration
-	minVersion  string
-	webhook     *WebhookNotifier
+// Broadcaster pushes real-time updates to connected frontends.
+type Broadcaster interface {
+	BroadcastAlertUpdate(alert models.Alert)
 }
 
-func New(db *store.DB, hub *api.Hub, downTimeout time.Duration, minVersion string, webhookURL string) *Engine {
+// AlertStore is the subset of ext.Store used by the alert engine.
+type AlertStore interface {
+	ListAgents() ([]models.Agent, error)
+	GetUnresolvedAlertByAgentAndRule(agentID, rule string) (*models.Alert, error)
+	CreateAlert(a models.Alert) error
+	ResolveAlert(id string) error
+	GetLatestPendingAgentConfig(agentID string) (*models.AgentConfig, error)
+}
+
+type Engine struct {
+	db          AlertStore
+	hub         Broadcaster
+	downTimeout time.Duration
+	minVersion  string
+	notifiers   []ext.AlertNotifier
+}
+
+func New(db AlertStore, hub Broadcaster, downTimeout time.Duration, minVersion string, notifiers ...ext.AlertNotifier) *Engine {
 	return &Engine{
 		db:          db,
 		hub:         hub,
 		downTimeout: downTimeout,
 		minVersion:  minVersion,
-		webhook:     NewWebhookNotifier(webhookURL),
+		notifiers:   notifiers,
 	}
 }
 
@@ -83,8 +96,9 @@ func (e *Engine) evaluateAgentDown(agent models.Agent, now time.Time) {
 		if e.hub != nil {
 			e.hub.BroadcastAlertUpdate(alert)
 		}
-		if e.webhook != nil {
-			go e.webhook.Send(alert)
+		for _, n := range e.notifiers {
+			n := n
+			go n.Send(alert)
 		}
 	}
 
@@ -123,8 +137,9 @@ func (e *Engine) evaluateConfigDrift(agent models.Agent, now time.Time) {
 		if e.hub != nil {
 			e.hub.BroadcastAlertUpdate(alert)
 		}
-		if e.webhook != nil {
-			go e.webhook.Send(alert)
+		for _, n := range e.notifiers {
+			n := n
+			go n.Send(alert)
 		}
 	}
 
@@ -165,8 +180,9 @@ func (e *Engine) evaluateVersionOutdated(agent models.Agent, now time.Time) {
 		if e.hub != nil {
 			e.hub.BroadcastAlertUpdate(alert)
 		}
-		if e.webhook != nil {
-			go e.webhook.Send(alert)
+		for _, n := range e.notifiers {
+			n := n
+			go n.Send(alert)
 		}
 	}
 
