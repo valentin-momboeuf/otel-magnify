@@ -311,11 +311,7 @@ func (s *Server) onConnectionClose(conn types.Connection) {
 			log.Printf("Failed to update agent %s status: %v", uid, err)
 		}
 		if s.notifier != nil {
-			s.notifier.BroadcastAgentUpdate(models.Agent{
-				ID:         uid,
-				Status:     "disconnected",
-				LastSeenAt: time.Now().UTC(),
-			})
+			s.broadcastDisconnect(uid)
 		}
 	}
 }
