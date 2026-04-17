@@ -11,6 +11,7 @@ import (
 
 	"otel-magnify/internal/auth"
 	"otel-magnify/internal/store"
+	"otel-magnify/pkg/ext"
 	"otel-magnify/pkg/models"
 )
 
@@ -24,7 +25,7 @@ func (f *fakeOpAMP) PushConfig(_ context.Context, _ string, y []byte) error {
 	return f.err
 }
 
-func newTestAPI(t *testing.T) (*store.DB, http.Handler, *fakeOpAMP) {
+func newTestAPI(t *testing.T) (ext.Store, http.Handler, *fakeOpAMP) {
 	t.Helper()
 	db, err := store.Open("sqlite", ":memory:")
 	if err != nil {

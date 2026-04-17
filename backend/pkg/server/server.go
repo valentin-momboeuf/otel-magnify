@@ -1,0 +1,129 @@
+package server
+
+import (
+	"context"
+	"io/fs"
+	"log"
+	"net"
+	"net/http"
+	"time"
+
+	"github.com/go-chi/chi/v5"
+
+	"otel-magnify/internal/alerts"
+	"otel-magnify/internal/api"
+	"otel-magnify/internal/opamp"
+	"otel-magnify/pkg/ext"
+)
+
+// Server composes the otel-magnify subsystems.
+type Server struct {
+	cfg         Config
+	store       ext.Store
+	auth        ext.AuthProvider
+	notifiers   []ext.AlertNotifier
+	auditLogger ext.AuditLogger
+	staticFS    fs.FS
+	routerHooks []func(chi.Router)
+}
+
+// New creates a Server with the given store, auth provider, and options.
+func New(cfg Config, store ext.Store, auth ext.AuthProvider, opts ...Option) *Server {
+	s := &Server{
+		cfg:         cfg,
+		store:       store,
+		auth:        auth,
+		auditLogger: ext.NopAuditLogger{},
+	}
+	for _, opt := range opts {
+		opt(s)
+	}
+	if s.cfg.ListenAddr == "" {
+		s.cfg.ListenAddr = ":8080"
+	}
+	if s.cfg.OpAMPAddr == "" {
+		s.cfg.OpAMPAddr = ":4320"
+	}
+	return s
+}
+
+// Run starts all subsystems and blocks until ctx is cancelled.
+func (s *Server) Run(ctx context.Context) error {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	// WebSocket hub
+	hub := api.NewHub()
+	go hub.Run()
+
+	// OpAMP server
+	opampSrv := opamp.New(s.store, hub)
+	opampHandler, connCtx, err := opampSrv.Attach()
+	if err != nil {
+		return err
+	}
+
+	opampMux := http.NewServeMux()
+	opampMux.HandleFunc("/v1/opamp", opampHandler)
+
+	opampListener, err := net.Listen("tcp", s.cfg.OpAMPAddr)
+	if err != nil {
+		return err
+	}
+	opampHTTP := &http.Server{
+		Handler:     opampMux,
+		ConnContext: connCtx,
+	}
+	go func() {
+		log.Printf("OpAMP server listening on %s", opampListener.Addr())
+		if err := opampHTTP.Serve(opampListener); err != nil && err != http.ErrServerClosed {
+			log.Printf("OpAMP server: %v", err)
+		}
+	}()
+
+	// Alert engine
+	alertEngine := alerts.New(s.store, hub, 5*time.Minute, s.cfg.MinAgentVersion, s.notifiers...)
+	go alertEngine.Start(ctx, 30*time.Second)
+	log.Println("Alert engine started (30s interval)")
+
+	// REST API router
+	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS)
+
+	// Apply router hooks (enterprise can add RBAC middleware, extra routes, etc.)
+	if len(s.routerHooks) > 0 {
+		if chiRouter, ok := router.(chi.Router); ok {
+			for _, hook := range s.routerHooks {
+				hook(chiRouter)
+			}
+		}
+	}
+
+	apiListener, err := net.Listen("tcp", s.cfg.ListenAddr)
+	if err != nil {
+		return err
+	}
+	apiHTTP := &http.Server{
+		Handler: router,
+	}
+	go func() {
+		log.Printf("API server listening on %s", apiListener.Addr())
+		if err := apiHTTP.Serve(apiListener); err != nil && err != http.ErrServerClosed {
+			log.Printf("API server: %v", err)
+		}
+	}()
+
+	// Block until context cancellation
+	<-ctx.Done()
+	log.Println("Shutting down...")
+
+	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer shutdownCancel()
+
+	apiHTTP.Shutdown(shutdownCtx)
+	opampHTTP.Shutdown(shutdownCtx)
+	opampSrv.Stop(shutdownCtx)
+	hub.Stop()
+	log.Println("Shutdown complete")
+
+	return nil
+}

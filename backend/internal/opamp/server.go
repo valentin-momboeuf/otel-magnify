@@ -16,7 +16,6 @@ import (
 	opampServer "github.com/open-telemetry/opamp-go/server"
 	"github.com/open-telemetry/opamp-go/server/types"
 
-	"otel-magnify/internal/store"
 	"otel-magnify/pkg/models"
 )
 
@@ -30,6 +29,18 @@ const reportsAvailableComponentsCap = uint64(protobufs.AgentCapabilities_AgentCa
 // the UI can gate config editing affordances.
 const acceptsRemoteConfigCap = uint64(protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig)
 
+// OpAMPStore is the subset of store.DB used by the OpAMP server.
+type OpAMPStore interface {
+	GetAgent(id string) (models.Agent, error)
+	UpsertAgent(a models.Agent) error
+	UpdateAgentStatus(id, status string) error
+	GetConfig(id string) (models.Config, error)
+	CreateConfig(c models.Config) error
+	RecordAgentConfig(ac models.AgentConfig) error
+	UpdateAgentConfigStatus(agentID, configID, status, errorMessage string) error
+	GetLastAppliedAgentConfig(agentID string) (*models.AgentConfig, error)
+}
+
 // Notifier is called when an agent's state changes, to notify the frontend WS hub.
 type Notifier interface {
 	BroadcastAgentUpdate(agent models.Agent)
@@ -40,7 +51,7 @@ type Notifier interface {
 // Server wraps the opamp-go server and manages agent state.
 type Server struct {
 	opamp    opampServer.OpAMPServer
-	store    *store.DB
+	store    OpAMPStore
 	notifier Notifier
 
 	mu         sync.RWMutex
@@ -52,7 +63,7 @@ type Server struct {
 }
 
 // New creates a new OpAMP server. Both db and notifier can be nil (useful for testing).
-func New(db *store.DB, notifier Notifier) *Server {
+func New(db OpAMPStore, notifier Notifier) *Server {
 	s := &Server{
 		opamp:     opampServer.New(nil),
 		store:     db,

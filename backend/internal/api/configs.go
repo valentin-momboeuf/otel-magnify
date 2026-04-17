@@ -11,7 +11,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"otel-magnify/internal/auth"
+	"otel-magnify/pkg/ext"
 	"otel-magnify/pkg/models"
 )
 
@@ -41,10 +41,10 @@ func (a *API) handleCreateConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	hash := fmt.Sprintf("%x", sha256.Sum256([]byte(req.Content)))
-	claims := auth.ClaimsFromContext(r.Context())
+	info := ext.UserInfoFromContext(r.Context())
 	createdBy := ""
-	if claims != nil {
-		createdBy = claims.Email
+	if info != nil {
+		createdBy = info.Email
 	}
 
 	cfg := models.Config{

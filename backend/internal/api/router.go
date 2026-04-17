@@ -11,8 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
-	"otel-magnify/internal/auth"
-	"otel-magnify/internal/store"
+	"otel-magnify/pkg/ext"
 )
 
 // OpAMPPusher is the subset of opamp.Server the HTTP layer uses.
@@ -22,13 +21,13 @@ type OpAMPPusher interface {
 }
 
 type API struct {
-	db    *store.DB
-	auth  *auth.Auth
+	db    ext.Store
+	auth  ext.AuthProvider
 	hub   *Hub
 	opamp OpAMPPusher
 }
 
-func NewRouter(db *store.DB, a *auth.Auth, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS) http.Handler {
+func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS) http.Handler {
 	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv}
 
 	r := chi.NewRouter()

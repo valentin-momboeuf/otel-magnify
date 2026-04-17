@@ -12,8 +12,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"otel-magnify/internal/auth"
 	"otel-magnify/internal/validator"
+	"otel-magnify/pkg/ext"
 	"otel-magnify/pkg/models"
 )
 
@@ -96,8 +96,8 @@ func (a *API) handlePushConfig(w http.ResponseWriter, r *http.Request) {
 	hash := hex.EncodeToString(sum[:])
 
 	pushedBy := ""
-	if claims := auth.ClaimsFromContext(r.Context()); claims != nil {
-		pushedBy = claims.Email
+	if info := ext.UserInfoFromContext(r.Context()); info != nil {
+		pushedBy = info.Email
 	}
 
 	// Persist the config (dedup by hash). Ignore errors on duplicate hash —

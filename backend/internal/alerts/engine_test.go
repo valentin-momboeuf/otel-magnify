@@ -30,7 +30,7 @@ func TestEvaluate_AgentDown(t *testing.T) {
 		LastSeenAt: time.Now().UTC().Add(-10 * time.Minute), Labels: models.Labels{},
 	})
 
-	engine := New(db, nil, 5*time.Minute, "", "")
+	engine := New(db, nil, 5*time.Minute, "")
 	engine.Evaluate()
 
 	alerts, err := db.ListAlerts(false)
@@ -53,7 +53,7 @@ func TestEvaluate_AgentDown_NoDouble(t *testing.T) {
 		LastSeenAt: time.Now().UTC().Add(-10 * time.Minute), Labels: models.Labels{},
 	})
 
-	engine := New(db, nil, 5*time.Minute, "", "")
+	engine := New(db, nil, 5*time.Minute, "")
 	engine.Evaluate()
 	engine.Evaluate()
 
@@ -74,7 +74,7 @@ func TestEvaluate_AgentRecovers(t *testing.T) {
 		ID: "a1", Type: "collector", Status: "connected",
 		LastSeenAt: time.Now().UTC().Add(-10 * time.Minute), Labels: models.Labels{},
 	})
-	engine := New(db, nil, 5*time.Minute, "", "")
+	engine := New(db, nil, 5*time.Minute, "")
 	engine.Evaluate()
 
 	// Agent comes back
@@ -118,7 +118,7 @@ func TestEvaluate_ConfigDrift(t *testing.T) {
 		t.Fatalf("insert agent_config: %v", err)
 	}
 
-	engine := New(db, nil, 5*time.Minute, "", "")
+	engine := New(db, nil, 5*time.Minute, "")
 	engine.Evaluate()
 
 	alerts, err := db.ListAlerts(false)
@@ -160,7 +160,7 @@ func TestEvaluate_ConfigDrift_Resolves(t *testing.T) {
 		t.Fatalf("insert agent_config: %v", err)
 	}
 
-	engine := New(db, nil, 5*time.Minute, "", "")
+	engine := New(db, nil, 5*time.Minute, "")
 	engine.Evaluate()
 
 	// Simulate agent applying the config: update status to "applied".
@@ -190,7 +190,7 @@ func TestEvaluate_VersionOutdated(t *testing.T) {
 		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
 	})
 
-	engine := New(db, nil, 5*time.Minute, "0.9.0", "")
+	engine := New(db, nil, 5*time.Minute, "0.9.0")
 	engine.Evaluate()
 
 	alerts, err := db.ListAlerts(false)
@@ -217,7 +217,7 @@ func TestEvaluate_VersionOutdated_Resolves(t *testing.T) {
 		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
 	})
 
-	engine := New(db, nil, 5*time.Minute, "0.9.0", "")
+	engine := New(db, nil, 5*time.Minute, "0.9.0")
 	engine.Evaluate()
 
 	// Agent upgrades its version.

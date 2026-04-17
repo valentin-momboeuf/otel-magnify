@@ -4,7 +4,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"otel-magnify/pkg/ext"
 )
+
+// Compile-time check: *Auth satisfies ext.AuthProvider.
+var _ ext.AuthProvider = (*Auth)(nil)
 
 func TestGenerateAndValidateToken(t *testing.T) {
 	a := New("test-secret-key-at-least-32-bytes!")
@@ -14,18 +19,18 @@ func TestGenerateAndValidateToken(t *testing.T) {
 		t.Fatalf("GenerateToken: %v", err)
 	}
 
-	claims, err := a.ValidateToken(token)
+	info, err := a.ValidateToken(token)
 	if err != nil {
 		t.Fatalf("ValidateToken: %v", err)
 	}
-	if claims.UserID != "user-001" {
-		t.Errorf("UserID = %q, want user-001", claims.UserID)
+	if info.UserID != "user-001" {
+		t.Errorf("UserID = %q, want user-001", info.UserID)
 	}
-	if claims.Email != "admin@test.com" {
-		t.Errorf("Email = %q, want admin@test.com", claims.Email)
+	if info.Email != "admin@test.com" {
+		t.Errorf("Email = %q, want admin@test.com", info.Email)
 	}
-	if claims.Role != "admin" {
-		t.Errorf("Role = %q, want admin", claims.Role)
+	if info.Role != "admin" {
+		t.Errorf("Role = %q, want admin", info.Role)
 	}
 }
 
@@ -59,9 +64,9 @@ func TestMiddleware_ValidToken(t *testing.T) {
 	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
 
 	handler := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		claims := ClaimsFromContext(r.Context())
-		if claims == nil {
-			t.Error("expected claims in context")
+		info := ext.UserInfoFromContext(r.Context())
+		if info == nil {
+			t.Error("expected UserInfo in context")
 		}
 		w.WriteHeader(200)
 	}))
