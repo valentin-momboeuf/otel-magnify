@@ -1,6 +1,8 @@
 package store
 
 import (
+	"database/sql"
+	"errors"
 	"testing"
 
 	"github.com/magnify-labs/otel-magnify/pkg/models"
@@ -85,7 +87,7 @@ func TestUpdateUser_NotFound(t *testing.T) {
 		Email: "ghost@test.com",
 		Role:  "admin",
 	})
-	if err == nil {
-		t.Error("expected error when updating a non-existent user")
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Errorf("err = %v, want sql.ErrNoRows", err)
 	}
 }

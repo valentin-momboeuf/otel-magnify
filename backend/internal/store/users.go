@@ -1,6 +1,7 @@
 package store
 
 import (
+	"database/sql"
 	"fmt"
 
 	"github.com/magnify-labs/otel-magnify/pkg/models"
@@ -42,7 +43,7 @@ func (d *DB) UpdateUser(u models.User) error {
 		return fmt.Errorf("update user %s (rows affected): %w", u.ID, err)
 	}
 	if n == 0 {
-		return fmt.Errorf("update user %s: no rows matched", u.ID)
+		return fmt.Errorf("update user %s: %w", u.ID, sql.ErrNoRows)
 	}
 	return nil
 }
