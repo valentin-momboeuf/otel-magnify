@@ -39,4 +39,4 @@ Format: `type: description` (in English)
 ## License
 
 By contributing, you agree that your contribution will be licensed under
-the project's [Business Source License 1.1](LICENSE).
+the project's [Apache License, Version 2.0](LICENSE).
