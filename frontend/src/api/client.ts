@@ -1,6 +1,13 @@
 import axios from 'axios'
 import type { Agent, Config, Alert, AgentConfig, ValidationResult } from '../types'
 
+export type AuthMethod = {
+  id: string
+  type: 'password' | 'sso'
+  display_name: string
+  login_url: string
+}
+
 const api = axios.create({ baseURL: '/api' })
 
 api.interceptors.request.use((config) => {
@@ -57,6 +64,8 @@ export const alertsAPI = {
 export const authAPI = {
   login: (email: string, password: string) =>
     api.post<{ token: string }>('/auth/login', { email, password }).then((r) => r.data),
+  getMethods: () =>
+    api.get<{ methods: AuthMethod[] }>('/auth/methods').then((r) => r.data.methods),
 }
 
 export default api
