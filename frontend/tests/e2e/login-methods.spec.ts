@@ -23,7 +23,9 @@ test('login page renders password form when only password method is advertised',
     { id: 'password', type: 'password', display_name: 'Email + password', login_url: '/api/auth/login' },
   ])
 
+  const methodsResponse = page.waitForResponse('**/api/auth/methods')
   await page.goto('/login')
+  await methodsResponse
 
   await expect(page.getByLabel('Email')).toBeVisible()
   await expect(page.getByLabel('Password')).toBeVisible()
@@ -55,7 +57,9 @@ test('login page falls back to password form when methods endpoint fails', async
     route.fulfill({ status: 500, contentType: 'text/plain', body: 'boom' }),
   )
 
+  const methodsResponse = page.waitForResponse('**/api/auth/methods')
   await page.goto('/login')
+  await methodsResponse
 
   // Degraded but functional: password form still renders.
   await expect(page.getByLabel('Email')).toBeVisible()

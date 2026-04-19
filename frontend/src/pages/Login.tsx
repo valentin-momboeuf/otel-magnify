@@ -24,7 +24,7 @@ export default function Login() {
     authAPI
       .getMethods()
       .then((m) => {
-        if (!cancelled && m.length > 0) setMethods(m)
+        if (!cancelled) setMethods(m)
       })
       .catch(() => {
         // Fall back silently to the password-only default already in state.
