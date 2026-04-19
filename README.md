@@ -1,6 +1,6 @@
 # otel-magnify
 
-![License: BSL 1.1](https://img.shields.io/badge/License-BSL_1.1-orange.svg)
+![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 ![Status: pre-1.0](https://img.shields.io/badge/Status-pre--1.0-yellow.svg)
 [![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://valentin-momboeuf.github.io/otel-magnify/)
 
@@ -237,4 +237,6 @@ helm/otel-magnify/      # Kubernetes Helm chart
 
 ## License
 
-[Business Source License 1.1](LICENSE) — free production use without agent limit, except for hosted or embedded offerings competing with the Licensor's paid version. Each release converts to the Apache License, Version 2.0 four years after its publication date (rolling Change Date).
+Copyright 2026 Valentin Momboeuf. Licensed under the [Apache License, Version 2.0](LICENSE).
+
+Contributions are accepted under the [Developer Certificate of Origin](https://developercertificate.org) — see [CONTRIBUTING.md](CONTRIBUTING.md).
