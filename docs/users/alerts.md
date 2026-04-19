@@ -1,6 +1,6 @@
 # Alerts
 
-> **Status:** This page is a stub. Help wanted — see [CONTRIBUTING.md](https://github.com/valentin-momboeuf/otel-magnify/blob/main/CONTRIBUTING.md).
+> **Status:** This page is a stub. Help wanted — see [CONTRIBUTING.md](https://github.com/magnify-labs/otel-magnify/blob/main/CONTRIBUTING.md).
 
 ## Planned content
 

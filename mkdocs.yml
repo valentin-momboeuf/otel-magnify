@@ -1,8 +1,8 @@
 site_name: otel-magnify
 site_description: Centralized OpenTelemetry agent management via OpAMP
-site_url: https://valentin-momboeuf.github.io/otel-magnify/
-repo_url: https://github.com/valentin-momboeuf/otel-magnify
-repo_name: valentin-momboeuf/otel-magnify
+site_url: https://magnify-labs.github.io/otel-magnify/
+repo_url: https://github.com/magnify-labs/otel-magnify
+repo_name: magnify-labs/otel-magnify
 edit_uri: edit/main/docs/
 
 theme:

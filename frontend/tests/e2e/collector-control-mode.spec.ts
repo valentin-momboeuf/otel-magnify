@@ -107,7 +107,7 @@ test('Read-only collector detail page hides Edit and shows note', async ({ logge
   await expect(page.locator('.config-readonly-note')).toContainText('OpAMP Supervisor')
   await expect(page.locator('.config-readonly-note a')).toHaveAttribute(
     'href',
-    'https://github.com/valentin-momboeuf/otel-magnify/blob/main/docs/users/connecting-agents.md#running-a-collector-via-opamp-supervisor',
+    'https://github.com/magnify-labs/otel-magnify/blob/main/docs/users/connecting-agents.md#running-a-collector-via-opamp-supervisor',
   )
   await expect(page.getByRole('button', { name: 'Edit' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'Push a config' })).toHaveCount(0)
