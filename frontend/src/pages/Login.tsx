@@ -1,6 +1,13 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { authAPI } from '../api/client'
+import { authAPI, type AuthMethod } from '../api/client'
+
+const PASSWORD_METHOD: AuthMethod = {
+  id: 'password',
+  type: 'password',
+  display_name: 'Email + password',
+  login_url: '/api/auth/login',
+}
 
 export default function Login() {
   const navigate  = useNavigate()
@@ -8,6 +15,27 @@ export default function Login() {
   const [password, setPassword] = useState('')
   const [error,    setError]    = useState('')
   const [loading,  setLoading]  = useState(false)
+  // Default to the password-only list so the page stays usable if the
+  // methods endpoint fails. Overwritten on mount with the server's answer.
+  const [methods,  setMethods]  = useState<AuthMethod[]>([PASSWORD_METHOD])
+
+  useEffect(() => {
+    let cancelled = false
+    authAPI
+      .getMethods()
+      .then((m) => {
+        if (!cancelled) setMethods(m)
+      })
+      .catch(() => {
+        // Fall back silently to the password-only default already in state.
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  const hasPassword = methods.some((m) => m.type === 'password')
+  const ssoMethods  = methods.filter((m) => m.type === 'sso')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -32,42 +60,61 @@ export default function Login() {
         </div>
         <div className="login-sub">OpAMP Control Plane</div>
 
-        {error && (
-          <div className="error-text">{error}</div>
+        {error && <div className="error-text">{error}</div>}
+
+        {hasPassword && (
+          <>
+            <div className="field">
+              <label className="field-label" htmlFor="login-email">Email</label>
+              <input
+                id="login-email"
+                type="email"
+                className="field-input"
+                placeholder="ops@example.com"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                autoComplete="email"
+              />
+            </div>
+
+            <div className="field">
+              <label className="field-label" htmlFor="login-password">Password</label>
+              <input
+                id="login-password"
+                type="password"
+                className="field-input"
+                placeholder="••••••••"
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                autoComplete="current-password"
+              />
+            </div>
+
+            <button
+              type="submit"
+              className="btn btn-primary"
+              disabled={loading}
+              style={{ width: '100%', justifyContent: 'center', padding: '0.6rem', marginTop: '0.5rem' }}
+            >
+              {loading ? 'Authenticating...' : 'Sign in'}
+            </button>
+          </>
         )}
 
-        <div className="field">
-          <label className="field-label">Email</label>
-          <input
-            type="email"
-            className="field-input"
-            placeholder="ops@example.com"
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            autoComplete="email"
-          />
-        </div>
-
-        <div className="field">
-          <label className="field-label">Password</label>
-          <input
-            type="password"
-            className="field-input"
-            placeholder="••••••••"
-            value={password}
-            onChange={(e) => setPassword(e.target.value)}
-            autoComplete="current-password"
-          />
-        </div>
-
-        <button
-          type="submit"
-          className="btn btn-primary"
-          disabled={loading}
-          style={{ width: '100%', justifyContent: 'center', padding: '0.6rem', marginTop: '0.5rem' }}
-        >
-          {loading ? 'Authenticating...' : 'Sign in'}
-        </button>
+        {ssoMethods.length > 0 && (
+          <div className="login-sso" style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+            {ssoMethods.map((m) => (
+              <a
+                key={m.id}
+                href={m.login_url}
+                className="btn btn-secondary"
+                style={{ width: '100%', justifyContent: 'center', padding: '0.6rem' }}
+              >
+                Sign in with {m.display_name}
+              </a>
+            ))}
+          </div>
+        )}
       </form>
     </div>
   )

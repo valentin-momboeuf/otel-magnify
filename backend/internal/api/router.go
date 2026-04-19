@@ -21,14 +21,15 @@ type OpAMPPusher interface {
 }
 
 type API struct {
-	db    ext.Store
-	auth  ext.AuthProvider
-	hub   *Hub
-	opamp OpAMPPusher
+	db          ext.Store
+	auth        ext.AuthProvider
+	hub         *Hub
+	opamp       OpAMPPusher
+	authMethods []ext.AuthMethod
 }
 
-func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS) http.Handler {
-	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv}
+func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods []ext.AuthMethod) http.Handler {
+	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv, authMethods: authMethods}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -56,6 +57,7 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 
 	// Public routes
 	r.Post("/api/auth/login", api.handleLogin)
+	r.Get("/api/auth/methods", api.handleListAuthMethods)
 
 	// WebSocket validates its own token via ?token= query param
 	// (browsers cannot set Authorization headers on WS handshakes, so it

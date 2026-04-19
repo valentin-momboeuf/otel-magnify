@@ -47,3 +47,14 @@ func WithRouterHook(fn func(chi.Router)) Option {
 		s.routerHooks = append(s.routerHooks, fn)
 	}
 }
+
+// WithAuthMethod registers an additional login method exposed on
+// GET /api/auth/methods. The "password" method is always registered by
+// default. Duplicate IDs are ignored with a warning log; the first
+// registration wins (so the built-in default cannot be accidentally
+// overridden by an enterprise option).
+func WithAuthMethod(m ext.AuthMethod) Option {
+	return func(s *Server) {
+		s.authMethods = append(s.authMethods, m)
+	}
+}

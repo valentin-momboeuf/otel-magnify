@@ -42,7 +42,7 @@ func newTestAPI(t *testing.T) (ext.Store, http.Handler, *fakeOpAMP) {
 	t.Cleanup(hub.Stop)
 
 	opampFake := &fakeOpAMP{}
-	router := NewRouter(db, a, hub, opampFake, "", nil)
+	router := NewRouter(db, a, hub, opampFake, "", nil, nil)
 	return db, router, opampFake
 }
 

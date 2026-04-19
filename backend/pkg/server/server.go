@@ -25,6 +25,7 @@ type Server struct {
 	auditLogger ext.AuditLogger
 	staticFS    fs.FS
 	routerHooks []func(chi.Router)
+	authMethods []ext.AuthMethod
 }
 
 // New creates a Server with the given store, auth provider, and options.
@@ -34,10 +35,33 @@ func New(cfg Config, store ext.Store, auth ext.AuthProvider, opts ...Option) *Se
 		store:       store,
 		auth:        auth,
 		auditLogger: ext.NopAuditLogger{},
+		authMethods: []ext.AuthMethod{
+			{
+				ID:          "password",
+				Type:        "password",
+				DisplayName: "Email + password",
+				LoginURL:    "/api/auth/login",
+			},
+		},
 	}
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	// Deduplicate authMethods by ID; keep the first occurrence so the
+	// built-in "password" default cannot be accidentally overridden.
+	seen := make(map[string]struct{}, len(s.authMethods))
+	dedup := s.authMethods[:0]
+	for _, m := range s.authMethods {
+		if _, exists := seen[m.ID]; exists {
+			log.Printf("WithAuthMethod: duplicate id %q dropped (first registration wins)", m.ID)
+			continue
+		}
+		seen[m.ID] = struct{}{}
+		dedup = append(dedup, m)
+	}
+	s.authMethods = dedup
+
 	if s.cfg.ListenAddr == "" {
 		s.cfg.ListenAddr = ":8080"
 	}
@@ -87,7 +111,7 @@ func (s *Server) Run(ctx context.Context) error {
 	log.Println("Alert engine started (30s interval)")
 
 	// REST API router
-	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS)
+	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.authMethods)
 
 	// Apply router hooks (enterprise can add RBAC middleware, extra routes, etc.)
 	if len(s.routerHooks) > 0 {
@@ -126,4 +150,16 @@ func (s *Server) Run(ctx context.Context) error {
 	log.Println("Shutdown complete")
 
 	return nil
+}
+
+// Handler builds the HTTP handler served by the public API listener,
+// without starting the WebSocket hub or the OpAMP server. Routes that
+// depend on those (e.g. /ws, /api/agents/{id}/config) cannot be
+// exercised through this handler — it is intended only for httptest
+// assertions on stateless endpoints such as /api/auth/methods. Do not
+// call Handler() and Run() on the same Server instance.
+func (s *Server) Handler() http.Handler {
+	hub := api.NewHub()
+	opampSrv := opamp.New(s.store, hub)
+	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.authMethods)
 }
