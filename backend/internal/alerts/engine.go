@@ -7,8 +7,8 @@ import (
 	"log"
 	"time"
 
-	"otel-magnify/pkg/ext"
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 // Broadcaster pushes real-time updates to connected frontends.

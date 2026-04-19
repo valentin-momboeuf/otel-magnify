@@ -3,7 +3,7 @@ package store
 import (
 	"testing"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 
 	"golang.org/x/crypto/bcrypt"
 )

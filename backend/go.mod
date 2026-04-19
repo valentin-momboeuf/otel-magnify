@@ -1,4 +1,4 @@
-module otel-magnify
+module github.com/magnify-labs/otel-magnify
 
 go 1.25.0
 

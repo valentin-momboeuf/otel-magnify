@@ -4,10 +4,10 @@ import (
 	"context"
 	"testing"
 
-	"otel-magnify/internal/alerts"
-	"otel-magnify/internal/auth"
-	"otel-magnify/internal/store"
-	"otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/internal/alerts"
+	"github.com/magnify-labs/otel-magnify/internal/auth"
+	"github.com/magnify-labs/otel-magnify/internal/store"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
 // Compile-time interface satisfaction checks.

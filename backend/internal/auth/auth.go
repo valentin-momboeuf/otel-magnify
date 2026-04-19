@@ -9,7 +9,7 @@ import (
 
 	"github.com/golang-jwt/jwt/v5"
 
-	"otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
 // claims holds the JWT payload. Internal to this package.

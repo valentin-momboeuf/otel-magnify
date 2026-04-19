@@ -7,8 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"otel-magnify/internal/auth"
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/internal/auth"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 func TestCreateAndListConfigs(t *testing.T) {

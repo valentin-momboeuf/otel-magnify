@@ -4,7 +4,7 @@ import (
 	"database/sql"
 	"time"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 func (d *DB) CreateAlert(a models.Alert) error {

@@ -5,7 +5,7 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
 // Config holds the server's listen addresses and feature flags.

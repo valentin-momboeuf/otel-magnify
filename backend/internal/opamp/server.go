@@ -16,7 +16,7 @@ import (
 	opampServer "github.com/open-telemetry/opamp-go/server"
 	"github.com/open-telemetry/opamp-go/server/types"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 // reportsAvailableComponentsCap is the capability bit set by agents that will

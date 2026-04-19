@@ -12,13 +12,13 @@ import (
 
 	"golang.org/x/crypto/bcrypt"
 
-	"otel-magnify/internal/alerts"
-	"otel-magnify/internal/auth"
-	"otel-magnify/internal/config"
-	"otel-magnify/internal/store"
-	"otel-magnify/pkg/ext"
-	"otel-magnify/pkg/models"
-	"otel-magnify/pkg/server"
+	"github.com/magnify-labs/otel-magnify/internal/alerts"
+	"github.com/magnify-labs/otel-magnify/internal/auth"
+	"github.com/magnify-labs/otel-magnify/internal/config"
+	"github.com/magnify-labs/otel-magnify/internal/store"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/server"
 )
 
 //go:embed dist

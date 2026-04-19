@@ -20,7 +20,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 // Error is a single validation failure.

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 const validMinimal = `

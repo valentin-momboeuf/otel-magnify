@@ -10,8 +10,8 @@ import (
 	"github.com/open-telemetry/opamp-go/protobufs"
 	"github.com/open-telemetry/opamp-go/server/types"
 
-	"otel-magnify/internal/store"
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/internal/store"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 type fakeNotifier struct {

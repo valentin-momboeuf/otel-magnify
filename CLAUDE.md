@@ -7,7 +7,7 @@ Go backend + React frontend, single binary deployment.
 
 ## Architecture
 
-- `backend/` — Go module `otel-magnify`
+- `backend/` — Go module `github.com/magnify-labs/otel-magnify`
   - `cmd/server/` — entrypoint, embeds frontend via `embed.FS`
   - `internal/opamp/` — OpAMP server (opamp-go), agent registry, config push
   - `internal/api/` — chi router, REST handlers, WebSocket hub

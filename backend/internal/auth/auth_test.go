@@ -5,7 +5,7 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
 // Compile-time check: *Auth satisfies ext.AuthProvider.
