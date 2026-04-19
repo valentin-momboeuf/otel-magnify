@@ -25,6 +25,7 @@ type Server struct {
 	auditLogger ext.AuditLogger
 	staticFS    fs.FS
 	routerHooks []func(chi.Router)
+	authMethods []ext.AuthMethod
 }
 
 // New creates a Server with the given store, auth provider, and options.
@@ -34,6 +35,14 @@ func New(cfg Config, store ext.Store, auth ext.AuthProvider, opts ...Option) *Se
 		store:       store,
 		auth:        auth,
 		auditLogger: ext.NopAuditLogger{},
+		authMethods: []ext.AuthMethod{
+			{
+				ID:          "password",
+				Type:        "password",
+				DisplayName: "Email + password",
+				LoginURL:    "/api/auth/login",
+			},
+		},
 	}
 	for _, opt := range opts {
 		opt(s)
@@ -87,7 +96,7 @@ func (s *Server) Run(ctx context.Context) error {
 	log.Println("Alert engine started (30s interval)")
 
 	// REST API router
-	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS)
+	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.authMethods)
 
 	// Apply router hooks (enterprise can add RBAC middleware, extra routes, etc.)
 	if len(s.routerHooks) > 0 {
@@ -126,4 +135,13 @@ func (s *Server) Run(ctx context.Context) error {
 	log.Println("Shutdown complete")
 
 	return nil
+}
+
+// Handler builds the HTTP handler the public API listener will serve.
+// Exposed for tests that want to exercise routes via httptest without
+// starting a real listener.
+func (s *Server) Handler() http.Handler {
+	hub := api.NewHub()
+	opampSrv := opamp.New(s.store, hub)
+	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.authMethods)
 }

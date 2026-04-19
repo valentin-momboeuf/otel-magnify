@@ -29,3 +29,12 @@ func UserInfoFromContext(ctx context.Context) *UserInfo {
 func ContextWithUserInfo(ctx context.Context, info *UserInfo) context.Context {
 	return context.WithValue(ctx, userInfoKey{}, info)
 }
+
+// AuthMethod describes a login method advertised to the frontend so it
+// can render a "Sign in with X" button or the password form.
+type AuthMethod struct {
+	ID          string `json:"id"`           // e.g., "password" | "okta-main"
+	Type        string `json:"type"`         // "password" | "sso"
+	DisplayName string `json:"display_name"` // e.g., "Okta Corporate"
+	LoginURL    string `json:"login_url"`    // where the browser navigates to start the flow
+}
