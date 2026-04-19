@@ -47,6 +47,21 @@ func New(cfg Config, store ext.Store, auth ext.AuthProvider, opts ...Option) *Se
 	for _, opt := range opts {
 		opt(s)
 	}
+
+	// Deduplicate authMethods by ID; keep the first occurrence so the
+	// built-in "password" default cannot be accidentally overridden.
+	seen := make(map[string]struct{}, len(s.authMethods))
+	dedup := s.authMethods[:0]
+	for _, m := range s.authMethods {
+		if _, exists := seen[m.ID]; exists {
+			log.Printf("WithAuthMethod: duplicate id %q dropped (first registration wins)", m.ID)
+			continue
+		}
+		seen[m.ID] = struct{}{}
+		dedup = append(dedup, m)
+	}
+	s.authMethods = dedup
+
 	if s.cfg.ListenAddr == "" {
 		s.cfg.ListenAddr = ":8080"
 	}
