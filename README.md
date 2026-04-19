@@ -2,15 +2,15 @@
 
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 ![Status: pre-1.0](https://img.shields.io/badge/Status-pre--1.0-yellow.svg)
-[![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://valentin-momboeuf.github.io/otel-magnify/)
+[![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://magnify-labs.github.io/otel-magnify/)
 
-→ [Documentation](https://valentin-momboeuf.github.io/otel-magnify/) · [Roadmap](ROADMAP.md)
+→ [Documentation](https://magnify-labs.github.io/otel-magnify/) · [Roadmap](ROADMAP.md)
 
 > **⚠️ Status: pre-1.0 — not recommended for critical deployments without commercial support**
 >
 > The REST API and OpAMP protocol are still being stabilized.
 > Endpoints and data formats may change without notice between minor versions.
-> For production use in a critical environment, [open an issue](https://github.com/valentin-momboeuf/otel-magnify/issues).
+> For production use in a critical environment, [open an issue](https://github.com/magnify-labs/otel-magnify/issues).
 
 Centralized management platform for OpenTelemetry agents via [OpAMP](https://opentelemetry.io/docs/specs/opamp/) (Open Agent Management Protocol).
 

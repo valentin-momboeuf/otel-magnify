@@ -25,4 +25,4 @@ This roadmap is indicative. Priorities may evolve based on community feedback.
 
 ---
 
-💬 Got a need that isn't covered? [Open an issue](https://github.com/valentin-momboeuf/otel-magnify/issues).
+💬 Got a need that isn't covered? [Open an issue](https://github.com/magnify-labs/otel-magnify/issues).

@@ -32,6 +32,6 @@ otel-magnify is pre-1.0. The REST API and OpAMP wiring are still being stabilize
 
 ## Source
 
-- [GitHub repository](https://github.com/valentin-momboeuf/otel-magnify)
+- [GitHub repository](https://github.com/magnify-labs/otel-magnify)
 - [Changelog](reference/changelog.md)
-- [Roadmap](https://github.com/valentin-momboeuf/otel-magnify/blob/main/ROADMAP.md)
+- [Roadmap](https://github.com/magnify-labs/otel-magnify/blob/main/ROADMAP.md)
