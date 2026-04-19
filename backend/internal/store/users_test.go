@@ -43,3 +43,49 @@ func TestGetUserByEmail_NotFound(t *testing.T) {
 		t.Error("expected error for non-existent user")
 	}
 }
+
+func TestUpdateUser_UpdatesFields(t *testing.T) {
+	db := newTestDB(t)
+
+	hash, _ := bcrypt.GenerateFromPassword([]byte("secret"), bcrypt.DefaultCost)
+	original := models.User{
+		ID:           "user-001",
+		Email:        "alice@test.com",
+		PasswordHash: string(hash),
+		Role:         "viewer",
+	}
+	if err := db.CreateUser(original); err != nil {
+		t.Fatalf("CreateUser: %v", err)
+	}
+
+	updated := original
+	updated.Role = "admin"
+	if err := db.UpdateUser(updated); err != nil {
+		t.Fatalf("UpdateUser: %v", err)
+	}
+
+	got, err := db.GetUserByEmail("alice@test.com")
+	if err != nil {
+		t.Fatalf("GetUserByEmail: %v", err)
+	}
+	if got.Role != "admin" {
+		t.Errorf("Role = %q, want admin", got.Role)
+	}
+	// PasswordHash must be preserved when the caller passes it unchanged.
+	if got.PasswordHash != string(hash) {
+		t.Error("PasswordHash was unexpectedly modified")
+	}
+}
+
+func TestUpdateUser_NotFound(t *testing.T) {
+	db := newTestDB(t)
+
+	err := db.UpdateUser(models.User{
+		ID:    "ghost-999",
+		Email: "ghost@test.com",
+		Role:  "admin",
+	})
+	if err == nil {
+		t.Error("expected error when updating a non-existent user")
+	}
+}

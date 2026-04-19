@@ -26,3 +26,23 @@ func (d *DB) GetUserByEmail(email string) (models.User, error) {
 	}
 	return u, nil
 }
+
+func (d *DB) UpdateUser(u models.User) error {
+	res, err := d.Exec(`
+		UPDATE users
+		SET email = ?, password_hash = ?, role = ?, tenant_id = ?
+		WHERE id = ?`,
+		u.Email, u.PasswordHash, u.Role, u.TenantID, u.ID,
+	)
+	if err != nil {
+		return fmt.Errorf("update user %s: %w", u.ID, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("update user %s (rows affected): %w", u.ID, err)
+	}
+	if n == 0 {
+		return fmt.Errorf("update user %s: no rows matched", u.ID)
+	}
+	return nil
+}

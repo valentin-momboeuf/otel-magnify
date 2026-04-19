@@ -5,6 +5,7 @@ import "github.com/magnify-labs/otel-magnify/pkg/models"
 type Store interface {
 	CreateUser(u models.User) error
 	GetUserByEmail(email string) (models.User, error)
+	UpdateUser(u models.User) error
 	UpsertAgent(a models.Agent) error
 	GetAgent(id string) (models.Agent, error)
 	ListAgents() ([]models.Agent, error)
