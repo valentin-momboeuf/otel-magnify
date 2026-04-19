@@ -7,7 +7,7 @@ import (
 
 	"github.com/open-telemetry/opamp-go/protobufs"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 func (s *Server) handleRemoteConfigStatus(agentUID string, rcs *protobufs.RemoteConfigStatus) {

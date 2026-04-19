@@ -10,7 +10,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 func TestHub_BroadcastAgentUpdate(t *testing.T) {

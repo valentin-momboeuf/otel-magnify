@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 // newTestDB returns a migrated in-memory SQLite DB for tests.

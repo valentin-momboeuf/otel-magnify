@@ -7,7 +7,7 @@ import (
 	"net/http"
 	"time"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 type WebhookNotifier struct {

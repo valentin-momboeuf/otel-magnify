@@ -8,7 +8,7 @@ import (
 
 	"github.com/gorilla/websocket"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 var upgrader = websocket.Upgrader{

@@ -1,6 +1,6 @@
 package ext
 
-import "otel-magnify/pkg/models"
+import "github.com/magnify-labs/otel-magnify/pkg/models"
 
 type Store interface {
 	CreateUser(u models.User) error

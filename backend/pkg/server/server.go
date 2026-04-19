@@ -10,10 +10,10 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"otel-magnify/internal/alerts"
-	"otel-magnify/internal/api"
-	"otel-magnify/internal/opamp"
-	"otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/internal/alerts"
+	"github.com/magnify-labs/otel-magnify/internal/api"
+	"github.com/magnify-labs/otel-magnify/internal/opamp"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
 // Server composes the otel-magnify subsystems.

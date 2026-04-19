@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"otel-magnify/internal/auth"
-	"otel-magnify/internal/store"
-	"otel-magnify/pkg/server"
+	"github.com/magnify-labs/otel-magnify/internal/auth"
+	"github.com/magnify-labs/otel-magnify/internal/store"
+	"github.com/magnify-labs/otel-magnify/pkg/server"
 )
 
 func TestNew_DefaultsCompile(t *testing.T) {

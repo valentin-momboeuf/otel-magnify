@@ -11,7 +11,7 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
-	"otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
 // OpAMPPusher is the subset of opamp.Server the HTTP layer uses.

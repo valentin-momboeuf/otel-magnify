@@ -11,8 +11,8 @@ import (
 
 	"github.com/go-chi/chi/v5"
 
-	"otel-magnify/pkg/ext"
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 type createConfigRequest struct {

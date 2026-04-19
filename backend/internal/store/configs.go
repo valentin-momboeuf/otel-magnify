@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 func (d *DB) CreateConfig(c models.Config) error {
