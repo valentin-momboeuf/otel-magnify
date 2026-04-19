@@ -137,9 +137,12 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
-// Handler builds the HTTP handler the public API listener will serve.
-// Exposed for tests that want to exercise routes via httptest without
-// starting a real listener.
+// Handler builds the HTTP handler served by the public API listener,
+// without starting the WebSocket hub or the OpAMP server. Routes that
+// depend on those (e.g. /ws, /api/agents/{id}/config) cannot be
+// exercised through this handler — it is intended only for httptest
+// assertions on stateless endpoints such as /api/auth/methods. Do not
+// call Handler() and Run() on the same Server instance.
 func (s *Server) Handler() http.Handler {
 	hub := api.NewHub()
 	opampSrv := opamp.New(s.store, hub)
