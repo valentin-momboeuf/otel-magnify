@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(go version *)",
+      "Bash(docker version *)",
+      "Bash(docker info *)",
+      "Bash(docker network inspect *)",
+      "Bash(command -v *)"
+    ]
+  }
+}
