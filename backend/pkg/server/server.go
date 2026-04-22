@@ -13,6 +13,7 @@ import (
 	"github.com/magnify-labs/otel-magnify/internal/alerts"
 	"github.com/magnify-labs/otel-magnify/internal/api"
 	"github.com/magnify-labs/otel-magnify/internal/opamp"
+	"github.com/magnify-labs/otel-magnify/internal/workloads"
 	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
@@ -80,9 +81,13 @@ func (s *Server) Run(ctx context.Context) error {
 	hub := api.NewHub()
 	go hub.Run()
 
-	// OpAMP server. Zero Options → defaults (2-minute grace, 30-day
-	// retention). Task 4.2 will wire the real durations from env vars.
-	opampSrv := opamp.New(s.store, hub, opamp.Options{})
+	// OpAMP server. Grace and retention come from env-driven server Config;
+	// zero values fall back to opamp's internal defaults (2-min grace,
+	// 30-day retention).
+	opampSrv := opamp.New(s.store, hub, opamp.Options{
+		DisconnectGrace:   s.cfg.WorkloadDisconnectGrace,
+		RetentionDuration: s.cfg.WorkloadRetention,
+	})
 	opampHandler, connCtx, err := opampSrv.Attach()
 	if err != nil {
 		return err
@@ -110,6 +115,15 @@ func (s *Server) Run(ctx context.Context) error {
 	alertEngine := alerts.New(s.store, hub, 5*time.Minute, s.cfg.MinAgentVersion, s.notifiers...)
 	go alertEngine.Start(ctx, 30*time.Second)
 	log.Println("Alert engine started (30s interval)")
+
+	// Workload janitor: archives expired workloads and purges old events.
+	j := workloads.New(s.store, workloads.Options{
+		Interval:       s.cfg.WorkloadJanitorInterval,
+		EventRetention: s.cfg.WorkloadEventRetention,
+	})
+	go j.Start(ctx)
+	log.Printf("Workload janitor started (interval=%s, event retention=%s)",
+		s.cfg.WorkloadJanitorInterval, s.cfg.WorkloadEventRetention)
 
 	// REST API router
 	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.authMethods)
@@ -161,6 +175,9 @@ func (s *Server) Run(ctx context.Context) error {
 // call Handler() and Run() on the same Server instance.
 func (s *Server) Handler() http.Handler {
 	hub := api.NewHub()
-	opampSrv := opamp.New(s.store, hub, opamp.Options{})
+	opampSrv := opamp.New(s.store, hub, opamp.Options{
+		DisconnectGrace:   s.cfg.WorkloadDisconnectGrace,
+		RetentionDuration: s.cfg.WorkloadRetention,
+	})
 	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.authMethods)
 }

@@ -1,6 +1,10 @@
 package config
 
-import "os"
+import (
+	"os"
+	"strconv"
+	"time"
+)
 
 type Config struct {
 	DBDriver        string // "sqlite" or "pgx"
@@ -11,18 +15,28 @@ type Config struct {
 	CORSOrigins     string // comma-separated allowed origins
 	MinAgentVersion string // minimum required agent version; empty = disabled
 	WebhookURL      string // HTTP endpoint to notify on alert fire; empty = disabled
+
+	// Workload lifecycle tuning.
+	WorkloadRetention       time.Duration // how long disconnected workloads linger before archival
+	WorkloadDisconnectGrace time.Duration // grace period before marking a workload disconnected
+	WorkloadJanitorInterval time.Duration // tick interval of the workload janitor loop
+	WorkloadEventRetention  time.Duration // how long workload events are kept before purge
 }
 
 func Load() Config {
 	return Config{
-		DBDriver:        getenv("DB_DRIVER", "sqlite"),
-		DBDSN:           getenv("DB_DSN", "otel-magnify.db"),
-		ListenAddr:      getenv("LISTEN_ADDR", ":8080"),
-		OpAMPAddr:       getenv("OPAMP_ADDR", ":4320"),
-		JWTSecret:       getenv("JWT_SECRET", ""),
-		CORSOrigins:     getenv("CORS_ORIGINS", "http://localhost:5173"),
-		MinAgentVersion: getenv("MIN_AGENT_VERSION", ""),
-		WebhookURL:      getenv("WEBHOOK_URL", ""),
+		DBDriver:                getenv("DB_DRIVER", "sqlite"),
+		DBDSN:                   getenv("DB_DSN", "otel-magnify.db"),
+		ListenAddr:              getenv("LISTEN_ADDR", ":8080"),
+		OpAMPAddr:               getenv("OPAMP_ADDR", ":4320"),
+		JWTSecret:               getenv("JWT_SECRET", ""),
+		CORSOrigins:             getenv("CORS_ORIGINS", "http://localhost:5173"),
+		MinAgentVersion:         getenv("MIN_AGENT_VERSION", ""),
+		WebhookURL:              getenv("WEBHOOK_URL", ""),
+		WorkloadRetention:       days(getenv("WORKLOAD_RETENTION_DAYS", "30")),
+		WorkloadDisconnectGrace: seconds(getenv("WORKLOAD_DISCONNECT_GRACE_SECONDS", "120")),
+		WorkloadJanitorInterval: seconds(getenv("WORKLOAD_JANITOR_INTERVAL_SECONDS", "300")),
+		WorkloadEventRetention:  days(getenv("WORKLOAD_EVENT_RETENTION_DAYS", "30")),
 	}
 }
 
@@ -31,4 +45,26 @@ func getenv(key, fallback string) string {
 		return v
 	}
 	return fallback
+}
+
+// days parses a positive integer day count, falling back to 30 days on
+// invalid or non-positive input. Keeping the fallback matches the default
+// passed by Load so a malformed env var never produces a zero duration.
+func days(s string) time.Duration {
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		n = 30
+	}
+	return time.Duration(n) * 24 * time.Hour
+}
+
+// seconds parses a positive integer second count, falling back to 1s on
+// invalid or non-positive input. The 1s floor avoids a zero-interval
+// ticker if the operator misconfigures the janitor period.
+func seconds(s string) time.Duration {
+	n, err := strconv.Atoi(s)
+	if err != nil || n <= 0 {
+		n = 1
+	}
+	return time.Duration(n) * time.Second
 }

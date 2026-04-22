@@ -60,10 +60,14 @@ func main() {
 	}
 
 	srv := server.New(server.Config{
-		ListenAddr:      cfg.ListenAddr,
-		OpAMPAddr:       cfg.OpAMPAddr,
-		CORSOrigins:     cfg.CORSOrigins,
-		MinAgentVersion: cfg.MinAgentVersion,
+		ListenAddr:              cfg.ListenAddr,
+		OpAMPAddr:               cfg.OpAMPAddr,
+		CORSOrigins:             cfg.CORSOrigins,
+		MinAgentVersion:         cfg.MinAgentVersion,
+		WorkloadRetention:       cfg.WorkloadRetention,
+		WorkloadDisconnectGrace: cfg.WorkloadDisconnectGrace,
+		WorkloadJanitorInterval: cfg.WorkloadJanitorInterval,
+		WorkloadEventRetention:  cfg.WorkloadEventRetention,
 	}, db, a, opts...)
 
 	// Graceful shutdown
