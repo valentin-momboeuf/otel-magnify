@@ -20,105 +20,160 @@ import (
 )
 
 // reportsAvailableComponentsCap is the capability bit set by agents that will
-// send AgentToServer.available_components. Defined in OpAMP spec ≥ v0.14.
+// send AgentToServer.available_components. Defined in OpAMP spec >= v0.14.
 const reportsAvailableComponentsCap = uint64(protobufs.AgentCapabilities_AgentCapabilities_ReportsAvailableComponents)
 
 // acceptsRemoteConfigCap signals that the agent (or the supervisor fronting it)
 // can apply a remote config. For bare collectors with the opamp extension this
-// bit is unset — only opamp-supervisor sets it. Exposed in the Agent JSON so
-// the UI can gate config editing affordances.
+// bit is unset — only opamp-supervisor sets it. Exposed in the Workload JSON
+// so the UI can gate config editing affordances.
 const acceptsRemoteConfigCap = uint64(protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig)
 
-// OpAMPStore is the subset of store.DB used by the OpAMP server.
+// OpAMPStore is the narrow subset of store.DB the OpAMP server needs.
 type OpAMPStore interface {
-	GetAgent(id string) (models.Agent, error)
-	UpsertAgent(a models.Agent) error
-	UpdateAgentStatus(id, status string) error
+	GetWorkload(id string) (models.Workload, error)
+	UpsertWorkload(w models.Workload) error
+	MarkWorkloadDisconnected(id string, retentionUntil time.Time) error
+	ClearWorkloadRetention(id string) error
+
 	GetConfig(id string) (models.Config, error)
 	CreateConfig(c models.Config) error
-	RecordAgentConfig(ac models.AgentConfig) error
-	UpdateAgentConfigStatus(agentID, configID, status, errorMessage string) error
-	GetLastAppliedAgentConfig(agentID string) (*models.AgentConfig, error)
+
+	RecordWorkloadConfig(wc models.WorkloadConfig) error
+	UpdateWorkloadConfigStatus(workloadID, configID, status, errorMessage string) error
+	GetLastAppliedWorkloadConfig(workloadID string) (*models.WorkloadConfig, error)
+
+	InsertWorkloadEvent(e models.WorkloadEvent) (int64, error)
 }
 
-// Notifier is called when an agent's state changes, to notify the frontend WS hub.
+// Notifier is called when a workload's state changes, to relay updates to the
+// frontend WS hub.
 type Notifier interface {
-	BroadcastAgentUpdate(agent models.Agent)
-	BroadcastConfigStatus(agentID string, status models.RemoteConfigStatus)
-	BroadcastAutoRollback(agentID, fromHash, toHash, reason string)
+	BroadcastWorkloadUpdate(workload models.Workload, connectedInstances, driftedInstances int)
+	BroadcastWorkloadEvent(event models.WorkloadEvent)
+	BroadcastConfigStatus(workloadID string, status models.RemoteConfigStatus)
+	BroadcastAutoRollback(workloadID, fromHash, toHash, reason string)
 }
 
-// Server wraps the opamp-go server and manages agent state.
+// Options controls time-based server behavior. Zero values fall back to
+// production defaults.
+type Options struct {
+	// DisconnectGrace is how long to wait after the last live instance of a
+	// workload goes away before marking the workload as disconnected. This
+	// smooths over K8s rolling restarts where pod A closes its connection
+	// moments before pod B opens one.
+	DisconnectGrace time.Duration
+	// RetentionDuration is how long a disconnected workload stays around
+	// before it becomes eligible for archival.
+	RetentionDuration time.Duration
+}
+
+// Server wraps the opamp-go server and manages workload state.
 type Server struct {
 	opamp    opampServer.OpAMPServer
 	store    OpAMPStore
 	notifier Notifier
 
-	mu         sync.RWMutex
-	conns      map[string]types.Connection // agentUID hex -> connection
-	connToUID  map[types.Connection]string // reverse map for O(1) lookup on close
+	registry  *InstanceRegistry
+	grace     *GraceController
+	retention time.Duration
 
-	// pushFn sends a config YAML to an agent. Defaults to PushConfig; overridable in tests.
-	pushFn func(agentID string, yaml []byte) error
+	mu        sync.RWMutex
+	conns     map[string]types.Connection // instanceUID hex -> connection
+	connToUID map[types.Connection]string // reverse map for O(1) lookup on close
+
+	// pushFn sends a config YAML to a workload. Defaults to PushConfig;
+	// overridable in tests so they can observe auto-push behavior without
+	// wiring a real OpAMP connection.
+	pushFn func(workloadID string, yaml []byte, targetInstanceUID string) error
 }
 
-// New creates a new OpAMP server. Both db and notifier can be nil (useful for testing).
-func New(db OpAMPStore, notifier Notifier) *Server {
+// New creates a new OpAMP server. db and notifier can be nil (useful for
+// testing).
+func New(db OpAMPStore, notifier Notifier, opts Options) *Server {
+	if opts.DisconnectGrace <= 0 {
+		opts.DisconnectGrace = 2 * time.Minute
+	}
+	if opts.RetentionDuration <= 0 {
+		opts.RetentionDuration = 30 * 24 * time.Hour
+	}
 	s := &Server{
 		opamp:     opampServer.New(nil),
 		store:     db,
 		notifier:  notifier,
+		registry:  NewInstanceRegistry(),
+		grace:     NewGraceController(opts.DisconnectGrace),
+		retention: opts.RetentionDuration,
 		conns:     make(map[string]types.Connection),
 		connToUID: make(map[types.Connection]string),
 	}
-	s.pushFn = func(agentID string, yaml []byte) error {
-		return s.PushConfig(context.Background(), agentID, yaml)
+	s.pushFn = func(workloadID string, yaml []byte, target string) error {
+		return s.PushConfig(context.Background(), workloadID, yaml, target)
 	}
 	return s
 }
 
-// ConnectedAgentCount returns the number of currently connected agents.
-func (s *Server) ConnectedAgentCount() int {
+// ConnectedInstanceCount returns the number of currently connected instances.
+func (s *Server) ConnectedInstanceCount() int {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	return len(s.conns)
 }
 
-// GetConnection returns the OpAMP connection for a given agent ID, or nil.
-func (s *Server) GetConnection(agentID string) types.Connection {
+// GetConnection returns the OpAMP connection for a given instance UID, or nil.
+func (s *Server) GetConnection(instanceUID string) types.Connection {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.conns[agentID]
+	return s.conns[instanceUID]
 }
 
-// PushConfig sends a remote config to a connected agent.
-func (s *Server) PushConfig(ctx context.Context, agentID string, yamlContent []byte) error {
-	conn := s.GetConnection(agentID)
-	if conn == nil {
-		return fmt.Errorf("agent %s not connected", agentID)
-	}
-
+// PushConfig sends a remote config to one specific instance (when
+// targetInstanceUID is set) or broadcasts it to every live instance of a
+// workload.
+func (s *Server) PushConfig(ctx context.Context, workloadID string, yamlContent []byte, targetInstanceUID string) error {
 	configHash := sha256.Sum256(yamlContent)
-
-	msg := &protobufs.ServerToAgent{
-		InstanceUid: []byte(agentID),
-		RemoteConfig: &protobufs.AgentRemoteConfig{
-			Config: &protobufs.AgentConfigMap{
-				ConfigMap: map[string]*protobufs.AgentConfigFile{
-					"": {
-						Body:        yamlContent,
-						ContentType: "text/yaml",
+	makeMsg := func(uid string) *protobufs.ServerToAgent {
+		return &protobufs.ServerToAgent{
+			InstanceUid: []byte(uid),
+			RemoteConfig: &protobufs.AgentRemoteConfig{
+				Config: &protobufs.AgentConfigMap{
+					ConfigMap: map[string]*protobufs.AgentConfigFile{
+						"": {Body: yamlContent, ContentType: "text/yaml"},
 					},
 				},
+				ConfigHash: configHash[:],
 			},
-			ConfigHash: configHash[:],
-		},
+		}
+	}
+
+	if targetInstanceUID != "" {
+		return s.sendToInstance(ctx, targetInstanceUID, makeMsg(targetInstanceUID))
+	}
+
+	instances := s.registry.Instances(workloadID)
+	if len(instances) == 0 {
+		return fmt.Errorf("workload %s has no connected instance", workloadID)
+	}
+	var firstErr error
+	for _, i := range instances {
+		if err := s.sendToInstance(ctx, i.InstanceUID, makeMsg(i.InstanceUID)); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+func (s *Server) sendToInstance(ctx context.Context, uid string, msg *protobufs.ServerToAgent) error {
+	s.mu.RLock()
+	conn := s.conns[uid]
+	s.mu.RUnlock()
+	if conn == nil {
+		return fmt.Errorf("instance %s not connected", uid)
 	}
 	return conn.Send(ctx, msg)
 }
 
 // Attach mounts the OpAMP handler on an existing HTTP mux.
-// Returns the HTTPHandlerFunc and ConnContext to register on the HTTP server.
 func (s *Server) Attach() (opampServer.HTTPHandlerFunc, opampServer.ConnContext, error) {
 	connCallbacks := types.ConnectionCallbacks{
 		OnConnected:       s.onConnected,
@@ -149,107 +204,283 @@ func (s *Server) onConnected(ctx context.Context, conn types.Connection) {
 	log.Printf("OpAMP agent connected: %v", conn)
 }
 
+// flattenAttrs merges identifying and non-identifying OpAMP attributes into a
+// flat map[string]string, skipping non-string and empty values.
+func flattenAttrs(identifying, nonIdentifying []*protobufs.KeyValue) map[string]string {
+	out := make(map[string]string, len(identifying)+len(nonIdentifying))
+	for _, kv := range identifying {
+		if kv == nil || kv.Value == nil {
+			continue
+		}
+		if v := kv.Value.GetStringValue(); v != "" {
+			out[kv.Key] = v
+		}
+	}
+	for _, kv := range nonIdentifying {
+		if kv == nil || kv.Value == nil {
+			continue
+		}
+		if v := kv.Value.GetStringValue(); v != "" {
+			out[kv.Key] = v
+		}
+	}
+	return out
+}
+
 func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
 	uid := hex.EncodeToString(msg.InstanceUid)
 
-	// Track connection in both directions for O(1) lookup on close
-	s.mu.Lock()
-	s.conns[uid] = conn
-	s.connToUID[conn] = uid
-	s.mu.Unlock()
-
-	// Seed from the previous DB state so heartbeats (which omit
-	// AgentDescription and other identity fields) don't clobber them.
-	var agent models.Agent
-	if s.store != nil {
-		if prev, err := s.store.GetAgent(uid); err == nil {
-			agent = prev
-		}
-	}
-	agent.ID = uid
-	agent.Status = "connected"
-	agent.LastSeenAt = time.Now().UTC()
-	if agent.Labels == nil {
-		agent.Labels = models.Labels{}
+	// Track connection in both directions for O(1) lookup on close. A nil
+	// conn slips in from unit tests — tolerate it so we still exercise the
+	// message-handling logic.
+	if conn != nil {
+		s.mu.Lock()
+		s.conns[uid] = conn
+		s.connToUID[conn] = uid
+		s.mu.Unlock()
 	}
 
-	// Extract agent description. Present on the first message from an agent
-	// and whenever the agent itself changes (e.g. version bump).
+	var workloadID string
+	var requestComponents bool
+
 	if desc := msg.AgentDescription; desc != nil {
-		agent.Labels = models.Labels{}
-		for _, kv := range desc.IdentifyingAttributes {
-			switch kv.Key {
-			case "service.name":
-				agent.DisplayName = kv.Value.GetStringValue()
-			case "service.version":
-				agent.Version = kv.Value.GetStringValue()
+		attrs := flattenAttrs(desc.IdentifyingAttributes, desc.NonIdentifyingAttributes)
+		fp := Fingerprint(attrs, uid)
+		workloadID = fp.ID
+
+		version := attrs["service.version"]
+		// Capture the previous version BEFORE BindInstance overwrites it so
+		// we can emit a version_changed event on rebind.
+		prevVersion, _ := s.registry.PreviousVersion(uid)
+
+		ins := Instance{
+			PodName: attrs["k8s.pod.name"],
+			Version: version,
+			Healthy: true,
+		}
+		if msg.Health != nil && !msg.Health.Healthy {
+			ins.Healthy = false
+		}
+		if msg.RemoteConfigStatus != nil {
+			ins.EffectiveConfigHash = hex.EncodeToString(msg.RemoteConfigStatus.LastRemoteConfigHash)
+		}
+
+		isFresh := s.registry.BindInstance(uid, workloadID, ins)
+		// A new binding supersedes any pending grace timer.
+		s.grace.Cancel(workloadID)
+
+		// Upsert the workload row BEFORE emitting events — workload_events
+		// has a FK to workloads(id) so the parent must exist first.
+		s.upsertWorkloadFromDescription(uid, workloadID, fp, attrs, msg)
+
+		if isFresh {
+			s.emitEvent(models.WorkloadEvent{
+				WorkloadID:  workloadID,
+				InstanceUID: uid,
+				PodName:     ins.PodName,
+				EventType:   "connected",
+				Version:     ins.Version,
+				OccurredAt:  time.Now().UTC(),
+			})
+		} else if prevVersion != "" && prevVersion != version {
+			s.emitEvent(models.WorkloadEvent{
+				WorkloadID:  workloadID,
+				InstanceUID: uid,
+				PodName:     ins.PodName,
+				EventType:   "version_changed",
+				Version:     version,
+				PrevVersion: prevVersion,
+				OccurredAt:  time.Now().UTC(),
+			})
+		}
+
+		// Only ask for available_components when the capability bit is set
+		// and the agent hasn't already populated the list.
+		if msg.Capabilities&reportsAvailableComponentsCap != 0 {
+			if wl, err := s.getWorkload(workloadID); err == nil && wl.AvailableComponents == nil {
+				requestComponents = true
 			}
 		}
-		// Collectors report service.name as "otelcol", "otelcol-contrib", etc.
-		agent.Type = "sdk"
-		if isCollectorName(agent.DisplayName) {
-			agent.Type = "collector"
+	} else {
+		wl, ok := s.registry.LookupWorkload(uid)
+		if !ok {
+			// Heartbeat arriving before the first AgentDescription: defer
+			// everything until the agent identifies itself.
+			return &protobufs.ServerToAgent{InstanceUid: msg.InstanceUid}
 		}
-		for _, kv := range desc.NonIdentifyingAttributes {
-			if sv := kv.Value.GetStringValue(); sv != "" {
-				agent.Labels[kv.Key] = sv
+		workloadID = wl
+		s.registry.UpdateInstance(uid, func(i *Instance) {
+			if msg.Health != nil {
+				i.Healthy = msg.Health.Healthy
 			}
-		}
-		// Capture capability. AgentDescription presence is our marker for a
-		// full-status message; heartbeats omit it, so we preserve the previous
-		// value (already seeded from the DB at the top of onMessage).
-		agent.AcceptsRemoteConfig = msg.Capabilities&acceptsRemoteConfigCap != 0
+			if msg.RemoteConfigStatus != nil {
+				i.EffectiveConfigHash = hex.EncodeToString(msg.RemoteConfigStatus.LastRemoteConfigHash)
+			}
+		})
 	}
 
-	// Extract health
-	if health := msg.Health; health != nil {
-		if !health.Healthy {
-			agent.Status = "degraded"
-		}
-	}
-
-	// Persist the reported effective config (if any), otherwise keep the
-	// previously known active_config_id already seeded on `agent`.
+	// Aggregated status + broadcast + conditional auto-push.
 	if s.store != nil {
-		if cfgID := s.persistEffectiveConfig(uid, agent.DisplayName, msg.EffectiveConfig); cfgID != "" {
-			agent.ActiveConfigID = &cfgID
+		if wl, err := s.store.GetWorkload(workloadID); err == nil {
+			wl.Status = s.registry.AggregatedStatus(workloadID)
+			wl.LastSeenAt = time.Now().UTC()
+			if err := s.store.UpsertWorkload(wl); err != nil {
+				log.Printf("Failed to upsert workload %s: %v", workloadID, err)
+			}
+			if s.notifier != nil {
+				connected := s.registry.Count(workloadID)
+				drifted := s.countDrift(workloadID, wl.ActiveConfigHash)
+				s.notifier.BroadcastWorkloadUpdate(wl, connected, drifted)
+			}
+
+			// Auto-push (P.2): only when this specific instance diverges
+			// from the workload's pinned active config.
+			if wl.ActiveConfigHash != "" && wl.ActiveConfigID != nil {
+				for _, i := range s.registry.Instances(workloadID) {
+					if i.InstanceUID != uid {
+						continue
+					}
+					if i.EffectiveConfigHash != "" && i.EffectiveConfigHash != wl.ActiveConfigHash {
+						go s.triggerAutoPush(context.Background(), *wl.ActiveConfigID, workloadID, uid)
+					}
+				}
+			}
 		}
 	}
 
-	// Available components only ride on full updates; preserve prior snapshot on heartbeats.
-	if ac := flattenAvailableComponents(msg.AvailableComponents); ac != nil {
-		agent.AvailableComponents = ac
-	}
-
-	// If the agent advertises the capability but hasn't sent the list yet,
-	// ask it to send one on the next message by setting the report flag on the reply.
-	requestComponents := msg.Capabilities&reportsAvailableComponentsCap != 0 && agent.AvailableComponents == nil
-
-	// Persist to store. Skip if we have no type yet (unknown agent that
-	// hasn't sent its AgentDescription) — the CHECK constraint would reject it.
-	if s.store != nil && agent.Type != "" {
-		if err := s.store.UpsertAgent(agent); err != nil {
-			log.Printf("Failed to upsert agent %s: %v", uid, err)
-		}
-	}
-
-	// Notify frontend
-	if s.notifier != nil {
-		s.notifier.BroadcastAgentUpdate(agent)
-	}
-
-	// Handle RemoteConfigStatus reported by the agent (applied / failed / applying).
+	// RemoteConfigStatus bookkeeping (keeps the audit trail in workload_configs
+	// + auto-rollback on FAILED).
 	if s.store != nil && msg.RemoteConfigStatus != nil {
-		s.handleRemoteConfigStatus(uid, msg.RemoteConfigStatus)
+		s.handleRemoteConfigStatus(workloadID, msg.RemoteConfigStatus)
 	}
 
-	reply := &protobufs.ServerToAgent{
-		InstanceUid: msg.InstanceUid,
-	}
+	reply := &protobufs.ServerToAgent{InstanceUid: msg.InstanceUid}
 	if requestComponents {
 		reply.Flags = uint64(protobufs.ServerToAgentFlags_ServerToAgentFlags_ReportAvailableComponents)
 	}
 	return reply
+}
+
+// getWorkload is a nil-safe wrapper around OpAMPStore.GetWorkload.
+func (s *Server) getWorkload(id string) (models.Workload, error) {
+	if s.store == nil {
+		return models.Workload{}, fmt.Errorf("no store")
+	}
+	return s.store.GetWorkload(id)
+}
+
+// upsertWorkloadFromDescription materializes the workload row from the live
+// attributes, merging with DB state so we don't clobber fields managed
+// elsewhere (active_config_id, retention_until, remote_config_status snap).
+func (s *Server) upsertWorkloadFromDescription(uid, workloadID string, fp FingerprintResult, attrs map[string]string, msg *protobufs.AgentToServer) {
+	if s.store == nil {
+		return
+	}
+	var w models.Workload
+	if prev, err := s.store.GetWorkload(workloadID); err == nil {
+		w = prev
+	}
+	w.ID = workloadID
+	w.FingerprintSource = fp.Source
+	w.FingerprintKeys = models.FingerprintKeys(fp.Keys)
+	if svc := attrs["service.name"]; svc != "" {
+		w.DisplayName = svc
+	}
+	if v := attrs["service.version"]; v != "" {
+		w.Version = v
+	}
+	w.Type = "sdk"
+	if isCollectorName(w.DisplayName) {
+		w.Type = "collector"
+	}
+	w.Status = s.registry.AggregatedStatus(workloadID)
+	w.LastSeenAt = time.Now().UTC()
+	w.AcceptsRemoteConfig = msg.Capabilities&acceptsRemoteConfigCap != 0
+
+	// Rebuild labels from scratch to match the current attribute set. Skip
+	// keys already projected into dedicated columns.
+	w.Labels = models.Labels{}
+	for k, v := range attrs {
+		switch k {
+		case "service.name", "service.version":
+			continue
+		}
+		w.Labels[k] = v
+	}
+
+	// Resurrection: a live message clears any retention deadline.
+	w.RetentionUntil = nil
+
+	if cfgID := s.persistEffectiveConfig(workloadID, w.DisplayName, msg.EffectiveConfig); cfgID != "" {
+		w.ActiveConfigID = &cfgID
+	}
+
+	if ac := flattenAvailableComponents(msg.AvailableComponents); ac != nil {
+		w.AvailableComponents = ac
+	}
+
+	if w.Type == "" {
+		return
+	}
+	if err := s.store.UpsertWorkload(w); err != nil {
+		log.Printf("Failed to upsert workload %s: %v", workloadID, err)
+		return
+	}
+	// The UPSERT already wrote retention_until=NULL via the w.RetentionUntil=nil
+	// assignment above, but an explicit clear is cheap and guards against
+	// future schema changes that might stop propagating NULL through COALESCE.
+	if err := s.store.ClearWorkloadRetention(workloadID); err != nil {
+		log.Printf("clear retention %s: %v", workloadID, err)
+	}
+}
+
+// countDrift returns how many live instances have an effective config hash
+// that differs from the workload's pinned active hash.
+func (s *Server) countDrift(workloadID, activeHash string) int {
+	if activeHash == "" {
+		return 0
+	}
+	n := 0
+	for _, i := range s.registry.Instances(workloadID) {
+		if i.EffectiveConfigHash != "" && i.EffectiveConfigHash != activeHash {
+			n++
+		}
+	}
+	return n
+}
+
+// triggerAutoPush re-pushes the workload's pinned config to a single instance
+// that has reported a divergent effective hash. Runs as a goroutine launched
+// from onMessage, so all errors are logged (no channel to propagate them).
+func (s *Server) triggerAutoPush(ctx context.Context, configID, workloadID, instanceUID string) {
+	if s.store == nil {
+		return
+	}
+	cfg, err := s.store.GetConfig(configID)
+	if err != nil {
+		log.Printf("auto-push: cannot load config %s: %v", configID, err)
+		return
+	}
+	if err := s.pushFn(workloadID, []byte(cfg.Content), instanceUID); err != nil {
+		log.Printf("auto-push to workload=%s instance=%s failed: %v", workloadID, instanceUID, err)
+	}
+}
+
+// emitEvent persists a WorkloadEvent and broadcasts it. Store failures are
+// logged — events are best-effort.
+func (s *Server) emitEvent(e models.WorkloadEvent) {
+	if s.store == nil {
+		return
+	}
+	id, err := s.store.InsertWorkloadEvent(e)
+	if err != nil {
+		log.Printf("workload_events insert: %v", err)
+		return
+	}
+	e.ID = id
+	if s.notifier != nil {
+		s.notifier.BroadcastWorkloadEvent(e)
+	}
 }
 
 // flattenAvailableComponents converts the OpAMP nested representation
@@ -278,26 +509,12 @@ func flattenAvailableComponents(ac *protobufs.AvailableComponents) *models.Avail
 	return out
 }
 
-// broadcastDisconnect emits an agent_update with the agent's full persisted
-// state plus Status="disconnected" and LastSeenAt=now. If the store read
-// fails, it falls back to the pre-fix minimal broadcast so the UI still sees
-// the status change (graceful degradation).
-func (s *Server) broadcastDisconnect(uid string) {
-	agent, err := s.store.GetAgent(uid)
-	if err != nil {
-		log.Printf("Failed to reload agent %s for disconnect broadcast: %v", uid, err)
-		agent = models.Agent{ID: uid}
-	}
-	agent.Status = "disconnected"
-	agent.LastSeenAt = time.Now().UTC()
-	s.notifier.BroadcastAgentUpdate(agent)
-}
-
 func (s *Server) onConnectionClose(conn types.Connection) {
 	s.mu.Lock()
 	uid, ok := s.connToUID[conn]
 	if !ok {
-		// Connection was never registered (e.g. closed before first message).
+		// Connection was never registered (e.g. closed before first
+		// message). Return without touching registry state.
 		s.mu.Unlock()
 		return
 	}
@@ -305,21 +522,59 @@ func (s *Server) onConnectionClose(conn types.Connection) {
 	delete(s.connToUID, conn)
 	s.mu.Unlock()
 
-	if s.store == nil {
+	// Capture pod_name for the disconnected event BEFORE unbinding — the
+	// pod name is only known from the registry entry.
+	var podName string
+	if wl, found := s.registry.LookupWorkload(uid); found {
+		for _, i := range s.registry.Instances(wl) {
+			if i.InstanceUID == uid {
+				podName = i.PodName
+				break
+			}
+		}
+	}
+	workloadID := s.registry.UnbindInstance(uid)
+	if workloadID == "" {
 		return
 	}
-	if err := s.store.UpdateAgentStatus(uid, "disconnected"); err != nil {
-		log.Printf("Failed to update agent %s status: %v", uid, err)
-	}
-	if s.notifier != nil {
-		s.broadcastDisconnect(uid)
+
+	s.emitEvent(models.WorkloadEvent{
+		WorkloadID:  workloadID,
+		InstanceUID: uid,
+		PodName:     podName,
+		EventType:   "disconnected",
+		OccurredAt:  time.Now().UTC(),
+	})
+
+	if s.registry.Count(workloadID) == 0 {
+		s.grace.Schedule(workloadID, func() {
+			// Re-check under the real clock: a rolling restart could have
+			// rebound an instance during the grace window.
+			if s.registry.Count(workloadID) > 0 {
+				return
+			}
+			if s.store == nil {
+				return
+			}
+			until := time.Now().UTC().Add(s.retention)
+			if err := s.store.MarkWorkloadDisconnected(workloadID, until); err != nil {
+				log.Printf("mark disconnected %s: %v", workloadID, err)
+				return
+			}
+			if s.notifier != nil {
+				if wl, err := s.store.GetWorkload(workloadID); err == nil {
+					s.notifier.BroadcastWorkloadUpdate(wl, 0, 0)
+				}
+			}
+		})
 	}
 }
 
-// persistEffectiveConfig stores the YAML config reported by the agent (deduplicated
-// by content hash) and returns the resulting config ID. Returns empty if the message
-// carries no effective config (typical for heartbeats).
-func (s *Server) persistEffectiveConfig(agentUID, displayName string, effective *protobufs.EffectiveConfig) string {
+// persistEffectiveConfig stores the YAML config reported by the agent
+// (deduplicated by content hash) and returns the resulting config ID.
+// Returns empty if the message carries no effective config (typical for
+// heartbeats).
+func (s *Server) persistEffectiveConfig(workloadID, displayName string, effective *protobufs.EffectiveConfig) string {
 	if effective == nil || effective.ConfigMap == nil || len(effective.ConfigMap.ConfigMap) == 0 {
 		return ""
 	}
@@ -344,7 +599,11 @@ func (s *Server) persistEffectiveConfig(agentUID, displayName string, effective 
 	configID := hex.EncodeToString(sum[:])
 
 	if _, err := s.store.GetConfig(configID); err != nil {
-		name := fmt.Sprintf("%s-reported-%s", fallback(displayName, agentUID[:8]), configID[:8])
+		shortFallback := workloadID
+		if len(shortFallback) > 8 {
+			shortFallback = shortFallback[:8]
+		}
+		name := fmt.Sprintf("%s-reported-%s", fallback(displayName, shortFallback), configID[:8])
 		cfg := models.Config{
 			ID:        configID,
 			Name:      name,

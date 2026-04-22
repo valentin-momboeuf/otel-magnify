@@ -80,8 +80,9 @@ func (s *Server) Run(ctx context.Context) error {
 	hub := api.NewHub()
 	go hub.Run()
 
-	// OpAMP server
-	opampSrv := opamp.New(s.store, hub)
+	// OpAMP server. Zero Options → defaults (2-minute grace, 30-day
+	// retention). Task 4.2 will wire the real durations from env vars.
+	opampSrv := opamp.New(s.store, hub, opamp.Options{})
 	opampHandler, connCtx, err := opampSrv.Attach()
 	if err != nil {
 		return err
@@ -160,6 +161,6 @@ func (s *Server) Run(ctx context.Context) error {
 // call Handler() and Run() on the same Server instance.
 func (s *Server) Handler() http.Handler {
 	hub := api.NewHub()
-	opampSrv := opamp.New(s.store, hub)
+	opampSrv := opamp.New(s.store, hub, opamp.Options{})
 	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.authMethods)
 }
