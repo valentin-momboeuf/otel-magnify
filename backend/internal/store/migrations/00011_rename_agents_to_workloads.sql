@@ -63,6 +63,9 @@ CREATE INDEX idx_workload_configs_workload_time
     ON workload_configs(workload_id, applied_at DESC);
 CREATE INDEX idx_alerts_workload
     ON alerts(workload_id);
+
+-- Fail loudly if the rebuild left orphaned FK references.
+PRAGMA foreign_key_check;
 -- +goose StatementEnd
 
 -- +goose Down
