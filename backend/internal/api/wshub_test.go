@@ -2,54 +2,70 @@ package api
 
 import (
 	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/gorilla/websocket"
-
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
-func TestHub_BroadcastAgentUpdate(t *testing.T) {
-	hub := NewHub()
-	go hub.Run()
-	defer hub.Stop()
+// hookClient registers a receive-only ws client that captures broadcast frames.
+func hookClient(h *Hub) *wsClient {
+	c := &wsClient{send: make(chan []byte, 8)}
+	h.register <- c
+	// Give Run time to process the register before callers send broadcasts.
+	time.Sleep(10 * time.Millisecond)
+	return c
+}
 
-	// Start WS server
-	server := httptest.NewServer(http.HandlerFunc(hub.HandleWS))
-	defer server.Close()
+func TestBroadcastWorkloadUpdatePayload(t *testing.T) {
+	h := NewHub()
+	go h.Run()
+	defer h.Stop()
+	c := hookClient(h)
 
-	url := "ws" + strings.TrimPrefix(server.URL, "http") + "/"
-	ws, _, err := websocket.DefaultDialer.Dial(url, nil)
-	if err != nil {
-		t.Fatalf("Dial: %v", err)
+	h.BroadcastWorkloadUpdate(models.Workload{ID: "w1", Status: "connected"}, 2, 1)
+
+	select {
+	case raw := <-c.send:
+		body := string(raw)
+		for _, want := range []string{
+			`"type":"workload_update"`,
+			`"connected_instance_count":2`,
+			`"drifted_instance_count":1`,
+			`"id":"w1"`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("payload missing %q: %s", want, body)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no broadcast received")
 	}
-	defer ws.Close()
+}
 
-	// Allow time for registration
-	time.Sleep(50 * time.Millisecond)
+func TestBroadcastWorkloadEventPayload(t *testing.T) {
+	h := NewHub()
+	go h.Run()
+	defer h.Stop()
+	c := hookClient(h)
 
-	agent := models.Agent{
-		ID: "a1", DisplayName: "test", Status: "connected",
-		Type: "collector", LastSeenAt: time.Now().UTC(),
-	}
-	hub.BroadcastAgentUpdate(agent)
+	h.BroadcastWorkloadEvent(models.WorkloadEvent{ID: 42, WorkloadID: "w1", EventType: "connected", InstanceUID: "uid"})
 
-	ws.SetReadDeadline(time.Now().Add(time.Second))
-	_, msg, err := ws.ReadMessage()
-	if err != nil {
-		t.Fatalf("ReadMessage: %v", err)
-	}
-
-	var event map[string]any
-	if err := json.Unmarshal(msg, &event); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-	if event["type"] != "agent_update" {
-		t.Errorf("type = %q, want agent_update", event["type"])
+	select {
+	case raw := <-c.send:
+		body := string(raw)
+		for _, want := range []string{
+			`"type":"workload_event"`,
+			`"workload_id":"w1"`,
+			`"event_type":"connected"`,
+		} {
+			if !strings.Contains(body, want) {
+				t.Fatalf("payload missing %q: %s", want, body)
+			}
+		}
+	case <-time.After(time.Second):
+		t.Fatal("no broadcast received")
 	}
 }
 
@@ -63,7 +79,7 @@ func TestBroadcastConfigStatus_SerializesEvent(t *testing.T) {
 	h.clients[&wsClient{send: ch}] = true
 	h.mu.Unlock()
 
-	h.BroadcastConfigStatus("agent-1", models.RemoteConfigStatus{
+	h.BroadcastConfigStatus("workload-1", models.RemoteConfigStatus{
 		Status: "failed", ConfigHash: "abc", ErrorMessage: "boom",
 		UpdatedAt: time.Unix(0, 0).UTC(),
 	})
@@ -72,7 +88,7 @@ func TestBroadcastConfigStatus_SerializesEvent(t *testing.T) {
 	case b := <-ch:
 		var ev map[string]any
 		_ = json.Unmarshal(b, &ev)
-		if ev["type"] != "agent_config_status" || ev["agent_id"] != "agent-1" {
+		if ev["type"] != "workload_config_status" || ev["workload_id"] != "workload-1" {
 			t.Fatalf("unexpected event: %s", string(b))
 		}
 		st := ev["status"].(map[string]any)
@@ -94,12 +110,12 @@ func TestBroadcastAutoRollback_SerializesEvent(t *testing.T) {
 	h.clients[&wsClient{send: ch}] = true
 	h.mu.Unlock()
 
-	h.BroadcastAutoRollback("agent-1", "bbbbbbbb", "aaaaaaaa", "oops")
+	h.BroadcastAutoRollback("workload-1", "bbbbbbbb", "aaaaaaaa", "oops")
 	select {
 	case b := <-ch:
 		var ev map[string]any
 		_ = json.Unmarshal(b, &ev)
-		if ev["type"] != "auto_rollback_applied" || ev["from_hash"] != "bbbbbbbb" || ev["to_hash"] != "aaaaaaaa" {
+		if ev["type"] != "auto_rollback_applied" || ev["workload_id"] != "workload-1" || ev["from_hash"] != "bbbbbbbb" || ev["to_hash"] != "aaaaaaaa" {
 			t.Fatalf("payload: %s", string(b))
 		}
 	case <-time.After(time.Second):
