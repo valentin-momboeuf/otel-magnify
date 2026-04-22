@@ -1,5 +1,7 @@
-import { Link, Outlet, useLocation } from 'react-router-dom'
+import { NavLink, Outlet } from 'react-router-dom'
+import { useTranslation } from 'react-i18next'
 import { useStore } from '../../store'
+import '../../styles/sidebar.css'
 
 function IconDashboard() {
   return (
@@ -40,51 +42,50 @@ function IconAlerts() {
 }
 
 const navItems = [
-  { path: '/',        label: 'Dashboard', Icon: IconDashboard },
-  { path: '/inventory', label: 'Inventory', Icon: IconInventory    },
-  { path: '/configs', label: 'Configs',   Icon: IconConfigs   },
-  { path: '/alerts',  label: 'Alerts',    Icon: IconAlerts    },
-]
+  { path: '/',          key: 'dashboard', Icon: IconDashboard, end: true  },
+  { path: '/inventory', key: 'inventory', Icon: IconInventory, end: false },
+  { path: '/configs',   key: 'configs',   Icon: IconConfigs,   end: false },
+  { path: '/alerts',    key: 'alerts',    Icon: IconAlerts,    end: false },
+] as const
 
 export default function Layout() {
-  const location = useLocation()
+  const { t } = useTranslation()
   const alertCount = useStore((s) => s.alerts.length)
 
   return (
     <div className="app-layout">
-      <nav className="sidebar">
+      <aside className="sidebar">
         <div className="sidebar-logo">
           <div className="sidebar-logo-name">
             otel<span>-magnify</span>
           </div>
-          <div className="sidebar-logo-sub">OpAMP Control Plane</div>
-          <div className="sidebar-signal" />
+          <div className="sidebar-logo-sub">{t('sidebar.subtitle')}</div>
+          <span className="sidebar-signal-dot" aria-hidden />
+          <span className="sidebar-signal-bar" aria-hidden />
         </div>
 
-        <ul className="sidebar-nav">
-          {navItems.map(({ path, label, Icon }) => {
-            const isActive = path === '/'
-              ? location.pathname === '/'
-              : location.pathname.startsWith(path)
-            return (
+        <nav>
+          <div className="sidebar-section-label">{t('sidebar.section.fleet')}</div>
+          <ul className="sidebar-nav">
+            {navItems.map(({ path, key, Icon, end }) => (
               <li key={path} className="sidebar-nav-item">
-                <Link to={path} className={isActive ? 'active' : ''}>
+                <NavLink to={path} end={end}>
                   <Icon />
-                  {label}
-                  {label === 'Alerts' && alertCount > 0 && (
+                  <span>{t(`sidebar.nav.${key}`)}</span>
+                  {key === 'alerts' && alertCount > 0 && (
                     <span className="sidebar-badge">{alertCount}</span>
                   )}
-                </Link>
+                </NavLink>
               </li>
-            )
-          })}
-        </ul>
+            ))}
+          </ul>
+        </nav>
 
         <div className="sidebar-footer">
-          <span className="sidebar-footer-dot" />
-          LIVE
+          <span className="sidebar-footer-dot" aria-hidden />
+          {t('sidebar.footer.live')} · v{__APP_VERSION__}
         </div>
-      </nav>
+      </aside>
 
       <main className="main-content">
         <Outlet />

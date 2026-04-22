@@ -1,0 +1,189 @@
+/* ── Sidebar ─────────────────────────────────────────────
+   Chrome for the left navigation. See design_handoff's prototype.html.
+   ────────────────────────────────────────────────────────── */
+
+.sidebar {
+  width: 240px;
+  flex-shrink: 0;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow-y: auto;
+  padding: 1.25rem 0 0.75rem;
+}
+
+/* Logo block */
+.sidebar-logo {
+  position: relative;
+  padding: 0 1.25rem 1.25rem;
+}
+
+.sidebar-logo-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 1.15rem;
+  color: var(--text-hi);
+  letter-spacing: -0.02em;
+}
+
+.sidebar-logo-name span {
+  color: var(--accent);
+}
+
+.sidebar-logo-sub {
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.1em;
+  margin-top: 2px;
+}
+
+/* Live green dot in the top-right of the logo block */
+.sidebar-signal-dot {
+  position: absolute;
+  top: 0.3rem;
+  right: 1.25rem;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  box-shadow: 0 0 8px var(--green);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+[data-theme="paper"] .sidebar-signal-dot {
+  box-shadow: none;
+}
+
+/* Animated accent gradient underline */
+.sidebar-signal-bar {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: linear-gradient(
+    90deg,
+    transparent 0%,
+    var(--accent-glow) 20%,
+    var(--accent) 50%,
+    var(--accent-glow) 80%,
+    transparent 100%
+  );
+  background-size: 200% 100%;
+  animation: sweep 4s ease-in-out infinite;
+}
+
+/* Section header (FLEET, ENTERPRISE, …) */
+.sidebar-section-label {
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.15em;
+  color: var(--text-dim);
+  padding: 0.9rem 1.25rem 0.4rem;
+  text-transform: uppercase;
+}
+
+/* Nav list */
+.sidebar-nav {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.sidebar-nav-item {
+  padding: 0 0.6rem;
+}
+
+.sidebar-nav-item a {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.5rem 0.65rem;
+  border-radius: var(--radius-sm);
+  font-size: 0.87rem;
+  font-weight: 600;
+  color: var(--text);
+  text-decoration: none;
+  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+}
+
+.sidebar-nav-item a .nav-icon {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  opacity: 0.55;
+  transition: opacity var(--dur-fast) var(--ease);
+}
+
+.sidebar-nav-item a:hover {
+  background: var(--surface-2);
+  color: var(--text-hi);
+}
+
+.sidebar-nav-item a:hover .nav-icon {
+  opacity: 0.85;
+}
+
+.sidebar-nav-item a.active {
+  background: var(--accent-dim);
+  color: var(--accent);
+}
+
+.sidebar-nav-item a.active .nav-icon {
+  opacity: 1;
+}
+
+/* 2px accent bar on the left of the active row */
+.sidebar-nav-item a.active::before {
+  content: '';
+  position: absolute;
+  left: -0.6rem;
+  top: 0.4rem;
+  bottom: 0.4rem;
+  width: 2px;
+  background: var(--accent);
+  border-radius: 2px;
+}
+
+/* Alert count badge */
+.sidebar-badge {
+  margin-left: auto;
+  background: var(--red);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 0.65rem;
+  padding: 1px 6px;
+  border-radius: 10px;
+  font-weight: 600;
+  min-width: 18px;
+  text-align: center;
+}
+
+/* Footer pill */
+.sidebar-footer {
+  margin-top: auto;
+  padding: 1rem 1.25rem 0.25rem;
+  border-top: 1px dashed var(--border);
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  color: var(--text-muted);
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  letter-spacing: 0.04em;
+}
+
+.sidebar-footer-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--green);
+  animation: pulse 2s ease-in-out infinite;
+}
