@@ -32,6 +32,7 @@ type Store interface {
 	GetLatestPendingWorkloadConfig(workloadID string) (*models.WorkloadConfig, error)
 	GetWorkloadConfigHistory(workloadID string) ([]models.WorkloadConfig, error)
 	GetLastAppliedWorkloadConfig(workloadID string) (*models.WorkloadConfig, error)
+	GetPushActivity(days int) ([]models.PushActivityPoint, error)
 
 	CreateAlert(a models.Alert) error
 	ResolveAlert(id string) error

@@ -2,6 +2,7 @@ import axios from 'axios'
 import type {
   Workload, Instance, WorkloadEvent, EventsStats,
   Config, Alert, WorkloadConfig, ValidationResult,
+  PushActivityPoint,
 } from '../types'
 
 export type AuthMethod = {
@@ -76,6 +77,13 @@ export const alertsAPI = {
       .get<Alert[]>('/alerts', { params: { include_resolved: includeResolved } })
       .then((r) => r.data ?? []),
   resolve: (id: string) => api.post(`/alerts/${id}/resolve`),
+}
+
+export const pushesAPI = {
+  activity: (window: '7d' = '7d') =>
+    api
+      .get<PushActivityPoint[]>('/pushes/activity', { params: { window } })
+      .then((r) => r.data ?? []),
 }
 
 export const authAPI = {
