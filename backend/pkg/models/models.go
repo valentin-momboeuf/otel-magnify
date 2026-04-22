@@ -114,7 +114,7 @@ type WorkloadConfig struct {
 type Alert struct {
 	ID         string     `json:"id"`
 	WorkloadID string     `json:"workload_id"`
-	Rule       string     `json:"rule"`     // "agent_down" | "config_drift" | "version_outdated"
+	Rule       string     `json:"rule"`     // "workload_down" | "config_drift" | "version_outdated"
 	Severity   string     `json:"severity"` // "warning" | "critical"
 	Message    string     `json:"message"`
 	FiredAt    time.Time  `json:"fired_at"`

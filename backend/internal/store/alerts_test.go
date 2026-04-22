@@ -14,7 +14,7 @@ func TestCreateAlert(t *testing.T) {
 	alert := models.Alert{
 		ID:         "alert-001",
 		WorkloadID: "a1",
-		Rule:       "agent_down",
+		Rule:       "workload_down",
 		Severity:   "critical",
 		Message:    "Workload a1 not seen for 5 minutes",
 		FiredAt:    time.Now().UTC().Truncate(time.Second),
@@ -31,8 +31,8 @@ func TestCreateAlert(t *testing.T) {
 	if len(alerts) != 1 {
 		t.Fatalf("len = %d, want 1", len(alerts))
 	}
-	if alerts[0].Rule != "agent_down" {
-		t.Errorf("Rule = %q, want agent_down", alerts[0].Rule)
+	if alerts[0].Rule != "workload_down" {
+		t.Errorf("Rule = %q, want workload_down", alerts[0].Rule)
 	}
 	if alerts[0].WorkloadID != "a1" {
 		t.Errorf("WorkloadID = %q, want a1", alerts[0].WorkloadID)
@@ -43,7 +43,7 @@ func TestResolveAlert(t *testing.T) {
 	db := newTestDB(t)
 	seedWorkload(t, db, "a1")
 	if err := db.CreateAlert(models.Alert{
-		ID: "alert-001", WorkloadID: "a1", Rule: "agent_down",
+		ID: "alert-001", WorkloadID: "a1", Rule: "workload_down",
 		Severity: "critical", Message: "down", FiredAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
@@ -74,13 +74,13 @@ func TestGetUnresolvedAlertByWorkloadAndRule(t *testing.T) {
 	db := newTestDB(t)
 	seedWorkload(t, db, "a1")
 	if err := db.CreateAlert(models.Alert{
-		ID: "alert-001", WorkloadID: "a1", Rule: "agent_down",
+		ID: "alert-001", WorkloadID: "a1", Rule: "workload_down",
 		Severity: "critical", Message: "down", FiredAt: time.Now().UTC(),
 	}); err != nil {
 		t.Fatal(err)
 	}
 
-	alert, err := db.GetUnresolvedAlertByWorkloadAndRule("a1", "agent_down")
+	alert, err := db.GetUnresolvedAlertByWorkloadAndRule("a1", "workload_down")
 	if err != nil {
 		t.Fatalf("GetUnresolvedAlertByWorkloadAndRule: %v", err)
 	}

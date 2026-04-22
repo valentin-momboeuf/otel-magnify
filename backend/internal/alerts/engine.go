@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"fmt"
 	"log"
 	"time"
 
@@ -18,11 +19,11 @@ type Broadcaster interface {
 
 // AlertStore is the subset of ext.Store used by the alert engine.
 type AlertStore interface {
-	ListAgents() ([]models.Agent, error)
-	GetUnresolvedAlertByAgentAndRule(agentID, rule string) (*models.Alert, error)
+	ListWorkloads(includeArchived bool) ([]models.Workload, error)
+	GetUnresolvedAlertByWorkloadAndRule(workloadID, rule string) (*models.Alert, error)
 	CreateAlert(a models.Alert) error
 	ResolveAlert(id string) error
-	GetLatestPendingAgentConfig(agentID string) (*models.AgentConfig, error)
+	GetLatestPendingWorkloadConfig(workloadID string) (*models.WorkloadConfig, error)
 }
 
 type Engine struct {
@@ -57,37 +58,37 @@ func (e *Engine) Start(ctx context.Context, interval time.Duration) {
 }
 
 func (e *Engine) Evaluate() {
-	agents, err := e.db.ListAgents()
+	workloads, err := e.db.ListWorkloads(false)
 	if err != nil {
-		log.Printf("alert engine: list agents: %v", err)
+		log.Printf("alert engine: list workloads: %v", err)
 		return
 	}
 
 	now := time.Now().UTC()
-	for _, agent := range agents {
-		e.evaluateAgentDown(agent, now)
-		e.evaluateConfigDrift(agent, now)
-		e.evaluateVersionOutdated(agent, now)
+	for _, w := range workloads {
+		e.evaluateWorkloadDown(w, now)
+		e.evaluateConfigDrift(w, now)
+		e.evaluateVersionOutdated(w, now)
 	}
 }
 
-func (e *Engine) evaluateAgentDown(agent models.Agent, now time.Time) {
-	isDown := now.Sub(agent.LastSeenAt) > e.downTimeout
+func (e *Engine) evaluateWorkloadDown(w models.Workload, now time.Time) {
+	isDown := now.Sub(w.LastSeenAt) > e.downTimeout
 
-	existing, err := e.db.GetUnresolvedAlertByAgentAndRule(agent.ID, "agent_down")
+	existing, err := e.db.GetUnresolvedAlertByWorkloadAndRule(w.ID, "workload_down")
 	if err != nil {
-		log.Printf("alert engine: check existing alert for %s: %v", agent.ID, err)
+		log.Printf("alert engine: check existing alert for %s: %v", w.ID, err)
 		return
 	}
 
 	if isDown && existing == nil {
 		alert := models.Alert{
-			ID:       generateID(),
-			AgentID:  agent.ID,
-			Rule:     "agent_down",
-			Severity: "critical",
-			Message:  "Agent " + agent.ID + " not seen for " + e.downTimeout.String(),
-			FiredAt:  now,
+			ID:         generateID(),
+			WorkloadID: w.ID,
+			Rule:       "workload_down",
+			Severity:   "critical",
+			Message:    fmt.Sprintf("Workload %s not seen for %s", w.ID, e.downTimeout),
+			FiredAt:    now,
 		}
 		if err := e.db.CreateAlert(alert); err != nil {
 			log.Printf("alert engine: create alert: %v", err)
@@ -109,26 +110,26 @@ func (e *Engine) evaluateAgentDown(agent models.Agent, now time.Time) {
 	}
 }
 
-func (e *Engine) evaluateConfigDrift(agent models.Agent, now time.Time) {
-	pending, err := e.db.GetLatestPendingAgentConfig(agent.ID)
+func (e *Engine) evaluateConfigDrift(w models.Workload, now time.Time) {
+	pending, err := e.db.GetLatestPendingWorkloadConfig(w.ID)
 	if err != nil {
-		log.Printf("alert engine: check config drift for %s: %v", agent.ID, err)
+		log.Printf("alert engine: check config drift for %s: %v", w.ID, err)
 		return
 	}
 
-	// Agent has not applied the config we pushed within the timeout window.
+	// Workload has not applied the config we pushed within the timeout window.
 	isDrifted := pending != nil && now.Sub(pending.AppliedAt) > e.downTimeout
 
-	existing, _ := e.db.GetUnresolvedAlertByAgentAndRule(agent.ID, "config_drift")
+	existing, _ := e.db.GetUnresolvedAlertByWorkloadAndRule(w.ID, "config_drift")
 
 	if isDrifted && existing == nil {
 		alert := models.Alert{
-			ID:       generateID(),
-			AgentID:  agent.ID,
-			Rule:     "config_drift",
-			Severity: "warning",
-			Message:  "Agent " + agent.ID + " has not applied config " + pending.ConfigID[:12] + " after " + e.downTimeout.String(),
-			FiredAt:  now,
+			ID:         generateID(),
+			WorkloadID: w.ID,
+			Rule:       "config_drift",
+			Severity:   "warning",
+			Message:    fmt.Sprintf("Workload %s has not applied config %s after %s", w.ID, pending.ConfigID[:12], e.downTimeout),
+			FiredAt:    now,
 		}
 		if err := e.db.CreateAlert(alert); err != nil {
 			log.Printf("alert engine: create config_drift alert: %v", err)
@@ -150,28 +151,28 @@ func (e *Engine) evaluateConfigDrift(agent models.Agent, now time.Time) {
 	}
 }
 
-func (e *Engine) evaluateVersionOutdated(agent models.Agent, now time.Time) {
-	// Skip if the minimum version constraint is not configured or the agent
+func (e *Engine) evaluateVersionOutdated(w models.Workload, now time.Time) {
+	// Skip if the minimum version constraint is not configured or the workload
 	// has not yet reported its version.
-	if e.minVersion == "" || agent.Version == "" {
+	if e.minVersion == "" || w.Version == "" {
 		return
 	}
 
 	// Lexicographic comparison works for semver strings with the same number
 	// of digits per segment (e.g. "0.9.0" < "0.10.0" would fail — acceptable
 	// for now; use semver library if stricter comparison is required).
-	isOutdated := agent.Version < e.minVersion
+	isOutdated := w.Version < e.minVersion
 
-	existing, _ := e.db.GetUnresolvedAlertByAgentAndRule(agent.ID, "version_outdated")
+	existing, _ := e.db.GetUnresolvedAlertByWorkloadAndRule(w.ID, "version_outdated")
 
 	if isOutdated && existing == nil {
 		alert := models.Alert{
-			ID:       generateID(),
-			AgentID:  agent.ID,
-			Rule:     "version_outdated",
-			Severity: "warning",
-			Message:  "Agent " + agent.ID + " version " + agent.Version + " is below minimum " + e.minVersion,
-			FiredAt:  now,
+			ID:         generateID(),
+			WorkloadID: w.ID,
+			Rule:       "version_outdated",
+			Severity:   "warning",
+			Message:    fmt.Sprintf("Workload %s version %s is below minimum %s", w.ID, w.Version, e.minVersion),
+			FiredAt:    now,
 		}
 		if err := e.db.CreateAlert(alert); err != nil {
 			log.Printf("alert engine: create version_outdated alert: %v", err)
