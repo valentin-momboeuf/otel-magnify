@@ -1,52 +1,166 @@
-@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Fira+Code:wght@400;500;600&family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:wght@400;600&display=swap');
 
 /* ─────────────────────────────────────────────
-   DESIGN SYSTEM — "Signal Deck"
-   Warm gold accent. Precision crafted. Dense but breathing.
+   DESIGN SYSTEM — themable via [data-theme]
+   Default: Signal (cyan). Alternates: Paper, Terminal.
    ───────────────────────────────────────────── */
 
 :root {
-  /* Surface */
-  --bg:          #0f1115;
-  --surface:     #171b22;
-  --surface-2:   #1e2229;
-  --surface-3:   #252a33;
-  --border:      #262c38;
-  --border-hi:   #343d4f;
-
-  /* Accent — warm gold */
-  --gold:        #d4a537;
-  --gold-soft:   #e0b84e;
-  --gold-dim:    rgba(212, 165, 55, 0.08);
-  --gold-glow:   rgba(212, 165, 55, 0.2);
-
-  /* Semantic */
-  --green:       #34d399;
-  --green-dim:   rgba(52, 211, 153, 0.1);
-  --amber:       #fbbf24;
-  --amber-dim:   rgba(251, 191, 36, 0.1);
-  --red:         #f87171;
-  --red-dim:     rgba(248, 113, 113, 0.1);
-  --blue:        #60a5fa;
-
-  /* Text */
-  --text:        #9ca3af;
-  --text-hi:     #e5e7eb;
-  --text-muted:  #5c6370;
-
   /* Fonts */
-  --sans:        'Plus Jakarta Sans', -apple-system, sans-serif;
-  --mono:        'Fira Code', 'SF Mono', monospace;
+  --sans:  'Plus Jakarta Sans', -apple-system, system-ui, sans-serif;
+  --mono:  'Fira Code', 'IBM Plex Mono', ui-monospace, Menlo, monospace;
+  --serif: 'Newsreader', Georgia, serif;
 
   /* Radii */
-  --radius:      8px;
-  --radius-sm:   5px;
-  --radius-lg:   12px;
+  --radius-sm: 4px;
+  --radius:    6px;
+  --radius-lg: 10px;
 
-  /* Shadows */
-  --shadow-sm:   0 1px 2px rgba(0, 0, 0, 0.3);
-  --shadow-md:   0 4px 12px rgba(0, 0, 0, 0.25);
-  --shadow-glow: 0 0 20px var(--gold-glow);
+  /* Motion */
+  --dur:      0.18s;
+  --dur-fast: 0.12s;
+  --ease:     cubic-bezier(0.2, 0.7, 0.2, 1);
+
+  /* Density (static for now, wired for future picker) */
+  --cell-py: 0.7rem;
+  --pad:     1rem;
+}
+
+/* ── Signal (default, dark cyan) ── */
+[data-theme="signal"],
+:root:not([data-theme]) {
+  --bg:          #0B0F14;
+  --surface:     #0F151C;
+  --surface-2:   #131B25;
+  --surface-3:   #1B2532;
+  --border:      #1E2A38;
+  --border-hi:   #2A3A4D;
+
+  --text:        #C5D0DD;
+  --text-hi:     #E8EEF6;
+  --text-muted:  #6E7D90;
+  --text-dim:    #4A5668;
+
+  --accent:       #6EE7FF;
+  --accent-dim:   rgba(110, 231, 255, 0.12);
+  --accent-glow:  rgba(110, 231, 255, 0.35);
+  --accent-text:  #0B0F14;
+
+  --green:  #34D399;
+  --amber:  #F0B429;
+  --red:    #F87171;
+  --purple: #C084FC;
+  --blue:   #60A5FA;
+
+  --green-dim: rgba(52, 211, 153, 0.1);
+  --amber-dim: rgba(240, 180, 41, 0.1);
+  --red-dim:   rgba(248, 113, 113, 0.1);
+
+  --shadow-sm:   0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md:   0 2px 10px rgba(0, 0, 0, 0.35);
+  --shadow-lg:   0 14px 40px rgba(0, 0, 0, 0.5);
+  --shadow-glow: 0 0 20px var(--accent-glow);
+
+  --font-body:    var(--sans);
+  --font-display: var(--sans);
+
+  --grid-bg:   radial-gradient(circle at 1px 1px, rgba(110, 231, 255, 0.04) 1px, transparent 0);
+  --grid-size: 24px 24px;
+}
+
+/* ── Paper (light, warm rust accent) ── */
+[data-theme="paper"] {
+  --bg:          #F5F2EC;
+  --surface:     #FBFAF6;
+  --surface-2:   #F0ECE3;
+  --surface-3:   #E5DFD3;
+  --border:      #DCD4C3;
+  --border-hi:   #B8AD96;
+
+  --text:        #2A2620;
+  --text-hi:     #100E0A;
+  --text-muted:  #6B6356;
+  --text-dim:    #9A907D;
+
+  --accent:       #B44A1A;
+  --accent-dim:   rgba(180, 74, 26, 0.08);
+  --accent-glow:  rgba(180, 74, 26, 0.25);
+  --accent-text:  #FBFAF6;
+
+  --green:  #2E7D4F;
+  --amber:  #A37300;
+  --red:    #B91C1C;
+  --purple: #6B46A8;
+  --blue:   #1E4FB8;
+
+  --green-dim: rgba(46, 125, 79, 0.1);
+  --amber-dim: rgba(163, 115, 0, 0.1);
+  --red-dim:   rgba(185, 28, 28, 0.08);
+
+  --shadow-sm:   0 1px 0 rgba(0, 0, 0, 0.04);
+  --shadow-md:   0 1px 3px rgba(40, 30, 18, 0.10);
+  --shadow-lg:   0 12px 30px rgba(40, 30, 18, 0.12);
+  --shadow-glow: 0 0 0 3px var(--accent-glow);
+
+  --font-body:    var(--sans);
+  --font-display: var(--serif);
+
+  --grid-bg:   none;
+  --grid-size: auto;
+}
+
+/* ── Terminal (dark green phosphor) ── */
+[data-theme="terminal"] {
+  --bg:          #0A0E0B;
+  --surface:     #0A0E0B;
+  --surface-2:   #0F1410;
+  --surface-3:   #141A15;
+  --border:      #1C2820;
+  --border-hi:   #2C3D2F;
+
+  --text:        #B8D4BC;
+  --text-hi:     #DAF0DD;
+  --text-muted:  #5D7762;
+  --text-dim:    #3A4D3E;
+
+  --accent:       #8AE66E;
+  --accent-dim:   rgba(138, 230, 110, 0.12);
+  --accent-glow:  rgba(138, 230, 110, 0.40);
+  --accent-text:  #0A0E0B;
+
+  --green:  #8AE66E;
+  --amber:  #E8C547;
+  --red:    #F47373;
+  --purple: #B589E8;
+  --blue:   #8AB8E6;
+
+  --green-dim: rgba(138, 230, 110, 0.1);
+  --amber-dim: rgba(232, 197, 71, 0.1);
+  --red-dim:   rgba(244, 115, 115, 0.1);
+
+  --shadow-sm:   none;
+  --shadow-md:   none;
+  --shadow-lg:   0 0 40px rgba(138, 230, 110, 0.08);
+  --shadow-glow: 0 0 20px var(--accent-glow);
+
+  --font-body:    var(--mono);
+  --font-display: var(--mono);
+
+  --grid-bg:   repeating-linear-gradient(0deg, transparent, transparent 23px, rgba(138, 230, 110, 0.03) 23px, rgba(138, 230, 110, 0.03) 24px);
+  --grid-size: auto;
+}
+
+/* ── Temporary aliases for non-migrated screens ─────────────
+   Drop these when WorkloadDetail, Configs, and Alerts migrate
+   to the new token names (--accent* instead of --gold*).
+   ──────────────────────────────────────────────────────────── */
+:root {
+  --gold:      var(--accent);
+  --gold-soft: var(--accent);
+  --gold-dim:  var(--accent-dim);
+  --gold-glow: var(--accent-glow);
+  --muted:     var(--text-muted);
+  --danger:    var(--red);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -55,11 +169,22 @@ html { font-size: 14px; }
 body {
   background: var(--bg);
   color: var(--text);
-  font-family: var(--sans);
+  font-family: var(--font-body);
   font-size: 1rem;
   line-height: 1.55;
+  min-height: 100vh;
+  background-image: var(--grid-bg);
+  background-size: var(--grid-size);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+}
+
+h1, h2, h3, h4 {
+  font-family: var(--font-display);
+  color: var(--text-hi);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  margin: 0;
 }
 
 /* ── Scrollbar ── */
@@ -69,7 +194,7 @@ body {
   background: var(--border-hi);
   border-radius: 3px;
 }
-::-webkit-scrollbar-thumb:hover { background: var(--gold); }
+::-webkit-scrollbar-thumb:hover { background: var(--accent); }
 
 /* ── Keyframes ── */
 @keyframes enter {
@@ -92,15 +217,6 @@ body {
   100% { background-position: 200% center; }
 }
 
-@keyframes rotate-slow {
-  from { transform: translate(-50%, -50%) rotate(0deg); }
-  to   { transform: translate(-50%, -50%) rotate(360deg); }
-}
-
-@keyframes ripple {
-  0%   { transform: translate(-50%, -50%) scale(0.8); opacity: 0.5; }
-  100% { transform: translate(-50%, -50%) scale(2.5); opacity: 0; }
-}
 
 /* ── Layout ── */
 .app-layout {
@@ -108,154 +224,7 @@ body {
   min-height: 100vh;
 }
 
-/* ── Sidebar ── */
-.sidebar {
-  width: 230px;
-  min-height: 100vh;
-  background: var(--surface);
-  border-right: 1px solid var(--border);
-  display: flex;
-  flex-direction: column;
-  position: sticky;
-  top: 0;
-  height: 100vh;
-  overflow: hidden;
-}
-
-.sidebar-logo {
-  padding: 1.5rem 1.25rem 1.25rem;
-  border-bottom: 1px solid var(--border);
-  position: relative;
-}
-
-.sidebar-logo-name {
-  font-family: var(--sans);
-  font-size: 1.15rem;
-  font-weight: 800;
-  color: var(--text-hi);
-  letter-spacing: -0.01em;
-}
-
-.sidebar-logo-name span {
-  color: var(--gold);
-}
-
-.sidebar-logo-sub {
-  font-family: var(--mono);
-  font-size: 0.62rem;
-  font-weight: 400;
-  color: var(--text-muted);
-  letter-spacing: 0.04em;
-  margin-top: 4px;
-}
-
-/* Gold accent line under logo */
-.sidebar-signal {
-  height: 2px;
-  background: linear-gradient(
-    90deg,
-    transparent 0%,
-    var(--gold-glow) 20%,
-    var(--gold) 50%,
-    var(--gold-glow) 80%,
-    transparent 100%
-  );
-  background-size: 200% 100%;
-  animation: sweep 4s ease-in-out infinite;
-  position: absolute;
-  bottom: -1px;
-  left: 0; right: 0;
-  border-radius: 1px;
-}
-
-.sidebar-nav {
-  flex: 1;
-  padding: 0.75rem 0.5rem;
-  list-style: none;
-}
-
-.sidebar-nav-item a {
-  display: flex;
-  align-items: center;
-  gap: 0.65rem;
-  padding: 0.6rem 0.85rem;
-  font-family: var(--sans);
-  font-size: 0.82rem;
-  font-weight: 600;
-  color: var(--text-muted);
-  text-decoration: none;
-  border-radius: var(--radius-sm);
-  transition: all 0.15s ease;
-  position: relative;
-}
-
-.sidebar-nav-item a:hover {
-  color: var(--text);
-  background: rgba(255, 255, 255, 0.03);
-}
-
-.sidebar-nav-item a.active {
-  color: var(--gold);
-  background: var(--gold-dim);
-}
-
-.sidebar-nav-item a.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 60%;
-  background: var(--gold);
-  border-radius: 0 2px 2px 0;
-}
-
-.sidebar-nav-item a .nav-icon {
-  width: 16px;
-  height: 16px;
-  opacity: 0.45;
-  flex-shrink: 0;
-}
-
-.sidebar-nav-item a:hover .nav-icon { opacity: 0.7; }
-.sidebar-nav-item a.active .nav-icon { opacity: 1; }
-
-.sidebar-badge {
-  margin-left: auto;
-  background: var(--red);
-  color: #fff;
-  font-family: var(--mono);
-  font-size: 0.6rem;
-  font-weight: 600;
-  padding: 1px 6px;
-  border-radius: 10px;
-  min-width: 18px;
-  text-align: center;
-  line-height: 1.4;
-}
-
-.sidebar-footer {
-  padding: 1rem 1.25rem;
-  border-top: 1px solid var(--border);
-  font-family: var(--mono);
-  font-size: 0.62rem;
-  font-weight: 500;
-  color: var(--text-muted);
-  letter-spacing: 0.06em;
-  display: flex;
-  align-items: center;
-  gap: 0.5rem;
-}
-
-.sidebar-footer-dot {
-  display: inline-block;
-  width: 6px;
-  height: 6px;
-  border-radius: 50%;
-  background: var(--green);
-  animation: pulse 2s ease-in-out infinite;
-}
+/* Sidebar styles live in ./sidebar.css */
 
 /* ── Main content ── */
 .main-content {

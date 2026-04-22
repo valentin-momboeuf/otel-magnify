@@ -1,0 +1,81 @@
+{
+  "sidebar": {
+    "section": {
+      "fleet": "FLOTTE"
+    },
+    "nav": {
+      "dashboard": "Tableau de bord",
+      "inventory": "Inventaire",
+      "configs": "Configurations",
+      "alerts": "Alertes"
+    },
+    "footer": {
+      "live": "LIVE"
+    },
+    "subtitle": "OpAMP Control Plane"
+  },
+  "dashboard": {
+    "title": "Tableau de bord",
+    "subtitle": "Santé de la flotte en un coup d'œil",
+    "stat": {
+      "collectors": "Collecteurs",
+      "sdks": "SDK instrumentés",
+      "supervised": "Supervisés",
+      "connected": "Connectés",
+      "degraded": "Dégradés",
+      "active_alerts": "Alertes actives"
+    },
+    "panel": {
+      "push_activity": "Activité des pushes (7j)",
+      "fleet_health": "Santé de la flotte",
+      "deployed_versions": "Versions déployées",
+      "recent_alerts": "Alertes récentes"
+    },
+    "fleet": {
+      "connected": "Connectés",
+      "degraded": "Dégradés",
+      "disconnected": "Déconnectés",
+      "empty": "Aucun workload"
+    },
+    "push": {
+      "empty": "Aucun push dans les 7 derniers jours"
+    },
+    "versions": {
+      "empty": "Aucune donnée de version",
+      "others": "+{{count}} autres"
+    },
+    "alerts": {
+      "empty": "Aucune alerte active"
+    }
+  },
+  "inventory": {
+    "title": "Inventaire",
+    "filter": {
+      "search_placeholder": "Rechercher un workload…",
+      "type": {
+        "all": "Tous les types",
+        "collector": "Collecteur",
+        "sdk": "SDK"
+      },
+      "status": {
+        "all": "Tous les statuts",
+        "connected": "Connecté",
+        "disconnected": "Déconnecté",
+        "degraded": "Dégradé"
+      },
+      "control": {
+        "all": "Tous les modes",
+        "supervised": "Supervisé",
+        "readonly": "Lecture seule"
+      }
+    },
+    "card": {
+      "supervised": "SUPERVISÉ",
+      "readonly": "RO"
+    },
+    "empty": "Aucun workload ne correspond aux filtres"
+  },
+  "common": {
+    "loading": "Chargement…"
+  }
+}
