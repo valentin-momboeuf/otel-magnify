@@ -28,20 +28,6 @@ func (l *Labels) Scan(src any) error {
 	}
 }
 
-type Agent struct {
-	ID                  string               `json:"id"`
-	DisplayName         string               `json:"display_name"`
-	Type                string               `json:"type"`   // "collector" | "sdk"
-	Version             string               `json:"version"`
-	Status              string               `json:"status"` // "connected" | "disconnected" | "degraded"
-	LastSeenAt          time.Time            `json:"last_seen_at"`
-	Labels              Labels               `json:"labels"`
-	ActiveConfigID      *string              `json:"active_config_id,omitempty"`
-	RemoteConfigStatus  *RemoteConfigStatus  `json:"remote_config_status,omitempty"`
-	AvailableComponents *AvailableComponents `json:"available_components,omitempty"`
-	AcceptsRemoteConfig bool                 `json:"accepts_remote_config"`
-}
-
 // AvailableComponents maps OTel Collector categories (receivers, processors,
 // exporters, extensions, connectors) to the set of component types the agent
 // reports as installed. Populated from OpAMP AgentToServer.available_components.
@@ -115,11 +101,11 @@ type Config struct {
 	CreatedBy string    `json:"created_by"`
 }
 
-type AgentConfig struct {
-	AgentID      string    `json:"agent_id"`
+type WorkloadConfig struct {
+	WorkloadID   string    `json:"workload_id"`
 	ConfigID     string    `json:"config_id"`
 	AppliedAt    time.Time `json:"applied_at"`
-	Status       string    `json:"status"` // "pending" | "applied" | "failed"
+	Status       string    `json:"status"` // "pending" | "applying" | "applied" | "failed"
 	ErrorMessage string    `json:"error_message,omitempty"`
 	PushedBy     string    `json:"pushed_by,omitempty"`
 	Content      string    `json:"content,omitempty"` // filled by JOIN in history queries
@@ -127,8 +113,8 @@ type AgentConfig struct {
 
 type Alert struct {
 	ID         string     `json:"id"`
-	AgentID    string     `json:"agent_id"`
-	Rule       string     `json:"rule"`     // "agent_down" | "config_drift" | "version_outdated"
+	WorkloadID string     `json:"workload_id"`
+	Rule       string     `json:"rule"`     // "workload_down" | "config_drift" | "version_outdated"
 	Severity   string     `json:"severity"` // "warning" | "critical"
 	Message    string     `json:"message"`
 	FiredAt    time.Time  `json:"fired_at"`
@@ -141,4 +127,69 @@ type User struct {
 	PasswordHash string  `json:"-"`
 	Role         string  `json:"role"` // "admin" | "viewer"
 	TenantID     *string `json:"tenant_id,omitempty"`
+}
+
+// FingerprintKeys is a small JSON map persisted alongside a Workload to
+// record which resource attributes contributed to its identity.
+type FingerprintKeys map[string]string
+
+func (f FingerprintKeys) Value() (string, error) {
+	b, err := json.Marshal(f)
+	return string(b), err
+}
+
+func (f *FingerprintKeys) Scan(src any) error {
+	switch v := src.(type) {
+	case string:
+		if v == "" {
+			*f = FingerprintKeys{}
+			return nil
+		}
+		return json.Unmarshal([]byte(v), f)
+	case []byte:
+		if len(v) == 0 {
+			*f = FingerprintKeys{}
+			return nil
+		}
+		return json.Unmarshal(v, f)
+	case nil:
+		*f = FingerprintKeys{}
+		return nil
+	default:
+		return fmt.Errorf("unsupported type for FingerprintKeys: %T", src)
+	}
+}
+
+// Workload is a logical unit of management: a K8s Deployment / DaemonSet /
+// StatefulSet, a single host process, or a cardinality-1 fallback keyed on
+// the OpAMP InstanceUid.
+type Workload struct {
+	ID                  string               `json:"id"`
+	FingerprintSource   string               `json:"fingerprint_source"` // "k8s" | "host" | "uid"
+	FingerprintKeys     FingerprintKeys      `json:"fingerprint_keys"`
+	DisplayName         string               `json:"display_name"`
+	Type                string               `json:"type"`   // "collector" | "sdk"
+	Version             string               `json:"version"`
+	Status              string               `json:"status"` // "connected" | "disconnected" | "degraded"
+	LastSeenAt          time.Time            `json:"last_seen_at"`
+	Labels              Labels               `json:"labels"`
+	ActiveConfigID      *string              `json:"active_config_id,omitempty"`
+	ActiveConfigHash    string               `json:"active_config_hash,omitempty"`
+	RemoteConfigStatus  *RemoteConfigStatus  `json:"remote_config_status,omitempty"`
+	AvailableComponents *AvailableComponents `json:"available_components,omitempty"`
+	AcceptsRemoteConfig bool                 `json:"accepts_remote_config"`
+	RetentionUntil      *time.Time           `json:"retention_until,omitempty"`
+	ArchivedAt          *time.Time           `json:"archived_at,omitempty"`
+}
+
+// WorkloadEvent is an append-only record of a pod transition on a workload.
+type WorkloadEvent struct {
+	ID          int64     `json:"id"`
+	WorkloadID  string    `json:"workload_id"`
+	InstanceUID string    `json:"instance_uid"`
+	PodName     string    `json:"pod_name,omitempty"`
+	EventType   string    `json:"event_type"` // "connected" | "disconnected" | "version_changed"
+	Version     string    `json:"version,omitempty"`
+	PrevVersion string    `json:"prev_version,omitempty"`
+	OccurredAt  time.Time `json:"occurred_at"`
 }

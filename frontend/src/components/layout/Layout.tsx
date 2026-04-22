@@ -12,7 +12,7 @@ function IconDashboard() {
   )
 }
 
-function IconAgents() {
+function IconInventory() {
   return (
     <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
       <circle cx="8" cy="5" r="2.5" />
@@ -41,7 +41,7 @@ function IconAlerts() {
 
 const navItems = [
   { path: '/',        label: 'Dashboard', Icon: IconDashboard },
-  { path: '/inventory', label: 'Inventory', Icon: IconAgents    },
+  { path: '/inventory', label: 'Inventory', Icon: IconInventory    },
   { path: '/configs', label: 'Configs',   Icon: IconConfigs   },
   { path: '/alerts',  label: 'Alerts',    Icon: IconAlerts    },
 ]

@@ -6,6 +6,7 @@ import (
 	"embed"
 	"fmt"
 	"io/fs"
+	"log"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
 	"github.com/pressly/goose/v3"
@@ -42,6 +43,13 @@ func Open(driver, dsn string) (*DB, error) {
 }
 
 // Migrate runs all pending goose migrations embedded in the binary.
+//
+// On SQLite we temporarily disable foreign_keys for the duration of the run
+// because table-rebuild migrations (e.g. 00011 agents→workloads) must drop
+// and recreate parent tables; with foreign_keys=ON those DROPs abort.
+// `PRAGMA foreign_keys` is a no-op inside a transaction, so it must be
+// toggled at the connection level before goose opens its per-migration tx.
+// Re-enabled on exit, including on migration failure.
 func (d *DB) Migrate() error {
 	fsys, err := fs.Sub(migrationsFS, "migrations")
 	if err != nil {
@@ -51,6 +59,17 @@ func (d *DB) Migrate() error {
 	dialect := goose.DialectSQLite3
 	if d.driver == "pgx" {
 		dialect = goose.DialectPostgres
+	}
+
+	if d.driver == "sqlite" {
+		if _, err := d.DB.Exec("PRAGMA foreign_keys = OFF;"); err != nil {
+			return fmt.Errorf("disable foreign_keys for migration: %w", err)
+		}
+		defer func() {
+			if _, err := d.DB.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+				log.Printf("re-enable foreign_keys after migration: %v", err)
+			}
+		}()
 	}
 
 	provider, err := goose.NewProvider(dialect, d.DB, fsys)

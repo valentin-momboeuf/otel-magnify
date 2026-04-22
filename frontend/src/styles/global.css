@@ -479,8 +479,8 @@ body {
   animation: glow-pulse 1s ease-in-out infinite;
 }
 
-/* ── Agent card ── */
-.agent-card {
+/* ── Workload card ── */
+.workload-card {
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -496,17 +496,29 @@ body {
   animation: enter 0.3s ease both;
 }
 
-.agent-card:hover {
+.workload-card:hover {
   border-color: var(--border-hi);
   background: var(--surface-2);
   box-shadow: var(--shadow-sm);
 }
 
-.agent-card:hover .agent-name {
+.workload-card:hover .workload-name {
   color: var(--gold);
 }
 
-.agent-name {
+.workload-card-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.workload-card-side {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+}
+
+.workload-name {
   font-family: var(--mono);
   font-size: 0.88rem;
   font-weight: 500;
@@ -514,14 +526,14 @@ body {
   transition: color 0.15s;
 }
 
-.agent-meta {
+.workload-meta {
   font-family: var(--mono);
   font-size: 0.7rem;
   color: var(--text-muted);
   margin-top: 3px;
 }
 
-.agent-type {
+.workload-type {
   display: inline-block;
   padding: 1px 6px;
   border-radius: 3px;
@@ -531,20 +543,20 @@ body {
   letter-spacing: 0.04em;
 }
 
-.agent-type-collector {
+.workload-type-collector {
   background: var(--gold-dim);
   color: var(--gold);
   border: 1px solid rgba(212, 165, 55, 0.2);
 }
 
-.agent-type-sdk {
+.workload-type-sdk {
   background: rgba(96, 165, 250, 0.08);
   color: var(--blue);
   border: 1px solid rgba(96, 165, 250, 0.2);
 }
 
-/* Supervised collector pill — shown next to the .agent-type badge */
-.agent-supervised-pill {
+/* Supervised collector pill — shown next to the .workload-type badge */
+.workload-supervised-pill {
   display: inline-flex;
   align-items: center;
   gap: 4px;
@@ -560,11 +572,76 @@ body {
   border: 1px solid rgba(212, 165, 55, 0.35);
 }
 
-.agent-supervised-pill::before {
+.workload-supervised-pill::before {
   content: '●';
   font-size: 0.6rem;
   line-height: 1;
   color: var(--gold);
+}
+
+/* Instance-count badge — populated via WS workload_update events */
+.instance-count-badge {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+}
+
+/* ── Page header helpers ── */
+.page-header-count {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+}
+.page-header-count-danger {
+  color: var(--danger);
+}
+.page-header-backlink {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--muted);
+  text-decoration: none;
+}
+
+/* ── Detail cells — modifiers added in the Workload rename ── */
+.control-supervised { color: var(--gold); }
+.control-readonly   { color: var(--text-muted); }
+.detail-cell-timestamp { font-size: 0.78rem; }
+
+/* ── Misc layout helpers extracted from inline styles ── */
+.label-chip-list {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
+.btn-row {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.btn-row-top { margin-top: 0.75rem; }
+
+.validation-block { margin-top: 0.5rem; }
+.validation-error-list {
+  margin: 0;
+  padding-left: 1.25rem;
+}
+.validation-error-path { margin-left: 6px; }
+.validation-error-msg { margin-left: 6px; }
+
+.error-text-push { margin-top: 0.5rem; }
+.error-text-inline { align-self: center; }
+
+.alert-message-cell { max-width: 320px; }
+.table-timestamp {
+  white-space: nowrap;
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--muted);
 }
 
 /* Secondary (muted) sub-line for detail-cell values — used by the Control cell */
@@ -724,7 +801,7 @@ body {
   animation: enter 0.3s ease both;
 }
 
-/* ── Agent detail ── */
+/* ── Workload detail ── */
 .detail-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
@@ -1114,4 +1191,146 @@ code {
 :focus-visible {
   outline: 2px solid var(--gold);
   outline-offset: 2px;
+}
+
+/* ─────────────────────────────────────────────
+   Workload detail — sub-tabs, instances, activity
+   ───────────────────────────────────────────── */
+
+/* Tab bar (workload detail only — kept namespaced to avoid
+   colliding with the existing .tab class used by the config editor) */
+.workload-tab-bar {
+  display: flex;
+  gap: 1.25rem;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 1.5rem;
+}
+.workload-tab {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  padding: 0.6rem 0;
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+}
+.workload-tab:hover {
+  color: var(--text);
+}
+.workload-tab-active {
+  color: var(--text-hi);
+  border-bottom-color: var(--gold);
+}
+
+/* Instances table */
+.instances-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+}
+.instances-table th,
+.instances-table td {
+  padding: 0.5rem 0.75rem;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+.instances-table th {
+  color: var(--text-muted);
+  font-weight: 500;
+}
+.instances-table .mono {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+.instance-drift {
+  color: var(--red);
+}
+.instance-drift-tag {
+  margin-left: 0.5rem;
+  font-size: 0.7rem;
+  color: var(--red);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+/* Activity panel */
+.activity-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+.activity-header {
+  display: flex;
+  gap: 0.75rem;
+  align-items: baseline;
+  padding: 0.85rem 1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.activity-header strong {
+  color: var(--text-hi);
+  font-size: 1.1rem;
+}
+.activity-header-meta {
+  color: var(--text-muted);
+  font-size: 0.8rem;
+}
+.activity-day {
+  border-left: 2px solid var(--border);
+  padding-left: 1rem;
+}
+.activity-day-heading {
+  margin: 0 0 0.4rem 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  font-weight: 500;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.activity-timeline {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+.activity-entry {
+  display: grid;
+  grid-template-columns: 5.5rem 0.75rem auto 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+  padding: 0.35rem 0;
+}
+.activity-time {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--text-muted);
+}
+.activity-dot {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 50%;
+  background: var(--text-muted);
+}
+.activity-connected .activity-dot { background: var(--green); }
+.activity-disconnected .activity-dot { background: var(--text-muted); }
+.activity-version_changed .activity-dot { background: var(--gold); }
+.activity-event-type {
+  text-transform: capitalize;
+  color: var(--text-hi);
+  font-size: 0.82rem;
+}
+.activity-identity {
+  color: var(--text-muted);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+}
+.activity-version {
+  color: var(--gold);
+  font-family: var(--mono);
+  font-size: 0.72rem;
 }

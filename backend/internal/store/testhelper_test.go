@@ -21,11 +21,13 @@ func newTestDB(t *testing.T) *DB {
 	return db
 }
 
-func seedAgent(t *testing.T, db *DB, id string) {
+func seedWorkload(t *testing.T, db *DB, id string) {
 	t.Helper()
-	if err := db.UpsertAgent(models.Agent{
+	if err := db.UpsertWorkload(models.Workload{
 		ID: id, Type: "collector", Status: "connected",
-		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+		LastSeenAt:      time.Now().UTC(),
+		Labels:          models.Labels{},
+		FingerprintKeys: models.FingerprintKeys{},
 	}); err != nil {
 		t.Fatal(err)
 	}

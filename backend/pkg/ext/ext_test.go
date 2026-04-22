@@ -14,8 +14,8 @@ import (
 var (
 	_ ext.Store         = (*store.DB)(nil)
 	_ ext.AuthProvider  = (*auth.Auth)(nil)
-	_ ext.AlertNotifier = (*alerts.WebhookNotifier)(nil)
 	_ ext.AuditLogger   = ext.NopAuditLogger{}
+	_ ext.AlertNotifier = (*alerts.WebhookNotifier)(nil)
 )
 
 func TestUserInfoContextRoundTrip(t *testing.T) {

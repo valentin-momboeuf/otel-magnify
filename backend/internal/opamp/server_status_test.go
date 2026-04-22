@@ -15,27 +15,41 @@ import (
 )
 
 type fakeNotifier struct {
-	agents   []models.Agent
-	statuses []struct {
-		agentID string
-		status  models.RemoteConfigStatus
-	}
-	rollbacks []struct {
-		agentID, fromHash, toHash, reason string
-	}
+	workloads []workloadBroadcast
+	events    []models.WorkloadEvent
+	statuses  []configStatusBroadcast
+	rollbacks []rollbackBroadcast
 }
 
-func (f *fakeNotifier) BroadcastAgentUpdate(a models.Agent) { f.agents = append(f.agents, a) }
-func (f *fakeNotifier) BroadcastConfigStatus(agentID string, s models.RemoteConfigStatus) {
-	f.statuses = append(f.statuses, struct {
-		agentID string
-		status  models.RemoteConfigStatus
-	}{agentID, s})
+type workloadBroadcast struct {
+	workload  models.Workload
+	connected int
+	drifted   int
 }
-func (f *fakeNotifier) BroadcastAutoRollback(agentID, fromHash, toHash, reason string) {
-	f.rollbacks = append(f.rollbacks, struct {
-		agentID, fromHash, toHash, reason string
-	}{agentID, fromHash, toHash, reason})
+
+type configStatusBroadcast struct {
+	workloadID string
+	status     models.RemoteConfigStatus
+}
+
+type rollbackBroadcast struct {
+	workloadID, fromHash, toHash, reason string
+}
+
+func (f *fakeNotifier) BroadcastWorkloadUpdate(w models.Workload, connected, drifted int) {
+	f.workloads = append(f.workloads, workloadBroadcast{w, connected, drifted})
+}
+
+func (f *fakeNotifier) BroadcastWorkloadEvent(e models.WorkloadEvent) {
+	f.events = append(f.events, e)
+}
+
+func (f *fakeNotifier) BroadcastConfigStatus(workloadID string, s models.RemoteConfigStatus) {
+	f.statuses = append(f.statuses, configStatusBroadcast{workloadID, s})
+}
+
+func (f *fakeNotifier) BroadcastAutoRollback(workloadID, fromHash, toHash, reason string) {
+	f.rollbacks = append(f.rollbacks, rollbackBroadcast{workloadID, fromHash, toHash, reason})
 }
 
 func newTestServer(t *testing.T) (*Server, *store.DB, *fakeNotifier) {
@@ -49,7 +63,16 @@ func newTestServer(t *testing.T) (*Server, *store.DB, *fakeNotifier) {
 	}
 	t.Cleanup(func() { db.Close() })
 	n := &fakeNotifier{}
-	return New(db, n), db, n
+	// Short grace so tests don't wait forever for rolling-restart behavior.
+	srv := New(db, n, Options{DisconnectGrace: 20 * time.Millisecond, RetentionDuration: time.Hour})
+	return srv, db, n
+}
+
+// fingerprintUIDHex returns the workload ID the UID-based fingerprint would
+// produce for the given instance UID. Tests that seed the workload row up
+// front need this to match what onMessage computes.
+func fingerprintUIDHex(uidHex string) string {
+	return Fingerprint(map[string]string{}, uidHex).ID
 }
 
 func TestOnMessage_RemoteConfigStatusApplied(t *testing.T) {
@@ -58,25 +81,63 @@ func TestOnMessage_RemoteConfigStatusApplied(t *testing.T) {
 	uid := make([]byte, 16)
 	uid[0] = 0xAA
 	uidHex := hex.EncodeToString(uid)
-	_ = db.UpsertAgent(models.Agent{ID: uidHex, Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
-	_ = db.CreateConfig(models.Config{ID: "deadbeef", Name: "n", Content: "x", CreatedAt: time.Now().UTC(), CreatedBy: "u"})
-	_ = db.RecordAgentConfig(models.AgentConfig{AgentID: uidHex, ConfigID: "deadbeef", Status: "pending"})
+	wlID := fingerprintUIDHex(uidHex)
+
+	if err := db.UpsertWorkload(models.Workload{
+		ID: wlID, Type: "collector", Status: "connected",
+		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+	}); err != nil {
+		t.Fatalf("seed workload: %v", err)
+	}
+	if err := db.CreateConfig(models.Config{
+		ID: "deadbeef", Name: "n", Content: "x",
+		CreatedAt: time.Now().UTC(), CreatedBy: "u",
+	}); err != nil {
+		t.Fatalf("seed config: %v", err)
+	}
+	if err := db.RecordWorkloadConfig(models.WorkloadConfig{
+		WorkloadID: wlID, ConfigID: "deadbeef", Status: "pending",
+	}); err != nil {
+		t.Fatalf("seed workload_config: %v", err)
+	}
+
+	// Bind the instance first via an AgentDescription so subsequent
+	// heartbeats know which workload to resolve to.
+	s.onMessage(nil, nil, &protobufs.AgentToServer{
+		InstanceUid: uid,
+		AgentDescription: &protobufs.AgentDescription{
+			IdentifyingAttributes: []*protobufs.KeyValue{
+				{Key: "service.name", Value: &protobufs.AnyValue{Value: &protobufs.AnyValue_StringValue{StringValue: "otelcol-contrib"}}},
+			},
+		},
+	})
 
 	hashBytes, _ := hex.DecodeString("deadbeef")
-	msg := &protobufs.AgentToServer{
+	s.onMessage(nil, nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hashBytes,
 			Status:               protobufs.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED,
 		},
-	}
-	s.onMessage(nil, nil, msg)
+	})
 
-	hist, _ := db.GetAgentConfigHistory(uidHex)
-	if len(hist) != 1 || hist[0].Status != "applied" {
+	hist, _ := db.GetWorkloadConfigHistory(wlID)
+	var applied bool
+	for _, h := range hist {
+		if h.ConfigID == "deadbeef" && h.Status == "applied" {
+			applied = true
+		}
+	}
+	if !applied {
 		t.Fatalf("expected applied row, got %+v", hist)
 	}
-	if len(n.statuses) == 0 || n.statuses[0].status.Status != "applied" {
+	var gotApplied bool
+	for _, st := range n.statuses {
+		if st.status.Status == "applied" {
+			gotApplied = true
+		}
+	}
+	if !gotApplied {
 		t.Fatalf("expected applied status broadcast, got %+v", n.statuses)
 	}
 }
@@ -87,32 +148,51 @@ func TestOnMessage_RemoteConfigStatusFailed_AutoRollback(t *testing.T) {
 	uid := make([]byte, 16)
 	uid[0] = 0xBB
 	uidHex := hex.EncodeToString(uid)
-	_ = db.UpsertAgent(models.Agent{ID: uidHex, Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
+	wlID := fingerprintUIDHex(uidHex)
 
+	if err := db.UpsertWorkload(models.Workload{
+		ID: wlID, Type: "collector", Status: "connected",
+		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+	}); err != nil {
+		t.Fatalf("seed workload: %v", err)
+	}
 	_ = db.CreateConfig(models.Config{ID: "aaaaaaaa", Name: "A", Content: "good-yaml", CreatedAt: time.Now().UTC().Add(-time.Hour), CreatedBy: "u"})
-	_ = db.RecordAgentConfig(models.AgentConfig{AgentID: uidHex, ConfigID: "aaaaaaaa", Status: "applied", AppliedAt: time.Now().UTC().Add(-time.Hour)})
+	_ = db.RecordWorkloadConfig(models.WorkloadConfig{WorkloadID: wlID, ConfigID: "aaaaaaaa", Status: "applied", AppliedAt: time.Now().UTC().Add(-time.Hour)})
 	_ = db.CreateConfig(models.Config{ID: "bbbbbbbb", Name: "B", Content: "bad-yaml", CreatedAt: time.Now().UTC(), CreatedBy: "u"})
-	_ = db.RecordAgentConfig(models.AgentConfig{AgentID: uidHex, ConfigID: "bbbbbbbb", Status: "pending"})
+	_ = db.RecordWorkloadConfig(models.WorkloadConfig{WorkloadID: wlID, ConfigID: "bbbbbbbb", Status: "pending"})
 
-	pushes := [][]byte{}
-	s.pushFn = func(agentID string, yaml []byte) error {
-		pushes = append(pushes, yaml)
+	// Bind the instance so heartbeats resolve.
+	s.onMessage(nil, nil, &protobufs.AgentToServer{
+		InstanceUid: uid,
+		AgentDescription: &protobufs.AgentDescription{
+			IdentifyingAttributes: []*protobufs.KeyValue{
+				{Key: "service.name", Value: &protobufs.AnyValue{Value: &protobufs.AnyValue_StringValue{StringValue: "otelcol-contrib"}}},
+			},
+		},
+	})
+
+	type pushArgs struct {
+		workloadID, instance string
+		yaml                 []byte
+	}
+	var pushes []pushArgs
+	s.pushFn = func(workloadID string, yaml []byte, instance string) error {
+		pushes = append(pushes, pushArgs{workloadID, instance, yaml})
 		return nil
 	}
 
 	hashB, _ := hex.DecodeString("bbbbbbbb")
-	msg := &protobufs.AgentToServer{
+	s.onMessage(nil, nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hashB,
 			Status:               protobufs.RemoteConfigStatuses_RemoteConfigStatuses_FAILED,
 			ErrorMessage:         "unknown exporter 'othttp'",
 		},
-	}
-	s.onMessage(nil, nil, msg)
+	})
 
-	hist, _ := db.GetAgentConfigHistory(uidHex)
-	var bRow *models.AgentConfig
+	hist, _ := db.GetWorkloadConfigHistory(wlID)
+	var bRow *models.WorkloadConfig
 	for i := range hist {
 		if hist[i].ConfigID == "bbbbbbbb" {
 			bRow = &hist[i]
@@ -121,7 +201,7 @@ func TestOnMessage_RemoteConfigStatusFailed_AutoRollback(t *testing.T) {
 	if bRow == nil || bRow.Status != "failed" || bRow.ErrorMessage != "unknown exporter 'othttp'" {
 		t.Fatalf("B row not updated to failed: %+v", bRow)
 	}
-	if len(pushes) != 1 || string(pushes[0]) != "good-yaml" {
+	if len(pushes) != 1 || string(pushes[0].yaml) != "good-yaml" {
 		t.Fatalf("expected auto-rollback to re-push A, pushes=%v", pushes)
 	}
 	if len(n.rollbacks) != 1 || n.rollbacks[0].toHash != "aaaaaaaa" {
@@ -135,12 +215,29 @@ func TestOnMessage_RemoteConfigStatusFailed_NoRollbackTarget(t *testing.T) {
 	uid := make([]byte, 16)
 	uid[0] = 0xCC
 	uidHex := hex.EncodeToString(uid)
-	_ = db.UpsertAgent(models.Agent{ID: uidHex, Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
-	_ = db.CreateConfig(models.Config{ID: "cccccccc", Name: "C", Content: "bad", CreatedAt: time.Now().UTC(), CreatedBy: "u"})
-	_ = db.RecordAgentConfig(models.AgentConfig{AgentID: uidHex, ConfigID: "cccccccc", Status: "pending"})
+	wlID := fingerprintUIDHex(uidHex)
 
-	pushes := [][]byte{}
-	s.pushFn = func(_ string, y []byte) error { pushes = append(pushes, y); return nil }
+	if err := db.UpsertWorkload(models.Workload{
+		ID: wlID, Type: "collector", Status: "connected",
+		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
+	}); err != nil {
+		t.Fatalf("seed workload: %v", err)
+	}
+	_ = db.CreateConfig(models.Config{ID: "cccccccc", Name: "C", Content: "bad", CreatedAt: time.Now().UTC(), CreatedBy: "u"})
+	_ = db.RecordWorkloadConfig(models.WorkloadConfig{WorkloadID: wlID, ConfigID: "cccccccc", Status: "pending"})
+
+	// Bind first.
+	s.onMessage(nil, nil, &protobufs.AgentToServer{
+		InstanceUid: uid,
+		AgentDescription: &protobufs.AgentDescription{
+			IdentifyingAttributes: []*protobufs.KeyValue{
+				{Key: "service.name", Value: &protobufs.AnyValue{Value: &protobufs.AnyValue_StringValue{StringValue: "otelcol-contrib"}}},
+			},
+		},
+	})
+
+	var pushes [][]byte
+	s.pushFn = func(_ string, y []byte, _ string) error { pushes = append(pushes, y); return nil }
 
 	hash, _ := hex.DecodeString("cccccccc")
 	s.onMessage(nil, nil, &protobufs.AgentToServer{
@@ -166,6 +263,8 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 	uid := make([]byte, 16)
 	uid[0] = 0xCC
 	uidHex := hex.EncodeToString(uid)
+	wlID := fingerprintUIDHex(uidHex)
+	_ = wlID
 
 	// Full-status message with AcceptsRemoteConfig set.
 	full := &protobufs.AgentToServer{
@@ -180,19 +279,19 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 	}
 	s.onMessage(nil, nil, full)
 
-	got, err := db.GetAgent(uidHex)
+	wl, err := db.GetWorkload(wlID)
 	if err != nil {
 		t.Fatalf("get: %v", err)
 	}
-	if !got.AcceptsRemoteConfig {
+	if !wl.AcceptsRemoteConfig {
 		t.Fatalf("after full-status: accepts_remote_config=false, want true")
 	}
 
-	// Heartbeat (no AgentDescription, Capabilities=0) must preserve the previous value.
+	// Heartbeat (no AgentDescription): must preserve the previous value.
 	hb := &protobufs.AgentToServer{InstanceUid: uid}
 	s.onMessage(nil, nil, hb)
-	got, _ = db.GetAgent(uidHex)
-	if !got.AcceptsRemoteConfig {
+	wl, _ = db.GetWorkload(wlID)
+	if !wl.AcceptsRemoteConfig {
 		t.Fatalf("after heartbeat: accepts_remote_config flipped to false — should be preserved")
 	}
 
@@ -203,210 +302,42 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 		Capabilities:     0,
 	}
 	s.onMessage(nil, nil, fullOff)
-	got, _ = db.GetAgent(uidHex)
-	if got.AcceptsRemoteConfig {
+	wl, _ = db.GetWorkload(wlID)
+	if wl.AcceptsRemoteConfig {
 		t.Fatalf("after full-status with caps=0: accepts_remote_config stayed true")
 	}
 }
 
-func TestBroadcastDisconnect_HydratesAgent(t *testing.T) {
-	s, db, n := newTestServer(t)
-
-	uid := make([]byte, 16)
-	uid[0] = 0xDD
-	uidHex := hex.EncodeToString(uid)
-
-	cfgID := "deadbeef"
-	// agents.active_config_id has a FK to configs(id); seed the config first.
-	if err := db.CreateConfig(models.Config{
-		ID:        cfgID,
-		Name:      "cfg",
-		Content:   "x",
-		CreatedAt: time.Now().UTC(),
-		CreatedBy: "u",
-	}); err != nil {
-		t.Fatalf("seed config: %v", err)
-	}
-	seeded := models.Agent{
-		ID:                  uidHex,
-		DisplayName:         "prod-eu",
-		Type:                "collector",
-		Version:             "0.150.1",
-		Status:              "connected",
-		LastSeenAt:          time.Now().UTC().Add(-time.Minute),
-		Labels:              models.Labels{"env": "prod"},
-		ActiveConfigID:      &cfgID,
-		AcceptsRemoteConfig: true,
-	}
-	if err := db.UpsertAgent(seeded); err != nil {
-		t.Fatalf("seed agent: %v", err)
-	}
-
-	before := time.Now().UTC()
-	s.broadcastDisconnect(uidHex)
-	after := time.Now().UTC()
-
-	if len(n.agents) != 1 {
-		t.Fatalf("expected 1 broadcast, got %d", len(n.agents))
-	}
-	got := n.agents[0]
-
-	if got.ID != uidHex {
-		t.Errorf("ID: got %q, want %q", got.ID, uidHex)
-	}
-	if got.Status != "disconnected" {
-		t.Errorf("Status: got %q, want %q", got.Status, "disconnected")
-	}
-	if got.LastSeenAt.Before(before) || got.LastSeenAt.After(after) {
-		t.Errorf("LastSeenAt: got %v, want within [%v,%v]", got.LastSeenAt, before, after)
-	}
-	if got.DisplayName != "prod-eu" {
-		t.Errorf("DisplayName lost: got %q", got.DisplayName)
-	}
-	if got.Type != "collector" {
-		t.Errorf("Type lost: got %q", got.Type)
-	}
-	if got.Version != "0.150.1" {
-		t.Errorf("Version lost: got %q", got.Version)
-	}
-	if got.Labels["env"] != "prod" {
-		t.Errorf("Labels lost: got %#v", got.Labels)
-	}
-	if got.ActiveConfigID == nil || *got.ActiveConfigID != cfgID {
-		t.Errorf("ActiveConfigID lost: got %v", got.ActiveConfigID)
-	}
-	if !got.AcceptsRemoteConfig {
-		t.Errorf("AcceptsRemoteConfig lost: got false")
-	}
-}
-
-func TestBroadcastDisconnect_FallbackOnDBError(t *testing.T) {
-	s, db, n := newTestServer(t)
-
-	uid := make([]byte, 16)
-	uid[0] = 0xEE
-	uidHex := hex.EncodeToString(uid)
-	if err := db.UpsertAgent(models.Agent{
-		ID:         uidHex,
-		Type:       "collector",
-		Status:     "connected",
-		LastSeenAt: time.Now().UTC(),
-		Labels:     models.Labels{},
-	}); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	// Force GetAgent to fail by closing the underlying DB before the call.
-	if err := db.Close(); err != nil {
-		t.Fatalf("close db: %v", err)
-	}
-
-	before := time.Now().UTC()
-	s.broadcastDisconnect(uidHex) // must not panic
-	after := time.Now().UTC()
-
-	if len(n.agents) != 1 {
-		t.Fatalf("expected 1 broadcast, got %d", len(n.agents))
-	}
-	got := n.agents[0]
-	if got.ID != uidHex {
-		t.Errorf("ID: got %q, want %q", got.ID, uidHex)
-	}
-	if got.Status != "disconnected" {
-		t.Errorf("Status: got %q, want %q", got.Status, "disconnected")
-	}
-	if got.LastSeenAt.Before(before) || got.LastSeenAt.After(after) {
-		t.Errorf("LastSeenAt: got %v, want within [%v,%v]", got.LastSeenAt, before, after)
-	}
-}
-
 // fakeConn is a no-op types.Connection for exercising onConnectionClose.
-// onConnectionClose only uses the value as a map key and does not invoke
-// any of the methods.
 type fakeConn struct{}
 
-func (fakeConn) Connection() net.Conn                                      { return nil }
+func (fakeConn) Connection() net.Conn                                     { return nil }
 func (fakeConn) Send(_ context.Context, _ *protobufs.ServerToAgent) error { return nil }
-func (fakeConn) Disconnect() error                                         { return nil }
-
-func TestOnConnectionClose_BroadcastsHydratedAgent(t *testing.T) {
-	s, db, n := newTestServer(t)
-
-	uid := make([]byte, 16)
-	uid[0] = 0xFF
-	uidHex := hex.EncodeToString(uid)
-
-	if err := db.UpsertAgent(models.Agent{
-		ID:                  uidHex,
-		Type:                "collector",
-		Version:             "0.150.1",
-		Status:              "connected",
-		LastSeenAt:          time.Now().UTC(),
-		Labels:              models.Labels{"env": "prod"},
-		AcceptsRemoteConfig: true,
-	}); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
-
-	var conn types.Connection = fakeConn{}
-	s.mu.Lock()
-	s.conns[uidHex] = conn
-	s.connToUID[conn] = uidHex
-	s.mu.Unlock()
-
-	s.onConnectionClose(conn)
-
-	if len(n.agents) == 0 {
-		t.Fatal("expected a broadcast after onConnectionClose")
-	}
-	last := n.agents[len(n.agents)-1]
-	if last.Status != "disconnected" {
-		t.Errorf("Status: got %q, want %q", last.Status, "disconnected")
-	}
-	if last.Type != "collector" {
-		t.Errorf("Type lost: got %q", last.Type)
-	}
-	if !last.AcceptsRemoteConfig {
-		t.Errorf("AcceptsRemoteConfig lost")
-	}
-	if last.Labels["env"] != "prod" {
-		t.Errorf("Labels lost: %#v", last.Labels)
-	}
-}
+func (fakeConn) Disconnect() error                                        { return nil }
 
 func TestOnConnectionClose_UnknownConnection_NoLockLeak(t *testing.T) {
-	s, db, n := newTestServer(t)
-
-	uid := make([]byte, 16)
-	uid[0] = 0x11
-	uidHex := hex.EncodeToString(uid)
-	if err := db.UpsertAgent(models.Agent{
-		ID:         uidHex,
-		Type:       "collector",
-		Status:     "connected",
-		LastSeenAt: time.Now().UTC(),
-		Labels:     models.Labels{},
-	}); err != nil {
-		t.Fatalf("seed: %v", err)
-	}
+	s, _, _ := newTestServer(t)
 
 	var conn types.Connection = fakeConn{}
 
 	// First call: conn is NOT registered in s.conns / s.connToUID.
-	// Triggers the early-return branch of onConnectionClose. A missing
-	// Unlock on that branch would leak the mutex.
+	// Triggers the early-return branch. A missing Unlock on that branch
+	// would leak the mutex.
 	s.onConnectionClose(conn)
 
-	// Register the same conn so the second call exercises the full path.
+	// Register the conn so the second call exercises the past-early-return
+	// path. No registry binding is needed for the deadlock check — what we
+	// want to verify is purely that the mutex was released by the first
+	// call, which means the second Lock() must not block.
+	uid := make([]byte, 16)
+	uid[0] = 0x11
+	uidHex := hex.EncodeToString(uid)
 	s.mu.Lock()
 	s.conns[uidHex] = conn
 	s.connToUID[conn] = uidHex
 	s.mu.Unlock()
 
-	// Second call: must complete without deadlocking on s.mu. If Task 3's
-	// refactor leaked the lock on the first call's early-return, the second
-	// call would block forever trying to s.mu.Lock(). A 1s select timeout
-	// turns that deadlock into a deterministic test failure.
+	// Second call: must complete without deadlocking on s.mu.
 	done := make(chan struct{})
 	go func() {
 		s.onConnectionClose(conn)
@@ -417,14 +348,5 @@ func TestOnConnectionClose_UnknownConnection_NoLockLeak(t *testing.T) {
 		// Success: no deadlock.
 	case <-time.After(1 * time.Second):
 		t.Fatal("onConnectionClose deadlocked after an unknown-connection early return — s.mu was leaked")
-	}
-
-	// Only the second call should have produced a broadcast; the first
-	// returned before any I/O.
-	if len(n.agents) != 1 {
-		t.Fatalf("expected 1 broadcast (from the registered-conn call), got %d", len(n.agents))
-	}
-	if got := n.agents[0]; got.Status != "disconnected" {
-		t.Errorf("Status: got %q, want %q", got.Status, "disconnected")
 	}
 }

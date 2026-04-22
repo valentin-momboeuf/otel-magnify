@@ -10,7 +10,7 @@ import (
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
-func (s *Server) handleRemoteConfigStatus(agentUID string, rcs *protobufs.RemoteConfigStatus) {
+func (s *Server) handleRemoteConfigStatus(workloadID string, rcs *protobufs.RemoteConfigStatus) {
 	statusStr := remoteConfigStatusString(rcs.Status)
 	if statusStr == "" {
 		return
@@ -24,50 +24,51 @@ func (s *Server) handleRemoteConfigStatus(agentUID string, rcs *protobufs.Remote
 		UpdatedAt:    time.Now().UTC(),
 	}
 
-	if err := s.store.UpdateAgentConfigStatus(agentUID, configHash, statusStr, rcs.ErrorMessage); err != nil {
-		log.Printf("update agent_config status %s/%s: %v", shortID(agentUID), shortID(configHash), err)
+	if err := s.store.UpdateWorkloadConfigStatus(workloadID, configHash, statusStr, rcs.ErrorMessage); err != nil {
+		log.Printf("update workload_config status %s/%s: %v", shortID(workloadID), shortID(configHash), err)
 	}
 
-	if agent, err := s.store.GetAgent(agentUID); err == nil {
-		agent.RemoteConfigStatus = &snap
-		if err := s.store.UpsertAgent(agent); err != nil {
-			log.Printf("upsert agent status %s: %v", shortID(agentUID), err)
+	if wl, err := s.store.GetWorkload(workloadID); err == nil {
+		wl.RemoteConfigStatus = &snap
+		if err := s.store.UpsertWorkload(wl); err != nil {
+			log.Printf("upsert workload status %s: %v", shortID(workloadID), err)
 		}
 	}
 
 	if s.notifier != nil {
-		s.notifier.BroadcastConfigStatus(agentUID, snap)
+		s.notifier.BroadcastConfigStatus(workloadID, snap)
 	}
 
 	if statusStr == "failed" {
-		s.attemptAutoRollback(agentUID, configHash, rcs.ErrorMessage)
+		s.attemptAutoRollback(workloadID, configHash, rcs.ErrorMessage)
 	}
 }
 
-func (s *Server) attemptAutoRollback(agentUID, failedHash, reason string) {
-	prev, err := s.store.GetLastAppliedAgentConfig(agentUID)
+func (s *Server) attemptAutoRollback(workloadID, failedHash, reason string) {
+	prev, err := s.store.GetLastAppliedWorkloadConfig(workloadID)
 	if err != nil {
-		log.Printf("rollback lookup %s: %v", shortID(agentUID), err)
+		log.Printf("rollback lookup %s: %v", shortID(workloadID), err)
 		return
 	}
 	if prev == nil {
 		return
 	}
 	if prev.ConfigID == failedHash {
-		log.Printf("rollback target equals failed hash %s/%s, aborting", shortID(agentUID), shortID(failedHash))
+		log.Printf("rollback target equals failed hash %s/%s, aborting", shortID(workloadID), shortID(failedHash))
 		return
 	}
-	if err := s.pushFn(agentUID, []byte(prev.Content)); err != nil {
-		log.Printf("rollback push %s→%s: %v", shortID(agentUID), shortID(prev.ConfigID), err)
+	// Auto-rollback is workload-wide: no specific instance target.
+	if err := s.pushFn(workloadID, []byte(prev.Content), ""); err != nil {
+		log.Printf("rollback push %s->%s: %v", shortID(workloadID), shortID(prev.ConfigID), err)
 		return
 	}
-	if err := s.store.RecordAgentConfig(models.AgentConfig{
-		AgentID: agentUID, ConfigID: prev.ConfigID, Status: "pending", PushedBy: "auto-rollback",
+	if err := s.store.RecordWorkloadConfig(models.WorkloadConfig{
+		WorkloadID: workloadID, ConfigID: prev.ConfigID, Status: "pending", PushedBy: "auto-rollback",
 	}); err != nil {
-		log.Printf("rollback record %s: %v", shortID(agentUID), err)
+		log.Printf("rollback record %s: %v", shortID(workloadID), err)
 	}
 	if s.notifier != nil {
-		s.notifier.BroadcastAutoRollback(agentUID, failedHash, prev.ConfigID, reason)
+		s.notifier.BroadcastAutoRollback(workloadID, failedHash, prev.ConfigID, reason)
 	}
 }
 

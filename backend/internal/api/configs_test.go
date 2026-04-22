@@ -70,12 +70,12 @@ func TestLoginHandler(t *testing.T) {
 
 func TestListAlerts_Handler(t *testing.T) {
 	db, router, _ := newTestAPI(t)
-	db.UpsertAgent(models.Agent{
-		ID: "a1", Type: "collector", Status: "connected",
+	db.UpsertWorkload(models.Workload{
+		ID: "w1", Type: "collector", Status: "connected",
 		LastSeenAt: time.Now().UTC(), Labels: models.Labels{},
 	})
 	db.CreateAlert(models.Alert{
-		ID: "alert-1", AgentID: "a1", Rule: "agent_down",
+		ID: "alert-1", WorkloadID: "w1", Rule: "workload_down",
 		Severity: "critical", Message: "down", FiredAt: time.Now().UTC(),
 	})
 

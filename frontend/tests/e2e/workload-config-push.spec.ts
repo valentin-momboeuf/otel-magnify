@@ -1,16 +1,18 @@
 import { test, expect } from './fixtures'
 import type { Page } from '@playwright/test'
 
-const AGENT_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
+const WORKLOAD_ID = 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa'
 const ACTIVE_CONFIG_ID = 'abc123'
 
-function mockAgent(page: Page, overrides: Record<string, unknown> = {}) {
-  return page.route(`**/api/agents/${AGENT_ID}`, (route) =>
+function mockWorkload(page: Page, overrides: Record<string, unknown> = {}) {
+  return page.route(`**/api/workloads/${WORKLOAD_ID}`, (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        id: AGENT_ID,
+        id: WORKLOAD_ID,
+        fingerprint_source: 'k8s',
+        fingerprint_keys: { cluster: 'prod', namespace: 'obs', kind: 'deployment', name: 'otel' },
         display_name: 'test-collector',
         type: 'collector',
         version: '0.98.0',
@@ -48,7 +50,7 @@ function mockConfig(page: Page, content: string) {
 }
 
 function mockHistory(page: Page, rows: unknown[]) {
-  return page.route(`**/api/agents/${AGENT_ID}/configs`, (route) =>
+  return page.route(`**/api/workloads/${WORKLOAD_ID}/configs`, (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -58,7 +60,7 @@ function mockHistory(page: Page, rows: unknown[]) {
 }
 
 function mockValidate(page: Page, result: { valid: boolean; errors?: unknown[] }) {
-  return page.route(`**/api/agents/${AGENT_ID}/config/validate`, (route) =>
+  return page.route(`**/api/workloads/${WORKLOAD_ID}/config/validate`, (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -68,11 +70,11 @@ function mockValidate(page: Page, result: { valid: boolean; errors?: unknown[] }
 }
 
 test('edit button enables YAML editing (regression)', async ({ loggedInPage: page }) => {
-  await mockAgent(page)
+  await mockWorkload(page)
   await mockConfig(page, 'receivers:\n  otlp: {}\n')
   await mockHistory(page, [])
 
-  await page.goto(`/inventory/${AGENT_ID}`)
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
   await page.getByRole('button', { name: 'Edit' }).click()
 
   // The draft editor is the second `.cm-content` after Edit is clicked? Actually
@@ -84,7 +86,7 @@ test('edit button enables YAML editing (regression)', async ({ loggedInPage: pag
 })
 
 test('validate exposes errors and blocks push', async ({ loggedInPage: page }) => {
-  await mockAgent(page)
+  await mockWorkload(page)
   await mockConfig(page, 'receivers:\n  otlp: {}\n')
   await mockHistory(page, [])
   await mockValidate(page, {
@@ -92,7 +94,7 @@ test('validate exposes errors and blocks push', async ({ loggedInPage: page }) =
     errors: [{ code: 'undefined_component', message: 'pipeline "traces" references exporter "nope"', path: 'service.pipelines.traces.exporters[0]' }],
   })
 
-  await page.goto(`/inventory/${AGENT_ID}`)
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
   await page.getByRole('button', { name: 'Edit' }).click()
   await page.locator('.cm-content').first().click()
   await page.keyboard.type('bad: yaml')
@@ -104,12 +106,12 @@ test('validate exposes errors and blocks push', async ({ loggedInPage: page }) =
 })
 
 test('valid config unlocks push button', async ({ loggedInPage: page }) => {
-  await mockAgent(page)
+  await mockWorkload(page)
   await mockConfig(page, 'receivers:\n  otlp: {}\n')
   await mockHistory(page, [])
   await mockValidate(page, { valid: true })
 
-  await page.goto(`/inventory/${AGENT_ID}`)
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
   await page.getByRole('button', { name: 'Edit' }).click()
   await page.locator('.cm-content').first().click()
   await page.keyboard.press('End')
@@ -121,11 +123,11 @@ test('valid config unlocks push button', async ({ loggedInPage: page }) => {
 })
 
 test('push failed shows error banner and preserves draft', async ({ loggedInPage: page }) => {
-  await mockAgent(page)
+  await mockWorkload(page)
   await mockConfig(page, 'receivers:\n  otlp: {}\n')
   await mockHistory(page, [])
   await mockValidate(page, { valid: true })
-  await page.route(`**/api/agents/${AGENT_ID}/config`, (route) =>
+  await page.route(`**/api/workloads/${WORKLOAD_ID}/config`, (route) =>
     route.fulfill({
       status: 202,
       contentType: 'application/json',
@@ -133,7 +135,7 @@ test('push failed shows error banner and preserves draft', async ({ loggedInPage
     }),
   )
 
-  await page.goto(`/inventory/${AGENT_ID}`)
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
   await page.getByRole('button', { name: 'Edit' }).click()
   await page.locator('.cm-content').first().click()
   await page.keyboard.type(' # touched')
@@ -144,8 +146,8 @@ test('push failed shows error banner and preserves draft', async ({ loggedInPage
   // Simulate FAILED WS event
   await page.evaluate(() => {
     const evt = {
-      type: 'agent_config_status',
-      agent_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      type: 'workload_config_status',
+      workload_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       status: {
         status: 'failed',
         config_hash: 'deadbeefdeadbeef',
@@ -162,11 +164,11 @@ test('push failed shows error banner and preserves draft', async ({ loggedInPage
 })
 
 test('diff tab shows two editor panels', async ({ loggedInPage: page }) => {
-  await mockAgent(page)
+  await mockWorkload(page)
   await mockConfig(page, 'a: 1\n')
   await mockHistory(page, [])
 
-  await page.goto(`/inventory/${AGENT_ID}`)
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
   await page.getByRole('button', { name: 'Edit' }).click()
   await page.locator('.cm-content').first().click()
   await page.keyboard.press('ControlOrMeta+a')
@@ -176,15 +178,15 @@ test('diff tab shows two editor panels', async ({ loggedInPage: page }) => {
   await expect(page.locator('.cm-mergeView .cm-editor')).toHaveCount(2)
 })
 
-test('history refreshes when WS agent_config_status arrives from another session', async ({ loggedInPage: page }) => {
-  await mockAgent(page)
+test('history refreshes when WS workload_config_status arrives from another session', async ({ loggedInPage: page }) => {
+  await mockWorkload(page)
   await mockConfig(page, 'a: 1\n')
 
   let call = 0
-  await page.route(`**/api/agents/${AGENT_ID}/configs`, (route) => {
+  await page.route(`**/api/workloads/${WORKLOAD_ID}/configs`, (route) => {
     call += 1
     const rows = call === 1 ? [] : [{
-      agent_id: AGENT_ID,
+      workload_id: WORKLOAD_ID,
       config_id: 'ccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc',
       applied_at: new Date().toISOString(),
       status: 'applied',
@@ -198,15 +200,15 @@ test('history refreshes when WS agent_config_status arrives from another session
     })
   })
 
-  await page.goto(`/inventory/${AGENT_ID}`)
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
   // No history yet: table not rendered
   await expect(page.locator('.history-table')).toHaveCount(0)
 
   // Simulate a config applied event from another session (not our local push)
-  await page.evaluate((agentId) => {
+  await page.evaluate((workloadId) => {
     const evt = {
-      type: 'agent_config_status',
-      agent_id: agentId,
+      type: 'workload_config_status',
+      workload_id: workloadId,
       status: {
         status: 'applied',
         config_hash: 'cccccccc',
@@ -214,7 +216,7 @@ test('history refreshes when WS agent_config_status arrives from another session
       },
     }
     ;(window as unknown as { __testWsInject?: (ev: unknown) => void }).__testWsInject?.(evt)
-  }, AGENT_ID)
+  }, WORKLOAD_ID)
 
   // Table appears because the query was invalidated and refetched
   await expect(page.locator('.history-table tbody tr')).toHaveCount(1)
@@ -222,14 +224,14 @@ test('history refreshes when WS agent_config_status arrives from another session
 })
 
 test('history table renders with rollback action', async ({ loggedInPage: page }) => {
-  await mockAgent(page)
+  await mockWorkload(page)
   await mockConfig(page, 'a: 1\n')
   await mockHistory(page, [
-    { agent_id: AGENT_ID, config_id: '1111111111111111', applied_at: new Date().toISOString(), status: 'applied', pushed_by: 'me@x', content: 'old: true' },
-    { agent_id: AGENT_ID, config_id: '2222222222222222', applied_at: new Date().toISOString(), status: 'failed', error_message: 'boom', pushed_by: 'me@x', content: 'bad' },
+    { workload_id: WORKLOAD_ID, config_id: '1111111111111111', applied_at: new Date().toISOString(), status: 'applied', pushed_by: 'me@x', content: 'old: true' },
+    { workload_id: WORKLOAD_ID, config_id: '2222222222222222', applied_at: new Date().toISOString(), status: 'failed', error_message: 'boom', pushed_by: 'me@x', content: 'bad' },
   ])
 
-  await page.goto(`/inventory/${AGENT_ID}`)
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
   await expect(page.locator('.history-table tbody tr')).toHaveCount(2)
   await expect(page.locator('.history-error').first()).toHaveText('')
   await expect(page.locator('.history-error').nth(1)).toContainText('boom')
@@ -237,11 +239,11 @@ test('history table renders with rollback action', async ({ loggedInPage: page }
 })
 
 test('YAML keys are colored via Signal Deck theme', async ({ loggedInPage: page }) => {
-  await mockAgent(page)
+  await mockWorkload(page)
   await mockConfig(page, 'key: value\n')
   await mockHistory(page, [])
 
-  await page.goto(`/inventory/${AGENT_ID}`)
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
   // Wait for the editor to render
   await expect(page.locator('.cm-content')).toBeVisible()
 

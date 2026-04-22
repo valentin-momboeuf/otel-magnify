@@ -2,6 +2,7 @@ package server
 
 import (
 	"io/fs"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 
@@ -14,6 +15,14 @@ type Config struct {
 	OpAMPAddr       string // default ":4320"
 	CORSOrigins     string
 	MinAgentVersion string
+
+	// Workload lifecycle tuning. Zero values let the downstream subsystems
+	// apply their own defaults (2-minute grace, 30-day retention, 5-minute
+	// janitor tick).
+	WorkloadRetention       time.Duration
+	WorkloadDisconnectGrace time.Duration
+	WorkloadJanitorInterval time.Duration
+	WorkloadEventRetention  time.Duration
 }
 
 // Option configures optional features on the Server.

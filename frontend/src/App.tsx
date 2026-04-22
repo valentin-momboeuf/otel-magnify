@@ -4,8 +4,8 @@ import { useEffect } from 'react'
 import Layout from './components/layout/Layout'
 import ProtectedRoute from './components/ProtectedRoute'
 import Dashboard from './pages/Dashboard'
-import Inventory from './pages/Agents'
-import AgentDetail from './pages/AgentDetail'
+import Workloads from './pages/Workloads'
+import WorkloadDetail from './pages/WorkloadDetail'
 import Configs from './pages/Configs'
 import Alerts from './pages/Alerts'
 import Login from './pages/Login'
@@ -22,8 +22,8 @@ function AppShell() {
     <Routes>
       <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
         <Route path="/" element={<Dashboard />} />
-        <Route path="/inventory" element={<Inventory />} />
-        <Route path="/inventory/:id" element={<AgentDetail />} />
+        <Route path="/inventory" element={<Workloads />} />
+        <Route path="/workloads/:id" element={<WorkloadDetail />} />
         <Route path="/configs" element={<Configs />} />
         <Route path="/alerts" element={<Alerts />} />
       </Route>

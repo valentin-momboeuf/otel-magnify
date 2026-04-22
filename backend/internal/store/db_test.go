@@ -22,7 +22,7 @@ func TestMigrate(t *testing.T) {
 	}
 
 	// Verify tables exist by querying them
-	tables := []string{"configs", "agents", "agent_configs", "alerts", "users"}
+	tables := []string{"configs", "workloads", "workload_configs", "workload_events", "alerts", "users"}
 	for _, table := range tables {
 		_, err := db.Exec("SELECT count(*) FROM " + table)
 		if err != nil {
@@ -31,17 +31,17 @@ func TestMigrate(t *testing.T) {
 	}
 }
 
-func TestMigrate_AgentConfigPushFields(t *testing.T) {
+func TestMigrate_WorkloadConfigPushFields(t *testing.T) {
 	db := newTestDB(t)
-	rows, err := db.Query("SELECT error_message, pushed_by FROM agent_configs LIMIT 0")
+	rows, err := db.Query("SELECT error_message, pushed_by FROM workload_configs LIMIT 0")
 	if err != nil {
-		t.Fatalf("agent_configs missing new columns: %v", err)
+		t.Fatalf("workload_configs missing push fields: %v", err)
 	}
 	rows.Close()
 
-	rows, err = db.Query("SELECT remote_config_status FROM agents LIMIT 0")
+	rows, err = db.Query("SELECT remote_config_status FROM workloads LIMIT 0")
 	if err != nil {
-		t.Fatalf("agents missing remote_config_status: %v", err)
+		t.Fatalf("workloads missing remote_config_status: %v", err)
 	}
 	rows.Close()
 }

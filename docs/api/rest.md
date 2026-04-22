@@ -1,17 +1,21 @@
 # REST API
 
-All endpoints return JSON. Most expect JSON request bodies; the two config endpoints (`POST /api/agents/{id}/config` and `POST /api/agents/{id}/config/validate`) are exceptions and take raw YAML. Authenticated endpoints require the header `Authorization: Bearer <jwt>`.
+All endpoints return JSON. Most expect JSON request bodies; the two config endpoints (`POST /api/workloads/{id}/config` and `POST /api/workloads/{id}/config/validate`) are exceptions and take raw YAML. Authenticated endpoints require the header `Authorization: Bearer <jwt>`.
 
 ## Endpoint summary
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/api/auth/login` | No | Log in, returns a JWT. |
-| `GET` | `/api/agents` | Yes | List all agents. |
-| `GET` | `/api/agents/{id}` | Yes | Get agent details. |
-| `GET` | `/api/agents/{id}/configs` | Yes | Agent push history. |
-| `POST` | `/api/agents/{id}/config` | Yes | Push a config to the agent. |
-| `POST` | `/api/agents/{id}/config/validate` | Yes | Lightweight server-side validation of a config. |
+| `GET` | `/api/workloads` | Yes | List all workloads. |
+| `GET` | `/api/workloads/{id}` | Yes | Get workload details. |
+| `GET` | `/api/workloads/{id}/instances` | Yes | Live OpAMP-connected pods for the workload (in-memory, not persisted). |
+| `GET` | `/api/workloads/{id}/events` | Yes | Append-only pod-lifecycle log (connect / disconnect / version change). |
+| `GET` | `/api/workloads/{id}/events/stats` | Yes | Event counts for the Activity tab sparkline (takes `?window=`). |
+| `GET` | `/api/workloads/{id}/configs` | Yes | Config push history for the workload. |
+| `POST` | `/api/workloads/{id}/config` | Yes | Push a config to the workload. |
+| `POST` | `/api/workloads/{id}/config/validate` | Yes | Lightweight server-side validation of a config. |
+| `DELETE` | `/api/workloads/{id}` | Yes | Archive a workload (admin only). |
 | `GET` | `/api/configs` | Yes | List all configs. |
 | `POST` | `/api/configs` | Yes | Create a new config. |
 | `GET` | `/api/configs/{id}` | Yes | Fetch a config by ID. |
@@ -19,6 +23,9 @@ All endpoints return JSON. Most expect JSON request bodies; the two config endpo
 | `POST` | `/api/alerts/{id}/resolve` | Yes | Resolve an alert. |
 | `GET` | `/ws?token={jwt}` | Yes | WebSocket hub (see [WebSocket](websocket.md)). |
 | `GET` | `/healthz` | No | Liveness probe. |
+
+!!! note "Legacy `/api/agents/*` compatibility"
+    The previous `/api/agents/*` routes still resolve — they reply with HTTP `307 Temporary Redirect` to the matching `/api/workloads/*` path (`?query` string preserved). New integrations should call `/api/workloads/*` directly.
 
 ## Representative payloads
 
@@ -42,11 +49,11 @@ Response:
 }
 ```
 
-### `GET /api/agents`
+### `GET /api/workloads`
 
-Response is an array of agent summaries. The exact fields are defined in `backend/pkg/models/agent.go`. Treat it as the source of truth; do not hand-maintain the shape here — link to the file from the rendered doc instead.
+Response is an array of workload summaries. The exact fields are defined in `backend/pkg/models/workload.go`. Treat it as the source of truth; do not hand-maintain the shape here — link to the file from the rendered doc instead.
 
-### `POST /api/agents/{id}/config`
+### `POST /api/workloads/{id}/config`
 
 Request body is the **raw YAML** (no JSON wrapper), with `Content-Type: application/yaml` or `text/plain`. The server computes the SHA-256 config hash itself. The push is rejected up front if the light validator finds a problem — callers should hit `/validate` first for UX.
 
@@ -61,7 +68,7 @@ Response (202 Accepted):
 
 On validation failure, 400 with `{ "error": "...", "validation_errors": [ ... ] }`. Follow-up push status (`pending` → `applied` | `failed`) arrives via the WebSocket.
 
-### `POST /api/agents/{id}/config/validate`
+### `POST /api/workloads/{id}/config/validate`
 
 Same request shape as the push endpoint (raw YAML). Always returns 200 with a `validator.Result`: `{ "valid": true }` or `{ "valid": false, "errors": [ { "code", "message", "path" }, ... ] }`.
 
@@ -73,4 +80,4 @@ Errors follow the shape:
 { "error": "human-readable message" }
 ```
 
-HTTP status codes follow REST conventions: `400` for bad input, `401` for missing/expired JWT, `403` for insufficient role, `404` for unknown IDs, `500` for server errors.
+HTTP status codes follow REST conventions: `400` for bad input, `401` for missing/expired JWT, `403` for insufficient role, `404` for unknown IDs, `409` for conflicts such as pushing to a workload whose reported capabilities do not include `AcceptsRemoteConfig`, `500` for server errors.

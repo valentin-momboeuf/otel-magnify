@@ -80,11 +80,11 @@ func (h *Hub) Stop() {
 }
 
 // BroadcastConfigStatus fans out a remote config status update.
-func (h *Hub) BroadcastConfigStatus(agentID string, status models.RemoteConfigStatus) {
+func (h *Hub) BroadcastConfigStatus(workloadID string, status models.RemoteConfigStatus) {
 	event := map[string]any{
-		"type":     "agent_config_status",
-		"agent_id": agentID,
-		"status":   status,
+		"type":        "workload_config_status",
+		"workload_id": workloadID,
+		"status":      status,
 	}
 	data, err := json.Marshal(event)
 	if err != nil {
@@ -95,13 +95,13 @@ func (h *Hub) BroadcastConfigStatus(agentID string, status models.RemoteConfigSt
 }
 
 // BroadcastAutoRollback fans out an automatic rollback notification.
-func (h *Hub) BroadcastAutoRollback(agentID, fromHash, toHash, reason string) {
+func (h *Hub) BroadcastAutoRollback(workloadID, fromHash, toHash, reason string) {
 	event := map[string]any{
-		"type":      "auto_rollback_applied",
-		"agent_id":  agentID,
-		"from_hash": fromHash,
-		"to_hash":   toHash,
-		"reason":    reason,
+		"type":        "auto_rollback_applied",
+		"workload_id": workloadID,
+		"from_hash":   fromHash,
+		"to_hash":     toHash,
+		"reason":      reason,
 	}
 	data, err := json.Marshal(event)
 	if err != nil {
@@ -111,15 +111,31 @@ func (h *Hub) BroadcastAutoRollback(agentID, fromHash, toHash, reason string) {
 	h.broadcast <- data
 }
 
-// BroadcastAgentUpdate satisfies the opamp.Notifier interface.
-func (h *Hub) BroadcastAgentUpdate(agent models.Agent) {
+// BroadcastWorkloadUpdate fans out a workload state change plus live-instance counts.
+func (h *Hub) BroadcastWorkloadUpdate(w models.Workload, connectedInstances, driftedInstances int) {
 	event := map[string]any{
-		"type":  "agent_update",
-		"agent": agent,
+		"type":                     "workload_update",
+		"workload":                 w,
+		"connected_instance_count": connectedInstances,
+		"drifted_instance_count":   driftedInstances,
 	}
 	data, err := json.Marshal(event)
 	if err != nil {
-		log.Printf("marshal agent update: %v", err)
+		log.Printf("marshal workload update: %v", err)
+		return
+	}
+	h.broadcast <- data
+}
+
+// BroadcastWorkloadEvent fans out a single append-only workload event.
+func (h *Hub) BroadcastWorkloadEvent(ev models.WorkloadEvent) {
+	event := map[string]any{
+		"type":  "workload_event",
+		"event": ev,
+	}
+	data, err := json.Marshal(event)
+	if err != nil {
+		log.Printf("marshal workload event: %v", err)
 		return
 	}
 	h.broadcast <- data

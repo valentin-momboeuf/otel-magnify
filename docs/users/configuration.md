@@ -35,7 +35,15 @@ otel-magnify is configured entirely via environment variables. See the [referenc
 | Variable | Description |
 |----------|-------------|
 | `WEBHOOK_URL` | Optional HTTP endpoint called when a new alert fires. |
-| `MIN_AGENT_VERSION` | If set, agents running below this version are flagged by the alert engine. |
+| `MIN_AGENT_VERSION` | If set, workloads reporting a `service.version` below this are flagged by the alert engine. |
+
+## Workload retention
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `WORKLOAD_DISCONNECT_GRACE_SECONDS` | `120` | Seconds a workload stays `connected` after its last instance disconnects — absorbs rolling updates and pod restarts without flapping. |
+| `WORKLOAD_RETENTION_DAYS` | `30` | After flipping to `disconnected`, a workload is archived if it has not reconnected within this window. |
+| `WORKLOAD_EVENT_RETENTION_DAYS` | `30` | How long the append-only `workload_events` log is kept before the janitor trims it. |
 
 ## SQLite vs PostgreSQL
 

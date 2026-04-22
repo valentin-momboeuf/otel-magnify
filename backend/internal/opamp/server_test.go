@@ -5,7 +5,7 @@ import (
 )
 
 func TestNewOpAMPServer(t *testing.T) {
-	srv := New(nil, nil)
+	srv := New(nil, nil, Options{})
 	if srv == nil {
 		t.Fatal("New returned nil")
 	}
@@ -39,12 +39,12 @@ func TestIsCollectorName(t *testing.T) {
 	}
 }
 
-func TestAgentRegistration(t *testing.T) {
-	srv := New(nil, nil)
+func TestInstanceCountStartsZero(t *testing.T) {
+	srv := New(nil, nil, Options{})
 	if srv == nil {
 		t.Fatal("New returned nil")
 	}
-	if srv.ConnectedAgentCount() != 0 {
-		t.Errorf("expected 0 connected agents, got %d", srv.ConnectedAgentCount())
+	if srv.ConnectedInstanceCount() != 0 {
+		t.Errorf("expected 0 connected instances, got %d", srv.ConnectedInstanceCount())
 	}
 }

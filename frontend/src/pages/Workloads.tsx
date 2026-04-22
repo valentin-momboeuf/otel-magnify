@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
-import { agentsAPI } from '../api/client'
-import AgentCard from '../components/agents/AgentCard'
-import { isSupervised, isReadOnlyCollector } from '../lib/agentCapabilities'
+import { workloadsAPI } from '../api/client'
+import WorkloadCard from '../components/workloads/WorkloadCard'
+import { isSupervised, isReadOnlyCollector } from '../lib/workloadCapabilities'
 
 type ControlFilter = '' | 'supervised' | 'readonly'
 
 export default function Inventory() {
-  const { data: agents, isLoading } = useQuery({ queryKey: ['agents'], queryFn: agentsAPI.list })
+  const { data: workloads, isLoading } = useQuery({
+    queryKey: ['workloads'],
+    queryFn: () => workloadsAPI.list(),
+  })
   const [searchParams] = useSearchParams()
 
   const [filterType,    setFilterType]    = useState<string>(searchParams.get('type') ?? '')
@@ -24,13 +27,13 @@ export default function Inventory() {
     if (control) setFilterControl(control)
   }, [searchParams])
 
-  const filtered = (agents ?? []).filter((a) => {
-    if (filterType   && a.type   !== filterType)   return false
-    if (filterStatus && a.status !== filterStatus) return false
+  const filtered = (workloads ?? []).filter((w) => {
+    if (filterType   && w.type   !== filterType)   return false
+    if (filterStatus && w.status !== filterStatus) return false
     if (filterControl) {
-      if (a.type !== 'collector')                                    return false
-      if (filterControl === 'supervised' && !isSupervised(a))        return false
-      if (filterControl === 'readonly'   && !isReadOnlyCollector(a)) return false
+      if (w.type !== 'collector')                                    return false
+      if (filterControl === 'supervised' && !isSupervised(w))        return false
+      if (filterControl === 'readonly'   && !isReadOnlyCollector(w)) return false
     }
     return true
   })
@@ -39,8 +42,8 @@ export default function Inventory() {
     <div>
       <div className="page-header">
         <h1 className="page-title">Inventory</h1>
-        <span style={{ fontFamily: 'var(--mono)', fontSize: '0.7rem', color: 'var(--muted)' }}>
-          {filtered.length} / {agents?.length ?? 0}
+        <span className="page-header-count">
+          {filtered.length} / {workloads?.length ?? 0}
         </span>
       </div>
 
@@ -76,11 +79,11 @@ export default function Inventory() {
       </div>
 
       {isLoading ? (
-        <div className="loading">Loading agents...</div>
+        <div className="loading">Loading workloads...</div>
       ) : filtered.length === 0 ? (
-        <div className="empty-state">No agents match the current filter</div>
+        <div className="empty-state">No workloads match the current filter</div>
       ) : (
-        filtered.map((a) => <AgentCard key={a.id} agent={a} />)
+        filtered.map((w) => <WorkloadCard key={w.id} workload={w} />)
       )}
     </div>
   )

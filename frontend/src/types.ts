@@ -1,5 +1,7 @@
 export type PushStatus = 'pending' | 'applying' | 'applied' | 'failed'
 
+export type FingerprintSource = 'k8s' | 'host' | 'uid'
+
 export interface RemoteConfigStatus {
   status: PushStatus
   config_hash: string
@@ -7,8 +9,15 @@ export interface RemoteConfigStatus {
   updated_at: string
 }
 
-export interface Agent {
+export interface AvailableComponents {
+  components: Record<string, string[]>
+  hash?: string
+}
+
+export interface Workload {
   id: string
+  fingerprint_source: FingerprintSource
+  fingerprint_keys: Record<string, string>
   display_name: string
   type: 'collector' | 'sdk'
   version: string
@@ -16,9 +25,40 @@ export interface Agent {
   last_seen_at: string
   labels: Record<string, string>
   active_config_id?: string
+  active_config_hash?: string
   remote_config_status?: RemoteConfigStatus
   available_components?: AvailableComponents
   accepts_remote_config?: boolean
+  retention_until?: string
+  archived_at?: string
+}
+
+export interface Instance {
+  instance_uid: string
+  pod_name?: string
+  version?: string
+  connected_at: string
+  last_message_at: string
+  effective_config_hash?: string
+  healthy: boolean
+}
+
+export interface WorkloadEvent {
+  id: number
+  workload_id: string
+  instance_uid: string
+  pod_name?: string
+  event_type: 'connected' | 'disconnected' | 'version_changed'
+  version?: string
+  prev_version?: string
+  occurred_at: string
+}
+
+export interface EventsStats {
+  connected: number
+  disconnected: number
+  version_changed: number
+  churn_rate_per_hour: number
 }
 
 export interface Config {
@@ -31,16 +71,16 @@ export interface Config {
 
 export interface Alert {
   id: string
-  agent_id: string
-  rule: 'agent_down' | 'config_drift' | 'version_outdated'
+  workload_id: string
+  rule: 'workload_down' | 'config_drift' | 'version_outdated'
   severity: 'warning' | 'critical'
   message: string
   fired_at: string
   resolved_at?: string
 }
 
-export interface AgentConfig {
-  agent_id: string
+export interface WorkloadConfig {
+  workload_id: string
   config_id: string
   applied_at: string
   status: PushStatus
@@ -50,7 +90,7 @@ export interface AgentConfig {
 }
 
 export interface AutoRollbackEvent {
-  agent_id: string
+  workload_id: string
   from_hash: string
   to_hash: string
   reason: string
@@ -65,9 +105,4 @@ export interface ValidationError {
 export interface ValidationResult {
   valid: boolean
   errors?: ValidationError[]
-}
-
-export interface AvailableComponents {
-  components: Record<string, string[]>
-  hash?: string
 }

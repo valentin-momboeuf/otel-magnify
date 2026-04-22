@@ -1,27 +1,27 @@
 import { useState } from 'react'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { agentsAPI } from '../../api/client'
+import { workloadsAPI } from '../../api/client'
 import YamlEditor from '../config/YamlEditor'
-import type { AgentConfig } from '../../types'
+import type { WorkloadConfig } from '../../types'
 
 interface Props {
-  agentId: string
+  workloadId: string
 }
 
-export default function PushHistoryTable({ agentId }: Props) {
+export default function PushHistoryTable({ workloadId }: Props) {
   const queryClient = useQueryClient()
-  const [viewing, setViewing] = useState<AgentConfig | null>(null)
+  const [viewing, setViewing] = useState<WorkloadConfig | null>(null)
 
   const { data: history = [] } = useQuery({
-    queryKey: ['agent-config-history', agentId],
-    queryFn: () => agentsAPI.getConfigHistory(agentId),
+    queryKey: ['workload-config-history', workloadId],
+    queryFn: () => workloadsAPI.getConfigHistory(workloadId),
   })
 
   const rollbackMutation = useMutation({
-    mutationFn: (content: string) => agentsAPI.pushConfig(agentId, content),
+    mutationFn: (content: string) => workloadsAPI.pushConfig(workloadId, content),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['agent-config-history', agentId] })
-      queryClient.invalidateQueries({ queryKey: ['agent', agentId] })
+      queryClient.invalidateQueries({ queryKey: ['workload-config-history', workloadId] })
+      queryClient.invalidateQueries({ queryKey: ['workload', workloadId] })
     },
   })
 
