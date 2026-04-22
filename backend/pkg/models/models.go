@@ -111,6 +111,14 @@ type WorkloadConfig struct {
 	Content      string    `json:"content,omitempty"` // filled by JOIN in history queries
 }
 
+// PushActivityPoint is one bucket in the dashboard push-activity chart.
+// Day is the UTC calendar day in YYYY-MM-DD form; Count is the number of
+// workload-config rows whose applied_at falls on that day.
+type PushActivityPoint struct {
+	Day   string `json:"day"`
+	Count int    `json:"count"`
+}
+
 type Alert struct {
 	ID         string     `json:"id"`
 	WorkloadID string     `json:"workload_id"`

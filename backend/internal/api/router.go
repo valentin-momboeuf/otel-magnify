@@ -104,6 +104,8 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 
 		r.Get("/api/alerts", api.handleListAlerts)
 		r.Post("/api/alerts/{id}/resolve", api.handleResolveAlert)
+
+		r.Get("/api/pushes/activity", api.handleListPushActivity)
 	})
 
 	// Serve embedded frontend assets as catch-all (SPA fallback)

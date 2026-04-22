@@ -75,6 +75,43 @@ func (d *DB) GetWorkloadConfigHistory(workloadID string) ([]models.WorkloadConfi
 	return history, rows.Err()
 }
 
+// GetPushActivity returns a time series of push counts per calendar day (UTC)
+// covering the last `days` days, oldest first. Missing days are filled with
+// zero. The bucketing is done in Go so the SQL stays portable across SQLite
+// and Postgres.
+func (d *DB) GetPushActivity(days int) ([]models.PushActivityPoint, error) {
+	if days <= 0 {
+		return []models.PushActivityPoint{}, nil
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -days+1)
+	startDay := time.Date(cutoff.Year(), cutoff.Month(), cutoff.Day(), 0, 0, 0, 0, time.UTC)
+
+	rows, err := d.Query(`SELECT applied_at FROM workload_configs WHERE applied_at >= ?`, startDay)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	counts := make(map[string]int, days)
+	for rows.Next() {
+		var t time.Time
+		if err := rows.Scan(&t); err != nil {
+			return nil, err
+		}
+		counts[t.UTC().Format("2006-01-02")]++
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+
+	out := make([]models.PushActivityPoint, days)
+	for i := 0; i < days; i++ {
+		day := startDay.AddDate(0, 0, i).Format("2006-01-02")
+		out[i] = models.PushActivityPoint{Day: day, Count: counts[day]}
+	}
+	return out, nil
+}
+
 func (d *DB) GetLastAppliedWorkloadConfig(workloadID string) (*models.WorkloadConfig, error) {
 	var wc models.WorkloadConfig
 	err := d.QueryRow(`

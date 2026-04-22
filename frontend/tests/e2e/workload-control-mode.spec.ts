@@ -88,8 +88,8 @@ test('Inventory shows supervised pill only on supervised collectors', async ({ l
   const supervisedCard = page.locator('.workload-card', { hasText: 'collector-supervised' })
   const readonlyCard   = page.locator('.workload-card', { hasText: 'collector-readonly' })
 
-  await expect(supervisedCard.locator('.workload-supervised-pill')).toBeVisible()
-  await expect(readonlyCard.locator('.workload-supervised-pill')).toHaveCount(0)
+  await expect(supervisedCard.locator('.agent-supervised-pill')).toBeVisible()
+  await expect(readonlyCard.locator('.agent-supervised-pill')).toHaveCount(0)
 })
 
 test('Inventory control filter narrows to supervised or read-only', async ({ loggedInPage: page }) => {

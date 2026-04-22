@@ -106,3 +106,8 @@ export interface ValidationResult {
   valid: boolean
   errors?: ValidationError[]
 }
+
+export interface PushActivityPoint {
+  day: string
+  count: number
+}

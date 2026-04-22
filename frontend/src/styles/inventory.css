@@ -1,0 +1,186 @@
+/* ── Inventory ─────────────────────────────────────────────
+   Filter bar + workload card list.
+   ──────────────────────────────────────────────────────────── */
+
+.page-header-count {
+  font-family: var(--mono);
+  font-size: 0.75rem;
+  color: var(--text-muted);
+  letter-spacing: 0.04em;
+}
+
+/* Filter bar with a flex-first search input. */
+.filter-bar {
+  display: flex;
+  gap: 0.5rem;
+  margin-bottom: 1rem;
+  flex-wrap: wrap;
+}
+
+.search-input {
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  padding: 0.5rem 0.8rem;
+  border-radius: var(--radius-sm);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  color: var(--text-hi);
+  flex: 1;
+  min-width: 280px;
+  max-width: 340px;
+  outline: none;
+  transition: border-color var(--dur-fast) var(--ease);
+}
+
+.search-input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-dim);
+}
+
+.search-input::placeholder {
+  color: var(--text-muted);
+}
+
+/* ── Workload card (redesigned) ── */
+.workload-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.85rem 1.1rem;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  margin-bottom: 0.5rem;
+  cursor: pointer;
+  color: inherit;
+  text-decoration: none;
+  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+}
+
+.workload-card:hover {
+  transform: translateX(2px);
+  border-color: var(--border-hi);
+  background: var(--surface-2);
+}
+
+.workload-card:hover .workload-name {
+  color: var(--accent);
+}
+
+.workload-card-main {
+  display: flex;
+  align-items: center;
+  gap: 0.85rem;
+  min-width: 0;
+}
+
+.workload-card-side {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex-shrink: 0;
+}
+
+.workload-card-identity {
+  min-width: 0;
+}
+
+.workload-card-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.workload-name {
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  font-weight: 500;
+  color: var(--text-hi);
+  transition: color var(--dur-fast) var(--ease);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 28ch;
+}
+
+.workload-card-meta {
+  display: flex;
+  gap: 0.45rem;
+  margin-top: 3px;
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  color: var(--text-muted);
+}
+
+.workload-card-meta-sep {
+  opacity: 0.5;
+}
+
+.agent-type-collector,
+.agent-type-sdk {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.agent-type-collector {
+  background: var(--accent-dim);
+  color: var(--accent);
+  border: 1px solid var(--accent-glow);
+}
+
+.agent-type-sdk {
+  background: rgba(96, 165, 250, 0.08);
+  color: var(--blue);
+  border: 1px solid rgba(96, 165, 250, 0.2);
+}
+
+.agent-supervised-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 0.62rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  border: 1px solid var(--accent-glow);
+  background: transparent;
+}
+
+/* ── Label chips ── */
+.label-chips {
+  display: flex;
+  gap: 0.3rem;
+  flex-wrap: wrap;
+  max-width: 380px;
+  justify-content: flex-end;
+}
+
+.label-chip {
+  display: inline-flex;
+  align-items: center;
+  padding: 1px 6px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.label-chip-key { color: var(--text-muted); }
+.label-chip-eq  { color: var(--border-hi); margin: 0 2px; }
+.label-chip-val { color: var(--text-hi); }
+
+.label-chip-extra {
+  color: var(--text-muted);
+}

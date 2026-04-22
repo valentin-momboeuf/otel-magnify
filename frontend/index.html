@@ -1,10 +1,19 @@
 <!doctype html>
-<html lang="en">
+<html lang="en" data-theme="signal">
   <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>otel-magnify</title>
+    <script>
+      // Pre-bundle theme + lang resolve to prevent flash on reload.
+      try {
+        var t = localStorage.getItem('theme') || 'signal';
+        var l = localStorage.getItem('lang') || 'en';
+        document.documentElement.setAttribute('data-theme', t);
+        document.documentElement.setAttribute('lang', l);
+      } catch (e) { /* localStorage unavailable — fall back to defaults in HTML */ }
+    </script>
   </head>
   <body>
     <div id="root"></div>

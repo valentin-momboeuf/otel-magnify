@@ -1,0 +1,81 @@
+{
+  "sidebar": {
+    "section": {
+      "fleet": "FLEET"
+    },
+    "nav": {
+      "dashboard": "Dashboard",
+      "inventory": "Inventory",
+      "configs": "Configurations",
+      "alerts": "Alerts"
+    },
+    "footer": {
+      "live": "LIVE"
+    },
+    "subtitle": "OpAMP Control Plane"
+  },
+  "dashboard": {
+    "title": "Dashboard",
+    "subtitle": "Fleet health at a glance",
+    "stat": {
+      "collectors": "Collectors",
+      "sdks": "Instrumented SDKs",
+      "supervised": "Supervised",
+      "connected": "Connected",
+      "degraded": "Degraded",
+      "active_alerts": "Active alerts"
+    },
+    "panel": {
+      "push_activity": "Push activity (7d)",
+      "fleet_health": "Fleet health",
+      "deployed_versions": "Deployed versions",
+      "recent_alerts": "Recent alerts"
+    },
+    "fleet": {
+      "connected": "Connected",
+      "degraded": "Degraded",
+      "disconnected": "Disconnected",
+      "empty": "No workloads yet"
+    },
+    "push": {
+      "empty": "No pushes in the last 7 days"
+    },
+    "versions": {
+      "empty": "No version data",
+      "others": "+{{count}} others"
+    },
+    "alerts": {
+      "empty": "No active alerts"
+    }
+  },
+  "inventory": {
+    "title": "Inventory",
+    "filter": {
+      "search_placeholder": "Search workloads…",
+      "type": {
+        "all": "All types",
+        "collector": "Collector",
+        "sdk": "SDK"
+      },
+      "status": {
+        "all": "All statuses",
+        "connected": "Connected",
+        "disconnected": "Disconnected",
+        "degraded": "Degraded"
+      },
+      "control": {
+        "all": "All control modes",
+        "supervised": "Supervised",
+        "readonly": "Read-only"
+      }
+    },
+    "card": {
+      "supervised": "SUPERVISED",
+      "readonly": "RO"
+    },
+    "empty": "No workloads match the current filter"
+  },
+  "common": {
+    "loading": "Loading…"
+  }
+}
