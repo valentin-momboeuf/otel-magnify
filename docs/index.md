@@ -8,7 +8,7 @@ Monitor, configure, and alert on your OTel Collectors and SDK agents from a sing
 
 - :material-rocket-launch: **Operators**
 
-    Install, configure, connect agents, push configs.
+    Install, configure, connect agents, manage workloads, push configs.
 
     [:octicons-arrow-right-24: Users section](users/index.md)
 

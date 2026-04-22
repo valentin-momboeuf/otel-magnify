@@ -18,9 +18,10 @@ Monitor, configure, and alert on your OTel Collectors and SDK agents from a sing
 
 ## Features
 
-- **Agent inventory** — real-time view of all connected Collectors and SDK agents (status, version, labels)
-- **Remote config push** — edit YAML configs in-browser and push them to agents via OpAMP
-- **Alert engine** — automatic detection of agent downtime (config drift and version checks planned)
+- **Workload inventory** — real-time view of every connected workload (Kubernetes Deployment/DaemonSet/StatefulSet/Job/CronJob, or host+service for non-K8s collectors and SDK agents), with status, version, labels, and live instance count
+- **Remote config push** — edit YAML configs in-browser and push them to workloads via OpAMP; new pods inherit the active config on connect (P.2 auto-push)
+- **Activity log** — append-only record of pod connect/disconnect/version transitions, per workload
+- **Alert engine** — automatic detection of workload downtime (config drift and version checks planned)
 - **Real-time updates** — WebSocket fan-out keeps the dashboard live without polling
 - **Multi-deployment** — runs locally, in Docker Compose, or on Kubernetes via Helm
 
@@ -192,17 +193,19 @@ docker run -d --name collector-demo --network otel-magnify_default \
   otel/opentelemetry-collector-contrib:0.98.0
 ```
 
-Once connected, agents appear automatically in the **Inventory** page.
+Once connected, agents are grouped into workloads and appear automatically in the **Inventory** page. See [Workload identity](https://magnify-labs.github.io/otel-magnify/users/connecting-agents/#workload-identity) for how the grouping works.
 
 ## API Endpoints
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/api/auth/login` | No | Login, returns JWT |
-| `GET` | `/api/agents` | Yes | List all agents |
-| `GET` | `/api/agents/:id` | Yes | Get agent details |
-| `GET` | `/api/agents/:id/configs` | Yes | Agent config history |
-| `POST` | `/api/agents/:id/config` | Yes | Push config to agent |
+| `GET` | `/api/workloads` | Yes | List all workloads |
+| `GET` | `/api/workloads/:id` | Yes | Get workload details |
+| `GET` | `/api/workloads/:id/instances` | Yes | Live OpAMP-connected pods for the workload |
+| `GET` | `/api/workloads/:id/events` | Yes | Append-only pod-lifecycle log (Activity tab) |
+| `GET` | `/api/workloads/:id/configs` | Yes | Workload config push history |
+| `POST` | `/api/workloads/:id/config` | Yes | Push config to workload |
 | `GET` | `/api/configs` | Yes | List all configs |
 | `POST` | `/api/configs` | Yes | Create a config |
 | `GET` | `/api/configs/:id` | Yes | Get config by ID |
@@ -210,6 +213,8 @@ Once connected, agents appear automatically in the **Inventory** page.
 | `POST` | `/api/alerts/:id/resolve` | Yes | Resolve an alert |
 | `GET` | `/ws?token=xxx` | Yes | Real-time WebSocket |
 | `GET` | `/healthz` | No | Health check |
+
+> Legacy `/api/agents/*` paths still resolve — they reply with HTTP `307 Temporary Redirect` to the matching `/api/workloads/*` endpoint for backwards compatibility.
 
 ## Project Structure
 
@@ -228,8 +233,8 @@ backend/
 frontend/
 ├── src/
 │   ├── api/            # REST + WebSocket clients
-│   ├── components/     # Layout, StatusBadge, AgentCard, YamlEditor
-│   ├── pages/          # Dashboard, Agents, AgentDetail, Configs, Alerts, Login
+│   ├── components/     # Layout, workloads/*, config/*
+│   ├── pages/          # Dashboard, Workloads (inventory), WorkloadDetail, Configs, Alerts, Login
 │   └── store/          # Zustand state management
 
 helm/otel-magnify/      # Kubernetes Helm chart

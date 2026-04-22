@@ -8,8 +8,10 @@ Every message is a JSON object with a `type` discriminator. Additional fields ar
 
 ```json
 {
-  "type": "agent_update",
-  "agent": { /* models.Agent */ }
+  "type": "workload_update",
+  "workload": { /* models.Workload */ },
+  "connected_instance_count": 3,
+  "drifted_instance_count": 0
 }
 ```
 
@@ -17,13 +19,14 @@ Every message is a JSON object with a `type` discriminator. Additional fields ar
 
 | Type | When it fires | Other fields |
 |------|---------------|--------------|
-| `agent_update` | An agent is registered or mutated (status, labels, remote config status snapshot). | `agent` — full `models.Agent`. |
+| `workload_update` | A workload is registered or its state changes (status, labels, version, active config, live instance count). | `workload` — full `models.Workload`; `connected_instance_count`; `drifted_instance_count`. |
+| `workload_event` | A single append-only pod-lifecycle event is recorded (connect / disconnect / version change). | `event` — full `models.WorkloadEvent`. |
+| `workload_config_status` | A workload reports a `RemoteConfigStatus` for a pushed config (aggregated across its instances). | `workload_id`, `status` — `{ status, config_hash, error_message, updated_at }`. |
 | `alert_update` | An alert transitions (fired, acknowledged, resolved). | `alert` — full `models.Alert`. |
-| `agent_config_status` | The agent reports a `RemoteConfigStatus` for a pushed config. | `agent_id`, `status` — `{ status, config_hash, error_message, updated_at }`. |
-| `auto_rollback_applied` | The server auto-pushed the last-known-good config after a failure. | `agent_id`, `from_hash`, `to_hash`, `reason`. |
+| `auto_rollback_applied` | The server auto-pushed the last-known-good config after a failure. | `workload_id`, `from_hash`, `to_hash`, `reason`. |
 
 For authoritative payload shapes, consult `backend/internal/api/wshub.go` (or the matching file in the current revision).
 
 ## Reconnect behavior
 
-The browser client reconnects with exponential backoff capped at a few seconds. Integrations should do the same and treat any missed events as eventually reconciled by a fresh `GET /api/agents` call.
+The browser client reconnects with exponential backoff capped at a few seconds. Integrations should do the same and treat any missed events as eventually reconciled by a fresh `GET /api/workloads` call.

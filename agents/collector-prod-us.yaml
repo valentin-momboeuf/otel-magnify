@@ -1,3 +1,8 @@
+# Sample collector config for otel-magnify.
+# The resourcedetection + resource processors below populate the attributes
+# otel-magnify uses to fingerprint this collector as a workload (cluster +
+# namespace + workload kind + name in K8s, or service.name + host.name on
+# bare metal).
 extensions:
   opamp:
     server:
@@ -19,6 +24,18 @@ processors:
   memory_limiter:
     check_interval: 5s
     limit_mib: 256
+  # Populate workload identity attributes for otel-magnify fingerprinting.
+  # Uncomment the k8s detector when deployed inside a Kubernetes pod;
+  # the resource processor keeps service-level identity.
+  resourcedetection:
+    detectors: [env]
+    # detectors: [env, k8s]
+    timeout: 2s
+  resource:
+    attributes:
+      - key: k8s.cluster.name
+        from_attribute: OTEL_K8S_CLUSTER_NAME
+        action: insert
 
 exporters:
   debug:
@@ -29,9 +46,9 @@ service:
   pipelines:
     metrics:
       receivers: [otlp]
-      processors: [memory_limiter, batch]
+      processors: [resourcedetection, resource, memory_limiter, batch]
       exporters: [debug]
     logs:
       receivers: [otlp]
-      processors: [batch]
+      processors: [resourcedetection, resource, batch]
       exporters: [debug]

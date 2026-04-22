@@ -9,6 +9,29 @@ Two agent types are supported:
 
 Agent type is detected from the `service.name` reported in the `AgentDescription` message. Anything matching the `otelcol*` pattern is treated as a Collector; everything else as an SDK agent.
 
+## Workload identity
+
+otel-magnify groups connected agents into **workloads** — a Kubernetes Deployment, DaemonSet, StatefulSet, Job, or CronJob for K8s-native collectors, or a single host/process for anything else. The workload is the unit you see in the inventory and the unit that carries the active configuration; individual pods are shown as *instances* of that workload.
+
+The identity is derived from resource attributes on the OpAMP `AgentDescription`:
+
+| Strategy | Attributes used |
+|---|---|
+| **k8s** | `k8s.cluster.name` (defaults to `unknown`) + `k8s.namespace.name` + one of `k8s.deployment.name` / `k8s.daemonset.name` / `k8s.statefulset.name` / `k8s.job.name` / `k8s.cronjob.name` |
+| **host** | `service.name` + `host.name` |
+| **uid** | fallback on the OpAMP `InstanceUid` (cardinality 1 per process) |
+
+The first strategy that can be satisfied is used. For a Kubernetes collector, enable the `resourcedetection` processor with the `k8s` detector to populate the required attributes automatically.
+
+### Pod lifecycle
+
+- When a new pod of an existing workload connects, the server auto-pushes the workload's active config if the pod's effective config diverges (P.2 semantics).
+- When the last pod of a workload disconnects, the workload stays `connected` for a grace window (`WORKLOAD_DISCONNECT_GRACE_SECONDS`, default 120 s). After the grace it flips to `disconnected` and starts its retention countdown (`WORKLOAD_RETENTION_DAYS`, default 30 days), at the end of which the workload is archived.
+- Every pod connect, disconnect, and `service.version` change is recorded in an append-only `workload_events` log (`WORKLOAD_EVENT_RETENTION_DAYS`, default 30 days). The Activity tab on the workload detail page renders this log — a noisy churn rate is a signal of a Kubernetes problem (CrashLoopBackOff, OOMKill, eviction storms).
+
+!!! note "Migration from `/api/agents`"
+    The legacy `/api/agents/*` endpoints still resolve — they reply with HTTP `307 Temporary Redirect` to their `/api/workloads/*` equivalent. Existing integrations keep working; new integrations should call `/api/workloads/*` directly.
+
 ## Configuring an OTel Collector
 
 Add an `opamp` extension to your Collector configuration and reference it in `service::extensions`:
@@ -32,7 +55,7 @@ service:
     # ...
 ```
 
-Sample configs are available in the repo under `agents/collector-*.yaml`.
+Sample configs are available in the repo under `agents/collector-*.yaml` — they ship with the `resourcedetection` and `resource` processors pre-wired so the collector is fingerprinted correctly out of the box.
 
 ## Running a demo Collector alongside otel-magnify
 
@@ -116,7 +139,7 @@ go run ./cmd/sdkagent/ --endpoint ws://localhost:4320/v1/opamp --name demo-sdk-a
 
 ## What otel-magnify captures from an agent
 
-- Identity: `service.name`, `service.version`, `service.instance.id`, labels.
+- Identity: `service.name`, `service.version`, `service.instance.id`, labels, plus the K8s/host resource attributes used to fingerprint the workload.
 - Effective configuration (what the agent currently runs).
 - Remote configuration status (was the last push applied?).
 - Available components — modules compiled into the agent, used to validate pushed configs against what the agent actually supports.
