@@ -1,48 +1,73 @@
 import { useStore } from '../store'
 import { queryClient } from './queryClient'
+import type { Workload, Alert, RemoteConfigStatus, WorkloadEvent } from '../types'
 
 let ws: WebSocket | null = null
 let reconnectTimer: ReturnType<typeof setTimeout> | null = null
 
-function dispatch(data: {
+interface WsMessage {
   type: string
-  agent_id?: string
-  agent?: Parameters<ReturnType<typeof useStore.getState>['updateAgent']>[0]
-  alert?: Parameters<ReturnType<typeof useStore.getState>['addAlert']>[0]
-  status?: Parameters<ReturnType<typeof useStore.getState>['setConfigStatus']>[1]
+  workload?: Workload
+  connected_instance_count?: number
+  drifted_instance_count?: number
+  event?: WorkloadEvent
+  workload_id?: string
+  status?: RemoteConfigStatus
+  alert?: Alert
   from_hash?: string
   to_hash?: string
   reason?: string
-}) {
+}
+
+function dispatch(data: WsMessage) {
   const store = useStore.getState()
 
   switch (data.type) {
-    case 'agent_update':
-      if (!data.agent) break
-      store.updateAgent(data.agent)
-      queryClient.invalidateQueries({ queryKey: ['agents'] })
-      queryClient.invalidateQueries({ queryKey: ['agent', data.agent.id] })
+    case 'workload_update': {
+      if (!data.workload) break
+      store.updateWorkload(data.workload)
+      if (
+        typeof data.connected_instance_count === 'number' &&
+        typeof data.drifted_instance_count === 'number'
+      ) {
+        store.setInstanceCounts(
+          data.workload.id,
+          data.connected_instance_count,
+          data.drifted_instance_count,
+        )
+      }
+      queryClient.invalidateQueries({ queryKey: ['workloads'] })
+      queryClient.invalidateQueries({ queryKey: ['workload', data.workload.id] })
       break
+    }
+    case 'workload_event': {
+      if (!data.event) break
+      const wid = data.event.workload_id
+      queryClient.invalidateQueries({ queryKey: ['workload-events', wid] })
+      queryClient.invalidateQueries({ queryKey: ['workload-events-stats', wid] })
+      break
+    }
+    case 'workload_config_status': {
+      if (!data.workload_id || !data.status) break
+      store.setConfigStatus(data.workload_id, data.status)
+      queryClient.invalidateQueries({ queryKey: ['workload', data.workload_id] })
+      queryClient.invalidateQueries({ queryKey: ['workload-config-history', data.workload_id] })
+      break
+    }
     case 'alert_update':
       if (data.alert) store.addAlert(data.alert)
       queryClient.invalidateQueries({ queryKey: ['alerts'] })
       break
-    case 'agent_config_status':
-      if (!data.agent_id || !data.status) break
-      store.setConfigStatus(data.agent_id, data.status)
-      queryClient.invalidateQueries({ queryKey: ['agent', data.agent_id] })
-      queryClient.invalidateQueries({ queryKey: ['agent-config-history', data.agent_id] })
-      break
     case 'auto_rollback_applied':
-      if (!data.agent_id || !data.from_hash || !data.to_hash) break
+      if (!data.workload_id || !data.from_hash || !data.to_hash) break
       store.setAutoRollback({
-        agent_id: data.agent_id,
+        workload_id: data.workload_id,
         from_hash: data.from_hash,
         to_hash: data.to_hash,
         reason: data.reason ?? '',
       })
-      queryClient.invalidateQueries({ queryKey: ['agent', data.agent_id] })
-      queryClient.invalidateQueries({ queryKey: ['agent-config-history', data.agent_id] })
+      queryClient.invalidateQueries({ queryKey: ['workload', data.workload_id] })
+      queryClient.invalidateQueries({ queryKey: ['workload-config-history', data.workload_id] })
       break
   }
 }
@@ -82,6 +107,6 @@ if (typeof window !== 'undefined') {
     __testWsInject?: (ev: unknown) => void
   }
   ;(window as unknown as TestWindow).__testWsInject = (ev) => {
-    dispatch(ev as Parameters<typeof dispatch>[0])
+    dispatch(ev as WsMessage)
   }
 }

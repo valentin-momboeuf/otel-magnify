@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { Link } from 'react-router-dom'
 import { alertsAPI } from '../api/client'
-import StatusBadge from '../components/agents/StatusBadge'
+import StatusBadge from '../components/workloads/StatusBadge'
 
 export default function Alerts() {
   const queryClient = useQueryClient()
@@ -19,7 +20,7 @@ export default function Alerts() {
       <div className="page-header">
         <h1 className="page-title">Alerts</h1>
         {(alerts?.length ?? 0) > 0 && (
-          <span style={{ fontFamily: 'var(--mono)', fontSize: '0.7rem', color: 'var(--danger)' }}>
+          <span className="page-header-count page-header-count-danger">
             {alerts?.length} active
           </span>
         )}
@@ -33,7 +34,7 @@ export default function Alerts() {
         <table className="data-table">
           <thead>
             <tr>
-              <th>Agent</th>
+              <th>Workload</th>
               <th>Rule</th>
               <th>Severity</th>
               <th>Message</th>
@@ -44,11 +45,13 @@ export default function Alerts() {
           <tbody>
             {(alerts ?? []).map((a) => (
               <tr key={a.id}>
-                <td><code>{a.agent_id}</code></td>
+                <td>
+                  <Link to={`/workloads/${a.workload_id}`}><code>{a.workload_id}</code></Link>
+                </td>
                 <td><code>{a.rule}</code></td>
                 <td><StatusBadge status={a.severity} /></td>
-                <td style={{ maxWidth: 320 }}>{a.message}</td>
-                <td style={{ fontFamily: 'var(--mono)', fontSize: '0.75rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                <td className="alert-message-cell">{a.message}</td>
+                <td className="table-timestamp">
                   {new Date(a.fired_at).toLocaleString()}
                 </td>
                 <td>

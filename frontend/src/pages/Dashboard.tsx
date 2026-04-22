@@ -1,30 +1,30 @@
 import { useEffect } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { useQuery } from '@tanstack/react-query'
-import { agentsAPI, alertsAPI } from '../api/client'
+import { workloadsAPI, alertsAPI } from '../api/client'
 import { useStore } from '../store'
-import StatusBadge from '../components/agents/StatusBadge'
-import { isSupervised } from '../lib/agentCapabilities'
+import StatusBadge from '../components/workloads/StatusBadge'
+import { isSupervised } from '../lib/workloadCapabilities'
 
 export default function Dashboard() {
-  const { data: agents } = useQuery({ queryKey: ['agents'], queryFn: agentsAPI.list })
+  const { data: workloads } = useQuery({ queryKey: ['workloads'], queryFn: () => workloadsAPI.list() })
   const { data: alerts } = useQuery({ queryKey: ['alerts'], queryFn: () => alertsAPI.list(false) })
 
   const store = useStore()
 
   useEffect(() => {
-    if (agents) store.setAgents(agents)
-  }, [agents])
+    if (workloads) store.setWorkloads(workloads)
+  }, [workloads])
 
   useEffect(() => {
     if (alerts) store.setAlerts(alerts)
   }, [alerts])
 
-  const connected  = agents?.filter((a) => a.status === 'connected').length ?? 0
-  const degraded   = agents?.filter((a) => a.status === 'degraded').length ?? 0
-  const collectors = agents?.filter((a) => a.type === 'collector').length ?? 0
-  const sdks       = agents?.filter((a) => a.type === 'sdk').length ?? 0
-  const supervised = agents?.filter(isSupervised).length ?? 0
+  const connected  = workloads?.filter((w) => w.status === 'connected').length ?? 0
+  const degraded   = workloads?.filter((w) => w.status === 'degraded').length ?? 0
+  const collectors = workloads?.filter((w) => w.type === 'collector').length ?? 0
+  const sdks       = workloads?.filter((w) => w.type === 'sdk').length ?? 0
+  const supervised = workloads?.filter(isSupervised).length ?? 0
 
   return (
     <div>
@@ -34,7 +34,7 @@ export default function Dashboard() {
 
       <div className="stat-grid">
         <StatCard label="Collectors"    value={collectors}         link="/inventory?type=collector" />
-        <StatCard label="SDK Agents"    value={sdks}               link="/inventory?type=sdk" />
+        <StatCard label="SDK Workloads" value={sdks}               link="/inventory?type=sdk" />
         <StatCard label="Supervised"    value={supervised}         link="/inventory?control=supervised" />
         <StatCard label="Connected"     value={connected}          />
         <StatCard label="Degraded"      value={degraded}           />
@@ -47,7 +47,7 @@ export default function Dashboard() {
         <table className="data-table">
           <thead>
             <tr>
-              <th>Agent</th>
+              <th>Workload</th>
               <th>Rule</th>
               <th>Severity</th>
               <th>Message</th>
@@ -57,11 +57,11 @@ export default function Dashboard() {
           <tbody>
             {alerts.slice(0, 5).map((a) => (
               <tr key={a.id}>
-                <td><code>{a.agent_id}</code></td>
+                <td><code>{a.workload_id}</code></td>
                 <td><code>{a.rule}</code></td>
                 <td><StatusBadge status={a.severity} /></td>
                 <td>{a.message}</td>
-                <td style={{ whiteSpace: 'nowrap', fontFamily: 'var(--mono)', fontSize: '0.75rem', color: 'var(--muted)' }}>
+                <td className="table-timestamp">
                   {new Date(a.fired_at).toLocaleString()}
                 </td>
               </tr>

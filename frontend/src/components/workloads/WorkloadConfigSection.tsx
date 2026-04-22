@@ -1,28 +1,28 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { configsAPI, agentsAPI } from '../../api/client'
+import { configsAPI, workloadsAPI } from '../../api/client'
 import { DOCS_BASE_URL } from '../../constants'
 import YamlEditor from '../config/YamlEditor'
 import PushStatusBanner from './PushStatusBanner'
 import ConfigDiffView from './ConfigDiffView'
 import PushHistoryTable from './PushHistoryTable'
 import { useStore } from '../../store'
-import { isReadOnlyCollector } from '../../lib/agentCapabilities'
-import type { Agent, ValidationResult } from '../../types'
+import { isReadOnlyCollector } from '../../lib/workloadCapabilities'
+import type { Workload, ValidationResult } from '../../types'
 
 interface Props {
-  agent: Agent
+  workload: Workload
 }
 
 type Tab = 'edit' | 'diff'
 
 const PUSH_TIMEOUT_MS = 30_000
 
-export default function AgentConfigSection({ agent }: Props) {
+export default function WorkloadConfigSection({ workload }: Props) {
   const queryClient = useQueryClient()
-  const configStatus = useStore((s) => s.configStatus[agent.id])
-  const rollback = useStore((s) => s.lastRollback[agent.id])
+  const configStatus = useStore((s) => s.configStatus[workload.id])
+  const rollback = useStore((s) => s.lastRollback[workload.id])
   const clearRollback = useStore((s) => s.clearAutoRollback)
 
   const [editMode, setEditMode]       = useState(false)
@@ -34,15 +34,15 @@ export default function AgentConfigSection({ agent }: Props) {
   const [pushError, setPushError]     = useState<string | null>(null)
 
   const { data: config, isLoading, isError } = useQuery({
-    queryKey: ['agent-config', agent.active_config_id],
-    queryFn: () => configsAPI.get(agent.active_config_id!),
-    enabled: agent.type === 'collector' && !!agent.active_config_id,
+    queryKey: ['workload-config', workload.active_config_id],
+    queryFn: () => configsAPI.get(workload.active_config_id!),
+    enabled: workload.type === 'collector' && !!workload.active_config_id,
   })
 
   const activeContent = config?.content ?? ''
 
   const validateMutation = useMutation({
-    mutationFn: () => agentsAPI.validateConfig(agent.id, draftYaml),
+    mutationFn: () => workloadsAPI.validateConfig(workload.id, draftYaml),
     onSuccess: (result) => {
       setValidation(result)
       setPushError(null)
@@ -56,7 +56,7 @@ export default function AgentConfigSection({ agent }: Props) {
   })
 
   const pushMutation = useMutation({
-    mutationFn: () => agentsAPI.pushConfig(agent.id, draftYaml),
+    mutationFn: () => workloadsAPI.pushConfig(workload.id, draftYaml),
     onSuccess: (res) => {
       setPendingHash(res.config_hash)
       setTimedOut(false)
@@ -85,15 +85,15 @@ export default function AgentConfigSection({ agent }: Props) {
       setEditMode(false)
       setDraftYaml('')
       setValidation(null)
-      queryClient.invalidateQueries({ queryKey: ['agent', agent.id] })
-      queryClient.invalidateQueries({ queryKey: ['agent-config-history', agent.id] })
+      queryClient.invalidateQueries({ queryKey: ['workload', workload.id] })
+      queryClient.invalidateQueries({ queryKey: ['workload-config-history', workload.id] })
     } else if (configStatus.status === 'failed') {
       setPendingHash(null)
       setTimedOut(false)
-      queryClient.invalidateQueries({ queryKey: ['agent-config-history', agent.id] })
+      queryClient.invalidateQueries({ queryKey: ['workload-config-history', workload.id] })
       // keep editMode + draftYaml so the user can fix and retry
     }
-  }, [configStatus, pendingHash, agent.id, queryClient])
+  }, [configStatus, pendingHash, workload.id, queryClient])
 
   useEffect(() => {
     if (!pendingHash) return
@@ -132,15 +132,15 @@ export default function AgentConfigSection({ agent }: Props) {
     validation !== null &&
     validation.valid === true
 
-  // ── SDK agents: labels as "configuration" ──────────────────────────────
-  if (agent.type === 'sdk') {
-    const hasLabels = Object.keys(agent.labels).length > 0
+  // ── SDK workloads: labels as "configuration" ──────────────────────────────
+  if (workload.type === 'sdk') {
+    const hasLabels = Object.keys(workload.labels).length > 0
     if (!hasLabels) return null
     return (
       <>
         <p className="section-title">Configuration</p>
-        <div style={{ display: 'flex', gap: '0.4rem', flexWrap: 'wrap' }}>
-          {Object.entries(agent.labels).map(([k, v]) => (
+        <div className="label-chip-list">
+          {Object.entries(workload.labels).map(([k, v]) => (
             <span key={k} className="label-chip">
               <span className="label-chip-key">{k}</span>
               <span className="label-chip-eq">=</span>
@@ -153,8 +153,8 @@ export default function AgentConfigSection({ agent }: Props) {
   }
 
   // ── Collector that does not accept remote config: read-only view ─────────
-  if (isReadOnlyCollector(agent)) {
-    const hasConfig = !!agent.active_config_id
+  if (isReadOnlyCollector(workload)) {
+    const hasConfig = !!workload.active_config_id
     return (
       <>
         <p className="section-title">Configuration</p>
@@ -177,7 +177,7 @@ export default function AgentConfigSection({ agent }: Props) {
             Learn more →
           </a>
         </div>
-        <PushHistoryTable agentId={agent.id} />
+        <PushHistoryTable workloadId={workload.id} />
       </>
     )
   }
@@ -189,8 +189,8 @@ export default function AgentConfigSection({ agent }: Props) {
         <button
           className={`tab ${tab === 'diff' ? 'tab-active' : ''}`}
           onClick={() => setTab('diff')}
-          disabled={!agent.active_config_id}
-          title={agent.active_config_id ? '' : 'No active config to diff against'}
+          disabled={!workload.active_config_id}
+          title={workload.active_config_id ? '' : 'No active config to diff against'}
         >
           Diff
         </button>
@@ -201,18 +201,17 @@ export default function AgentConfigSection({ agent }: Props) {
 
       {validation && (
         <div
-          className={validation.valid ? 'validation-ok' : 'validation-errors'}
-          style={{ marginTop: '0.5rem' }}
+          className={`validation-block ${validation.valid ? 'validation-ok' : 'validation-errors'}`}
         >
           {validation.valid ? (
             <span>✓ Configuration is valid</span>
           ) : (
-            <ul style={{ margin: 0, paddingLeft: '1.25rem' }}>
+            <ul className="validation-error-list">
               {(validation.errors ?? []).map((e, i) => (
                 <li key={i}>
                   <strong>{e.code}</strong>
-                  {e.path ? <code style={{ marginLeft: 6 }}>{e.path}</code> : null}
-                  <span style={{ marginLeft: 6 }}>— {e.message}</span>
+                  {e.path ? <code className="validation-error-path">{e.path}</code> : null}
+                  <span className="validation-error-msg">— {e.message}</span>
                 </li>
               ))}
             </ul>
@@ -221,10 +220,10 @@ export default function AgentConfigSection({ agent }: Props) {
       )}
 
       {pushError && (
-        <div className="error-text" style={{ marginTop: '0.5rem' }}>{pushError}</div>
+        <div className="error-text error-text-push">{pushError}</div>
       )}
 
-      <div style={{ display: 'flex', gap: '0.5rem', marginTop: '0.75rem' }}>
+      <div className="btn-row">
         <button
           className="btn"
           onClick={() => validateMutation.mutate()}
@@ -248,8 +247,8 @@ export default function AgentConfigSection({ agent }: Props) {
         </button>
         <button className="btn" onClick={cancelEdit} disabled={!!pendingHash}>Cancel</button>
         {timedOut && (
-          <span className="error-text" style={{ alignSelf: 'center' }}>
-            No response from agent — still applying?
+          <span className="error-text error-text-inline">
+            No response from workload — still applying?
           </span>
         )}
       </div>
@@ -257,7 +256,7 @@ export default function AgentConfigSection({ agent }: Props) {
   )
 
   // ── Collector without active config ──────────────────────────────────────
-  if (!agent.active_config_id) {
+  if (!workload.active_config_id) {
     return (
       <>
         <p className="section-title">Configuration</p>
@@ -267,9 +266,9 @@ export default function AgentConfigSection({ agent }: Props) {
         <PushStatusBanner
           status={derivedStatus}
           rollback={rollback}
-          onDismissRollback={() => clearRollback(agent.id)}
+          onDismissRollback={() => clearRollback(workload.id)}
         />
-        <PushHistoryTable agentId={agent.id} />
+        <PushHistoryTable workloadId={workload.id} />
       </>
     )
   }
@@ -298,7 +297,7 @@ export default function AgentConfigSection({ agent }: Props) {
       {!editMode ? (
         <div>
           <YamlEditor value={activeContent} readOnly />
-          <div style={{ marginTop: '0.75rem' }}>
+          <div className="btn-row btn-row-top">
             <button className="btn" onClick={() => enterEditMode(activeContent)}>Edit</button>
           </div>
         </div>
@@ -307,10 +306,10 @@ export default function AgentConfigSection({ agent }: Props) {
       <PushStatusBanner
         status={derivedStatus}
         rollback={rollback}
-        onDismissRollback={() => clearRollback(agent.id)}
+        onDismissRollback={() => clearRollback(workload.id)}
       />
 
-      <PushHistoryTable agentId={agent.id} />
+      <PushHistoryTable workloadId={workload.id} />
     </>
   )
 }
