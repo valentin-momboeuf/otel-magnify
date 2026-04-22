@@ -2,9 +2,7 @@ package main
 
 import (
 	"context"
-	"embed"
 	"fmt"
-	"io/fs"
 	"log"
 	"os"
 	"os/signal"
@@ -17,12 +15,10 @@ import (
 	"github.com/magnify-labs/otel-magnify/internal/config"
 	"github.com/magnify-labs/otel-magnify/internal/store"
 	"github.com/magnify-labs/otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/pkg/frontend"
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 	"github.com/magnify-labs/otel-magnify/pkg/server"
 )
-
-//go:embed dist
-var frontendDist embed.FS
 
 func main() {
 	cfg := config.Load()
@@ -55,9 +51,7 @@ func main() {
 		opts = append(opts, server.WithNotifier(wh))
 	}
 
-	if sub, err := fs.Sub(frontendDist, "dist"); err == nil {
-		opts = append(opts, server.WithStaticFS(sub))
-	}
+	opts = append(opts, server.WithStaticFS(frontend.FS()))
 
 	srv := server.New(server.Config{
 		ListenAddr:              cfg.ListenAddr,

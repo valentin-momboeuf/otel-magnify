@@ -10,7 +10,7 @@ WORKDIR /app/backend
 COPY backend/go.mod backend/go.sum ./
 RUN go mod download
 COPY backend/ ./
-COPY --from=frontend-build /app/frontend/dist ./cmd/server/dist
+COPY --from=frontend-build /app/frontend/dist ./pkg/frontend/dist
 RUN CGO_ENABLED=0 go build -o /otel-magnify ./cmd/server/
 
 FROM alpine:3.19
