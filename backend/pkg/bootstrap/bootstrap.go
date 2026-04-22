@@ -1,0 +1,145 @@
+// Package bootstrap wires together the otel-magnify server subsystems
+// (config, store, auth, alerts, server) into a single entry point usable
+// by any edition binary. Community and enterprise binaries both call
+// Run and customise behaviour through Options.
+package bootstrap
+
+import (
+	"context"
+	"errors"
+	"io/fs"
+	"log"
+	"os"
+	"os/signal"
+	"syscall"
+
+	"golang.org/x/crypto/bcrypt"
+
+	"github.com/magnify-labs/otel-magnify/internal/alerts"
+	"github.com/magnify-labs/otel-magnify/internal/auth"
+	"github.com/magnify-labs/otel-magnify/internal/config"
+	"github.com/magnify-labs/otel-magnify/internal/store"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/pkg/frontend"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
+	"github.com/magnify-labs/otel-magnify/pkg/server"
+)
+
+// Options lets callers extend the default community behaviour.
+type Options struct {
+	// ExtraServerOptions are appended to the default server options
+	// (notifier, static FS) when constructing server.Server. Edition
+	// binaries use this to register auth methods, router hooks, or
+	// audit loggers without reimplementing the full bootstrap flow.
+	ExtraServerOptions []server.Option
+
+	// StaticFS overrides the embedded frontend. Zero value means the
+	// default pkg/frontend embed is used. To serve no static assets at
+	// all, pass a non-nil empty FS (e.g. fstest.MapFS{}) — leaving this
+	// field zero installs the community default.
+	StaticFS fs.FS
+}
+
+// Run loads configuration from the environment, opens the database,
+// applies migrations, seeds the admin user if requested, builds a
+// Server with the community defaults (plus any ExtraServerOptions),
+// and blocks until ctx is cancelled or a SIGINT/SIGTERM is received.
+// It returns an error if any step of the bootstrap fails.
+//
+// Callers that manage their own signal handling can cancel ctx
+// directly; Run installs its own SIGINT/SIGTERM handler on top.
+func Run(ctx context.Context, opts Options) error {
+	cfg := config.Load()
+	if cfg.JWTSecret == "" {
+		return errors.New("JWT_SECRET environment variable is required")
+	}
+
+	db, err := store.Open(cfg.DBDriver, cfg.DBDSN)
+	if err != nil {
+		return err
+	}
+	defer db.Close()
+
+	if err := db.Migrate(); err != nil {
+		return err
+	}
+	log.Println("Database migrations applied")
+
+	seedAdmin(db)
+
+	a := auth.New(cfg.JWTSecret)
+
+	serverOpts := []server.Option{}
+
+	if wh := alerts.NewWebhookNotifier(cfg.WebhookURL); wh != nil {
+		serverOpts = append(serverOpts, server.WithNotifier(wh))
+	}
+
+	staticFS := opts.StaticFS
+	if staticFS == nil {
+		staticFS = frontend.FS()
+	}
+	serverOpts = append(serverOpts, server.WithStaticFS(staticFS))
+
+	serverOpts = append(serverOpts, opts.ExtraServerOptions...)
+
+	srv := server.New(server.Config{
+		ListenAddr:              cfg.ListenAddr,
+		OpAMPAddr:               cfg.OpAMPAddr,
+		CORSOrigins:             cfg.CORSOrigins,
+		MinAgentVersion:         cfg.MinAgentVersion,
+		WorkloadRetention:       cfg.WorkloadRetention,
+		WorkloadDisconnectGrace: cfg.WorkloadDisconnectGrace,
+		WorkloadJanitorInterval: cfg.WorkloadJanitorInterval,
+		WorkloadEventRetention:  cfg.WorkloadEventRetention,
+	}, db, a, serverOpts...)
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+
+	sig := make(chan os.Signal, 1)
+	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)
+	defer signal.Stop(sig)
+	go func() {
+		select {
+		case <-sig:
+			cancel()
+		case <-runCtx.Done():
+		}
+	}()
+
+	return srv.Run(runCtx)
+}
+
+// seedAdmin creates an admin user on startup if SEED_ADMIN_EMAIL and
+// SEED_ADMIN_PASSWORD are set. Skips silently if the email already exists.
+func seedAdmin(db ext.Store) {
+	email := os.Getenv("SEED_ADMIN_EMAIL")
+	password := os.Getenv("SEED_ADMIN_PASSWORD")
+	if email == "" || password == "" {
+		return
+	}
+
+	if _, err := db.GetUserByEmail(email); err == nil {
+		log.Printf("Seed admin: user %s already exists, skipping", email)
+		return
+	}
+
+	hash, err := bcrypt.GenerateFromPassword([]byte(password), 12)
+	if err != nil {
+		log.Printf("Seed admin: failed to hash password: %v", err)
+		return
+	}
+
+	user := models.User{
+		ID:           "admin-seed-001",
+		Email:        email,
+		PasswordHash: string(hash),
+		Role:         "admin",
+	}
+	if err := db.CreateUser(user); err != nil {
+		log.Printf("Seed admin: failed to create user: %v", err)
+		return
+	}
+	log.Printf("Seed admin: created user %s", email)
+}
