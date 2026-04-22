@@ -1,5 +1,8 @@
 import axios from 'axios'
-import type { Agent, Config, Alert, AgentConfig, ValidationResult } from '../types'
+import type {
+  Workload, Instance, WorkloadEvent, EventsStats,
+  Config, Alert, WorkloadConfig, ValidationResult,
+} from '../types'
 
 export type AuthMethod = {
   id: string
@@ -29,23 +32,35 @@ api.interceptors.response.use(
   }
 )
 
-export const agentsAPI = {
-  list: () => api.get<Agent[]>('/agents').then((r) => r.data ?? []),
-  get: (id: string) => api.get<Agent>(`/agents/${id}`).then((r) => r.data),
+export const workloadsAPI = {
+  list: (includeArchived = false) =>
+    api
+      .get<Workload[]>('/workloads', { params: { include_archived: includeArchived } })
+      .then((r) => r.data ?? []),
+  get: (id: string) => api.get<Workload>(`/workloads/${id}`).then((r) => r.data),
+  instances: (id: string) =>
+    api.get<Instance[]>(`/workloads/${id}/instances`).then((r) => r.data ?? []),
+  events: (id: string, params?: { limit?: number; since?: string }) =>
+    api.get<WorkloadEvent[]>(`/workloads/${id}/events`, { params }).then((r) => r.data ?? []),
+  eventsStats: (id: string, window = '24h') =>
+    api
+      .get<EventsStats>(`/workloads/${id}/events/stats`, { params: { window } })
+      .then((r) => r.data),
   pushConfig: (id: string, yaml: string) =>
     api
-      .post<{ status: string; config_hash: string }>(`/agents/${id}/config`, yaml, {
+      .post<{ status: string; config_hash: string }>(`/workloads/${id}/config`, yaml, {
         headers: { 'Content-Type': 'text/yaml' },
       })
       .then((r) => r.data),
   validateConfig: (id: string, yaml: string) =>
     api
-      .post<ValidationResult>(`/agents/${id}/config/validate`, yaml, {
+      .post<ValidationResult>(`/workloads/${id}/config/validate`, yaml, {
         headers: { 'Content-Type': 'text/yaml' },
       })
       .then((r) => r.data),
   getConfigHistory: (id: string) =>
-    api.get<AgentConfig[]>(`/agents/${id}/configs`).then((r) => r.data ?? []),
+    api.get<WorkloadConfig[]>(`/workloads/${id}/configs`).then((r) => r.data ?? []),
+  delete: (id: string) => api.delete(`/workloads/${id}`),
 }
 
 export const configsAPI = {
@@ -57,7 +72,9 @@ export const configsAPI = {
 
 export const alertsAPI = {
   list: (includeResolved = false) =>
-    api.get<Alert[]>('/alerts', { params: { include_resolved: includeResolved } }).then((r) => r.data ?? []),
+    api
+      .get<Alert[]>('/alerts', { params: { include_resolved: includeResolved } })
+      .then((r) => r.data ?? []),
   resolve: (id: string) => api.post(`/alerts/${id}/resolve`),
 }
 
