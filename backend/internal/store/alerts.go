@@ -9,9 +9,9 @@ import (
 
 func (d *DB) CreateAlert(a models.Alert) error {
 	_, err := d.Exec(`
-		INSERT INTO alerts (id, agent_id, rule, severity, message, fired_at)
+		INSERT INTO alerts (id, workload_id, rule, severity, message, fired_at)
 		VALUES (?, ?, ?, ?, ?, ?)`,
-		a.ID, a.AgentID, a.Rule, a.Severity, a.Message, a.FiredAt.UTC(),
+		a.ID, a.WorkloadID, a.Rule, a.Severity, a.Message, a.FiredAt.UTC(),
 	)
 	return err
 }
@@ -29,7 +29,7 @@ func (d *DB) ResolveAlert(id string) error {
 }
 
 func (d *DB) ListAlerts(includeResolved bool) ([]models.Alert, error) {
-	query := `SELECT id, agent_id, rule, severity, message, fired_at, resolved_at FROM alerts`
+	query := `SELECT id, workload_id, rule, severity, message, fired_at, resolved_at FROM alerts`
 	if !includeResolved {
 		query += ` WHERE resolved_at IS NULL`
 	}
@@ -44,7 +44,7 @@ func (d *DB) ListAlerts(includeResolved bool) ([]models.Alert, error) {
 	var alerts []models.Alert
 	for rows.Next() {
 		var a models.Alert
-		if err := rows.Scan(&a.ID, &a.AgentID, &a.Rule, &a.Severity, &a.Message, &a.FiredAt, &a.ResolvedAt); err != nil {
+		if err := rows.Scan(&a.ID, &a.WorkloadID, &a.Rule, &a.Severity, &a.Message, &a.FiredAt, &a.ResolvedAt); err != nil {
 			return nil, err
 		}
 		alerts = append(alerts, a)
@@ -52,13 +52,13 @@ func (d *DB) ListAlerts(includeResolved bool) ([]models.Alert, error) {
 	return alerts, rows.Err()
 }
 
-func (d *DB) GetUnresolvedAlertByAgentAndRule(agentID, rule string) (*models.Alert, error) {
+func (d *DB) GetUnresolvedAlertByWorkloadAndRule(workloadID, rule string) (*models.Alert, error) {
 	var a models.Alert
 	err := d.QueryRow(`
-		SELECT id, agent_id, rule, severity, message, fired_at, resolved_at
-		FROM alerts WHERE agent_id = ? AND rule = ? AND resolved_at IS NULL
-		LIMIT 1`, agentID, rule,
-	).Scan(&a.ID, &a.AgentID, &a.Rule, &a.Severity, &a.Message, &a.FiredAt, &a.ResolvedAt)
+		SELECT id, workload_id, rule, severity, message, fired_at, resolved_at
+		FROM alerts WHERE workload_id = ? AND rule = ? AND resolved_at IS NULL
+		LIMIT 1`, workloadID, rule,
+	).Scan(&a.ID, &a.WorkloadID, &a.Rule, &a.Severity, &a.Message, &a.FiredAt, &a.ResolvedAt)
 	if err == sql.ErrNoRows {
 		return nil, nil
 	}

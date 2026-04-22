@@ -28,20 +28,6 @@ func (l *Labels) Scan(src any) error {
 	}
 }
 
-type Agent struct {
-	ID                  string               `json:"id"`
-	DisplayName         string               `json:"display_name"`
-	Type                string               `json:"type"`   // "collector" | "sdk"
-	Version             string               `json:"version"`
-	Status              string               `json:"status"` // "connected" | "disconnected" | "degraded"
-	LastSeenAt          time.Time            `json:"last_seen_at"`
-	Labels              Labels               `json:"labels"`
-	ActiveConfigID      *string              `json:"active_config_id,omitempty"`
-	RemoteConfigStatus  *RemoteConfigStatus  `json:"remote_config_status,omitempty"`
-	AvailableComponents *AvailableComponents `json:"available_components,omitempty"`
-	AcceptsRemoteConfig bool                 `json:"accepts_remote_config"`
-}
-
 // AvailableComponents maps OTel Collector categories (receivers, processors,
 // exporters, extensions, connectors) to the set of component types the agent
 // reports as installed. Populated from OpAMP AgentToServer.available_components.
@@ -115,11 +101,11 @@ type Config struct {
 	CreatedBy string    `json:"created_by"`
 }
 
-type AgentConfig struct {
-	AgentID      string    `json:"agent_id"`
+type WorkloadConfig struct {
+	WorkloadID   string    `json:"workload_id"`
 	ConfigID     string    `json:"config_id"`
 	AppliedAt    time.Time `json:"applied_at"`
-	Status       string    `json:"status"` // "pending" | "applied" | "failed"
+	Status       string    `json:"status"` // "pending" | "applying" | "applied" | "failed"
 	ErrorMessage string    `json:"error_message,omitempty"`
 	PushedBy     string    `json:"pushed_by,omitempty"`
 	Content      string    `json:"content,omitempty"` // filled by JOIN in history queries
@@ -127,7 +113,7 @@ type AgentConfig struct {
 
 type Alert struct {
 	ID         string     `json:"id"`
-	AgentID    string     `json:"agent_id"`
+	WorkloadID string     `json:"workload_id"`
 	Rule       string     `json:"rule"`     // "agent_down" | "config_drift" | "version_outdated"
 	Severity   string     `json:"severity"` // "warning" | "critical"
 	Message    string     `json:"message"`
