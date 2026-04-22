@@ -73,7 +73,6 @@ Monitor, configure, and alert on your OTel Collectors and SDK agents from a sing
 
 ```bash
 # Backend
-cd backend
 JWT_SECRET=dev-secret go run ./cmd/server/
 
 # Frontend (separate terminal)
@@ -219,25 +218,25 @@ Once connected, agents are grouped into workloads and appear automatically in th
 ## Project Structure
 
 ```
-backend/
-├── cmd/server/         # Entrypoint
-├── internal/
-│   ├── api/            # REST handlers, WebSocket hub, static serving
-│   ├── alerts/         # Alert engine (30s evaluation loop)
-│   ├── auth/           # JWT generation, validation, middleware
-│   ├── config/         # Env-based configuration
-│   ├── opamp/          # OpAMP server (agent registry, config push)
-│   └── store/          # Database layer + SQL migrations
-└── pkg/models/         # Shared data types
+cmd/server/         # Entrypoint
+internal/
+├── api/            # REST handlers, WebSocket hub, static serving
+├── alerts/         # Alert engine (30s evaluation loop)
+├── auth/           # JWT generation, validation, middleware
+├── config/         # Env-based configuration
+├── opamp/          # OpAMP server (agent registry, config push)
+└── store/          # Database layer + SQL migrations
+pkg/models/         # Shared data types
 
 frontend/
 ├── src/
-│   ├── api/            # REST + WebSocket clients
-│   ├── components/     # Layout, workloads/*, config/*
-│   ├── pages/          # Dashboard, Workloads (inventory), WorkloadDetail, Configs, Alerts, Login
-│   └── store/          # Zustand state management
+│   ├── api/        # REST + WebSocket clients
+│   ├── components/ # Layout, workloads/*, config/*
+│   ├── pages/      # Dashboard, Workloads (inventory), WorkloadDetail, Configs, Alerts, Login
+│   └── store/      # Zustand state management
 
-helm/otel-magnify/      # Kubernetes Helm chart
+helm/otel-magnify/  # Kubernetes Helm chart
+go.mod              # Go module root (github.com/magnify-labs/otel-magnify)
 ```
 
 ## License

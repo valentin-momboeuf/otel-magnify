@@ -51,7 +51,7 @@ Response:
 
 ### `GET /api/workloads`
 
-Response is an array of workload summaries. The exact fields are defined in `backend/pkg/models/workload.go`. Treat it as the source of truth; do not hand-maintain the shape here — link to the file from the rendered doc instead.
+Response is an array of workload summaries. The exact fields are defined in `pkg/models/workload.go`. Treat it as the source of truth; do not hand-maintain the shape here — link to the file from the rendered doc instead.
 
 ### `POST /api/workloads/{id}/config`
 
