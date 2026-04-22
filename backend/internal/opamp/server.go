@@ -120,6 +120,12 @@ func (s *Server) ConnectedInstanceCount() int {
 	return len(s.conns)
 }
 
+// Instances returns a snapshot of the live instances bound to a workload.
+// Exposed for the REST handler GET /api/workloads/:id/instances.
+func (s *Server) Instances(workloadID string) []Instance {
+	return s.registry.Instances(workloadID)
+}
+
 // GetConnection returns the OpAMP connection for a given instance UID, or nil.
 func (s *Server) GetConnection(instanceUID string) types.Connection {
 	s.mu.RLock()

@@ -11,13 +11,15 @@ import (
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
+	"github.com/magnify-labs/otel-magnify/internal/opamp"
 	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
 // OpAMPPusher is the subset of opamp.Server the HTTP layer uses.
 // Declared here so handlers can be tested with a fake.
 type OpAMPPusher interface {
-	PushConfig(ctx context.Context, agentID string, yamlContent []byte) error
+	PushConfig(ctx context.Context, workloadID string, yamlContent []byte, targetInstanceUID string) error
+	Instances(workloadID string) []opamp.Instance
 }
 
 type API struct {
@@ -79,11 +81,22 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 	r.Group(func(r chi.Router) {
 		r.Use(a.Middleware)
 
-		r.Get("/api/agents", api.handleListAgents)
-		r.Get("/api/agents/{id}", api.handleGetAgent)
-		r.Post("/api/agents/{id}/config", api.handlePushConfig)
-		r.Post("/api/agents/{id}/config/validate", api.handleValidateConfig)
-		r.Get("/api/agents/{id}/configs", api.handleGetAgentConfigHistory)
+		r.Get("/api/workloads", api.handleListWorkloads)
+		r.Get("/api/workloads/{id}", api.handleGetWorkload)
+		r.Get("/api/workloads/{id}/instances", api.handleListWorkloadInstances)
+		r.Get("/api/workloads/{id}/events", api.handleListWorkloadEvents)
+		r.Get("/api/workloads/{id}/events/stats", api.handleWorkloadEventsStats)
+		r.Post("/api/workloads/{id}/config", api.handlePushWorkloadConfig)
+		r.Post("/api/workloads/{id}/config/validate", api.handleValidateWorkloadConfig)
+		r.Get("/api/workloads/{id}/configs", api.handleGetWorkloadConfigHistory)
+		r.Delete("/api/workloads/{id}", api.handleDeleteWorkload)
+
+		// Legacy /api/agents/... redirects (remove at next minor release).
+		r.Get("/api/agents", redirectAgentsToWorkloads)
+		r.Get("/api/agents/{id}", redirectAgentsToWorkloads)
+		r.Get("/api/agents/{id}/configs", redirectAgentsToWorkloads)
+		r.Post("/api/agents/{id}/config", redirectAgentsToWorkloads)
+		r.Post("/api/agents/{id}/config/validate", redirectAgentsToWorkloads)
 
 		r.Get("/api/configs", api.handleListConfigs)
 		r.Post("/api/configs", api.handleCreateConfig)
