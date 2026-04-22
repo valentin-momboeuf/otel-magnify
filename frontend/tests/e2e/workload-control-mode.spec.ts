@@ -5,9 +5,11 @@ const SUPERVISED_ID = 'ssssssss-ssss-ssss-ssss-ssssssssssss'
 const READONLY_ID   = 'rrrrrrrr-rrrr-rrrr-rrrr-rrrrrrrrrrrr'
 const CONFIG_ID     = 'cfg1'
 
-function baseAgent(id: string, name: string, acceptsRemoteConfig: boolean) {
+function baseWorkload(id: string, name: string, acceptsRemoteConfig: boolean) {
   return {
     id,
+    fingerprint_source: 'k8s',
+    fingerprint_keys: { cluster: 'prod', namespace: 'obs', kind: 'deployment', name },
     display_name: name,
     type: 'collector',
     version: '0.98.0',
@@ -20,26 +22,33 @@ function baseAgent(id: string, name: string, acceptsRemoteConfig: boolean) {
   }
 }
 
-function mockList(page: Page) {
-  return page.route('**/api/agents', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        baseAgent(SUPERVISED_ID, 'collector-supervised', true),
-        baseAgent(READONLY_ID,   'collector-readonly',   false),
-      ]),
-    }),
-  )
+function mockList(page: Page, extra: Record<string, unknown>[] = []) {
+  return page.route('**/api/workloads*', async (route) => {
+    const url = route.request().url()
+    // Only stub the collection endpoint, not child resources like /:id or /:id/*
+    if (/\/api\/workloads(\?|$)/.test(url) || url.endsWith('/api/workloads')) {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify([
+          baseWorkload(SUPERVISED_ID, 'collector-supervised', true),
+          baseWorkload(READONLY_ID,   'collector-readonly',   false),
+          ...extra,
+        ]),
+      })
+      return
+    }
+    await route.continue()
+  })
 }
 
-function mockAgent(page: Page, id: string, acceptsRemoteConfig: boolean) {
+function mockWorkload(page: Page, id: string, acceptsRemoteConfig: boolean) {
   const name = id === SUPERVISED_ID ? 'collector-supervised' : 'collector-readonly'
-  return page.route(`**/api/agents/${id}`, (route) =>
+  return page.route(`**/api/workloads/${id}`, (route) =>
     route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(baseAgent(id, name, acceptsRemoteConfig)),
+      body: JSON.stringify(baseWorkload(id, name, acceptsRemoteConfig)),
     }),
   )
 }
@@ -61,7 +70,7 @@ function mockConfig(page: Page) {
 }
 
 function mockHistory(page: Page, id: string) {
-  return page.route(`**/api/agents/${id}/configs`, (route) =>
+  return page.route(`**/api/workloads/${id}/configs`, (route) =>
     route.fulfill({ status: 200, contentType: 'application/json', body: '[]' }),
   )
 }
@@ -76,31 +85,31 @@ test('Inventory shows supervised pill only on supervised collectors', async ({ l
   await mockList(page)
   await page.goto('/inventory')
 
-  const supervisedCard = page.locator('.agent-card', { hasText: 'collector-supervised' })
-  const readonlyCard   = page.locator('.agent-card', { hasText: 'collector-readonly' })
+  const supervisedCard = page.locator('.workload-card', { hasText: 'collector-supervised' })
+  const readonlyCard   = page.locator('.workload-card', { hasText: 'collector-readonly' })
 
-  await expect(supervisedCard.locator('.agent-supervised-pill')).toBeVisible()
-  await expect(readonlyCard.locator('.agent-supervised-pill')).toHaveCount(0)
+  await expect(supervisedCard.locator('.workload-supervised-pill')).toBeVisible()
+  await expect(readonlyCard.locator('.workload-supervised-pill')).toHaveCount(0)
 })
 
 test('Inventory control filter narrows to supervised or read-only', async ({ loggedInPage: page }) => {
   await mockList(page)
 
   await page.goto('/inventory?control=supervised')
-  await expect(page.locator('.agent-card')).toHaveCount(1)
-  await expect(page.locator('.agent-card')).toContainText('collector-supervised')
+  await expect(page.locator('.workload-card')).toHaveCount(1)
+  await expect(page.locator('.workload-card')).toContainText('collector-supervised')
 
   await page.goto('/inventory?control=readonly')
-  await expect(page.locator('.agent-card')).toHaveCount(1)
-  await expect(page.locator('.agent-card')).toContainText('collector-readonly')
+  await expect(page.locator('.workload-card')).toHaveCount(1)
+  await expect(page.locator('.workload-card')).toContainText('collector-readonly')
 })
 
 test('Read-only collector detail page hides Edit and shows note', async ({ loggedInPage: page }) => {
-  await mockAgent(page, READONLY_ID, false)
+  await mockWorkload(page, READONLY_ID, false)
   await mockConfig(page)
   await mockHistory(page, READONLY_ID)
 
-  await page.goto(`/inventory/${READONLY_ID}`)
+  await page.goto(`/workloads/${READONLY_ID}`)
 
   await expect(page.locator('.detail-cell-label', { hasText: 'Control' })).toBeVisible()
   await expect(page.locator('.detail-cell-value', { hasText: 'Read-only' })).toBeVisible()
@@ -114,54 +123,48 @@ test('Read-only collector detail page hides Edit and shows note', async ({ logge
 })
 
 test('Supervised collector detail page shows Edit button and Supervised cell', async ({ loggedInPage: page }) => {
-  await mockAgent(page, SUPERVISED_ID, true)
+  await mockWorkload(page, SUPERVISED_ID, true)
   await mockConfig(page)
   await mockHistory(page, SUPERVISED_ID)
 
-  await page.goto(`/inventory/${SUPERVISED_ID}`)
+  await page.goto(`/workloads/${SUPERVISED_ID}`)
 
   await expect(page.locator('.detail-cell-value', { hasText: 'Supervised' })).toBeVisible()
   await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible()
   await expect(page.locator('.config-readonly-note')).toHaveCount(0)
 })
 
-test('Inventory control filter excludes SDK agents entirely', async ({ loggedInPage: page }) => {
+test('Inventory control filter excludes SDK workloads entirely', async ({ loggedInPage: page }) => {
   const SDK_ID = 'dddddddd-dddd-dddd-dddd-dddddddddddd'
-  await page.route('**/api/agents', (route) =>
-    route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify([
-        baseAgent(SUPERVISED_ID, 'collector-supervised', true),
-        baseAgent(READONLY_ID,   'collector-readonly',   false),
-        {
-          id: SDK_ID,
-          display_name: 'sdk-service',
-          type: 'sdk',
-          version: '1.0.0',
-          status: 'connected',
-          last_seen_at: new Date().toISOString(),
-          labels: {},
-        },
-      ]),
-    }),
-  )
+  await mockList(page, [
+    {
+      id: SDK_ID,
+      fingerprint_source: 'uid',
+      fingerprint_keys: { uid: SDK_ID },
+      display_name: 'sdk-service',
+      type: 'sdk',
+      version: '1.0.0',
+      status: 'connected',
+      last_seen_at: new Date().toISOString(),
+      labels: {},
+    },
+  ])
 
   // Baseline: all three visible with no control filter
   await page.goto('/inventory')
-  await expect(page.locator('.agent-card')).toHaveCount(3)
+  await expect(page.locator('.workload-card')).toHaveCount(3)
 
   // control=supervised → SDK excluded, only supervised collector shown
   await page.goto('/inventory?control=supervised')
-  await expect(page.locator('.agent-card')).toHaveCount(1)
-  await expect(page.locator('.agent-card')).toContainText('collector-supervised')
-  await expect(page.locator('.agent-card', { hasText: 'sdk-service' })).toHaveCount(0)
+  await expect(page.locator('.workload-card')).toHaveCount(1)
+  await expect(page.locator('.workload-card')).toContainText('collector-supervised')
+  await expect(page.locator('.workload-card', { hasText: 'sdk-service' })).toHaveCount(0)
 
   // control=readonly → SDK also excluded, only read-only collector shown
   await page.goto('/inventory?control=readonly')
-  await expect(page.locator('.agent-card')).toHaveCount(1)
-  await expect(page.locator('.agent-card')).toContainText('collector-readonly')
-  await expect(page.locator('.agent-card', { hasText: 'sdk-service' })).toHaveCount(0)
+  await expect(page.locator('.workload-card')).toHaveCount(1)
+  await expect(page.locator('.workload-card')).toContainText('collector-readonly')
+  await expect(page.locator('.workload-card', { hasText: 'sdk-service' })).toHaveCount(0)
 })
 
 test('Dashboard Supervised stat card links to filtered Inventory', async ({ loggedInPage: page }) => {
