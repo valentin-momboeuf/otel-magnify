@@ -310,9 +310,15 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 	} else {
 		wl, ok := s.registry.LookupWorkload(uid)
 		if !ok {
-			// Heartbeat arriving before the first AgentDescription: defer
-			// everything until the agent identifies itself.
-			return &protobufs.ServerToAgent{InstanceUid: msg.InstanceUid}
+			// Unknown UID with no AgentDescription — either a fresh agent
+			// that hasn't identified yet, or an existing agent reconnecting
+			// after we lost registry state (server restart with ephemeral
+			// DB). Ask for a full state so we can bootstrap the workload;
+			// OpAMP agents won't resend AgentDescription on their own.
+			return &protobufs.ServerToAgent{
+				InstanceUid: msg.InstanceUid,
+				Flags:       uint64(protobufs.ServerToAgentFlags_ServerToAgentFlags_ReportFullState),
+			}
 		}
 		workloadID = wl
 		s.registry.UpdateInstance(uid, func(i *Instance) {
