@@ -23,9 +23,12 @@ function AppShell() {
 
   useEffect(() => {
     connectWS()
-    meAPI.get().then(setMe).catch(() => {
-      // 401 → already handled by the axios interceptor (redirect /login).
-    })
+    // Skip the boot-time hydration when there is no token: AppShell mounts on
+    // /login too, and a 401 here would trip the axios interceptor into a
+    // window.location = '/login' reload loop.
+    if (localStorage.getItem('token')) {
+      meAPI.get().then(setMe).catch(() => {})
+    }
     return () => disconnectWS()
   }, [setMe])
 

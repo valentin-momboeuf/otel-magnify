@@ -8,52 +8,25 @@ const ADMIN = {
 
 // Login helper. Uses explicit IDs from Login.tsx to avoid label ambiguity.
 async function login(page: Page, email: string, password: string) {
-  // AppShell mounts on every route including /login and fires meAPI.get(). Without
-  // a token in localStorage the server returns 401, which the axios interceptor
-  // handles by doing `window.location.href = '/login'` — a full-page hard reload
-  // that restarts React, causing an infinite reload loop while on the login page.
-  //
-  // Workaround: intercept /api/me at the network layer so it never reaches the
-  // server while on the login page. We return 200 with a dummy body so the
-  // interceptor (which only triggers on 401) never fires. The mock is removed
-  // once we navigate away from /login.
-  await page.route('**/api/me', (route) => {
-    // Abort the request silently — the catch() in AppShell swallows the error.
-    route.abort()
-  })
-
-  // Similarly, the connectWS() call on mount will try to open a WebSocket.
-  // Abort it at the network layer to prevent noise in the test.
-  await page.route('**/ws**', (route) => route.abort())
-
   const methodsReady = page.waitForResponse(
     (r) => r.url().includes('/api/auth/methods') && r.status() === 200,
     { timeout: 15_000 },
   )
   await page.goto('/login')
-  // Wait for getMethods to settle so the Login form has finished re-rendering.
   await methodsReady
-
-  // Remove the intercepts — after successful login the real /api/me and /ws
-  // calls must go through so the AppShell can hydrate the session.
-  await page.unroute('**/api/me')
-  await page.unroute('**/ws**')
 
   await page.locator('#login-email').fill(email)
   await page.locator('#login-password').fill(password)
-  await page.getByRole('button', { name: 'Sign in' }).click()
-  // Wait for the SPA to navigate to /.
-  await page.waitForURL('/', { timeout: 15_000 })
 
-  // AppShell.useEffect fires meAPI.get() once on mount. During the login page
-  // phase it was aborted, so `me` is still null after the SPA navigate to `/`.
-  // Force a full page reload so AppShell re-mounts with the real JWT in
-  // localStorage, which fires meAPI.get() for real and hydrates `me`.
+  // After submit, AppShell re-runs its boot effect with the token now in
+  // localStorage and calls GET /api/me. Wait for that to land before returning
+  // so `me` is hydrated in the store.
   const meReady = page.waitForResponse(
     (r) => r.url().includes('/api/me') && !r.url().includes('/api/me/') && r.status() === 200,
     { timeout: 15_000 },
   )
-  await page.reload()
+  await page.getByRole('button', { name: 'Sign in' }).click()
+  await page.waitForURL('/', { timeout: 15_000 })
   await meReady
 }
 
