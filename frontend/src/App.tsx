@@ -13,8 +13,10 @@ import { connectWS, disconnectWS } from './api/websocket'
 import { queryClient } from './api/queryClient'
 import { meAPI } from './api/client'
 import { useStore } from './store'
+import { useTheme } from './hooks/useTheme'
 
 function AppShell() {
+  useTheme()
   const setMe = useStore((s) => s.setMe)
 
   useEffect(() => {
