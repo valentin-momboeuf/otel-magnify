@@ -8,6 +8,7 @@ import Workloads from './pages/Workloads'
 import WorkloadDetail from './pages/WorkloadDetail'
 import Configs from './pages/Configs'
 import Alerts from './pages/Alerts'
+import Profile from './pages/Profile'
 import Login from './pages/Login'
 import { connectWS, disconnectWS } from './api/websocket'
 import { queryClient } from './api/queryClient'
@@ -35,6 +36,7 @@ function AppShell() {
         <Route path="/workloads/:id" element={<WorkloadDetail />} />
         <Route path="/configs" element={<Configs />} />
         <Route path="/alerts" element={<Alerts />} />
+        <Route path="/profile" element={<Profile />} />
       </Route>
       <Route path="/login" element={<Login />} />
       <Route path="*" element={<Navigate to="/" />} />
