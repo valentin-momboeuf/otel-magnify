@@ -1,6 +1,8 @@
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useNavigate } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
+import { useState } from 'react'
 import { useStore } from '../../store'
+import { hasPerm } from '../../lib/perm'
 import '../../styles/sidebar.css'
 
 function IconDashboard() {
@@ -13,7 +15,6 @@ function IconDashboard() {
     </svg>
   )
 }
-
 function IconInventory() {
   return (
     <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
@@ -22,7 +23,6 @@ function IconInventory() {
     </svg>
   )
 }
-
 function IconConfigs() {
   return (
     <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
@@ -30,7 +30,6 @@ function IconConfigs() {
     </svg>
   )
 }
-
 function IconAlerts() {
   return (
     <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
@@ -40,17 +39,76 @@ function IconAlerts() {
     </svg>
   )
 }
+function IconProfile() {
+  return (
+    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+      <circle cx="8" cy="6" r="2.5" />
+      <path d="M3 14c0-2.5 2-4 5-4s5 1.5 5 4" />
+    </svg>
+  )
+}
+function IconAdmin() {
+  return (
+    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M8 1.5L2.5 4v4.5c0 3 2.5 5.5 5.5 6 3-0.5 5.5-3 5.5-6V4L8 1.5z" />
+    </svg>
+  )
+}
 
-const navItems = [
+const fleetNav = [
   { path: '/',          key: 'dashboard', Icon: IconDashboard, end: true  },
   { path: '/inventory', key: 'inventory', Icon: IconInventory, end: false },
   { path: '/configs',   key: 'configs',   Icon: IconConfigs,   end: false },
   { path: '/alerts',    key: 'alerts',    Icon: IconAlerts,    end: false },
 ] as const
 
+function initials(email: string): string {
+  const left = email.split('@')[0] ?? ''
+  return left.slice(0, 2).toUpperCase()
+}
+
+function IdentityCard() {
+  const navigate = useNavigate()
+  const me = useStore((s) => s.me)
+  const { t } = useTranslation()
+  const [open, setOpen] = useState(false)
+
+  if (!me) return null
+
+  const handleLogout = () => {
+    localStorage.removeItem('token')
+    navigate('/login')
+  }
+
+  return (
+    <div className="identity-card">
+      <button className="identity-trigger" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
+        <div className="identity-avatar" aria-hidden>{initials(me.email)}</div>
+        <div className="identity-body">
+          <div className="identity-email">{me.email}</div>
+          <div className="identity-groups">
+            {me.groups.map((g) => g.name).join(' · ') || t('account.no_group')}
+          </div>
+        </div>
+        <span className="identity-chevron" aria-hidden>▸</span>
+      </button>
+      {open && (
+        <div role="menu" className="identity-popover">
+          <button className="identity-menu-item" onClick={handleLogout}>
+            {t('account.logout')}
+          </button>
+        </div>
+      )}
+    </div>
+  )
+}
+
 export default function Layout() {
   const { t } = useTranslation()
   const alertCount = useStore((s) => s.alerts.length)
+  const me = useStore((s) => s.me)
+
+  const canAdmin = hasPerm(me?.groups, 'users:manage')
 
   return (
     <div className="app-layout">
@@ -67,7 +125,7 @@ export default function Layout() {
         <nav>
           <div className="sidebar-section-label">{t('sidebar.section.fleet')}</div>
           <ul className="sidebar-nav">
-            {navItems.map(({ path, key, Icon, end }) => (
+            {fleetNav.map(({ path, key, Icon, end }) => (
               <li key={path} className="sidebar-nav-item">
                 <NavLink to={path} end={end}>
                   <Icon />
@@ -79,7 +137,27 @@ export default function Layout() {
               </li>
             ))}
           </ul>
+
+          <div className="sidebar-section-label">{t('sidebar.section.account')}</div>
+          <ul className="sidebar-nav">
+            <li className="sidebar-nav-item">
+              <NavLink to="/profile">
+                <IconProfile />
+                <span>{t('sidebar.nav.profile')}</span>
+              </NavLink>
+            </li>
+            {canAdmin && (
+              <li className="sidebar-nav-item">
+                <NavLink to="/admin">
+                  <IconAdmin />
+                  <span>{t('sidebar.nav.administration')}</span>
+                </NavLink>
+              </li>
+            )}
+          </ul>
         </nav>
+
+        <IdentityCard />
 
         <div className="sidebar-footer">
           <span className="sidebar-footer-dot" aria-hidden />
