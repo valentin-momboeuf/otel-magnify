@@ -1,13 +1,16 @@
 {
   "sidebar": {
     "section": {
-      "fleet": "FLEET"
+      "fleet": "FLEET",
+      "account": "ACCOUNT"
     },
     "nav": {
       "dashboard": "Dashboard",
       "inventory": "Inventory",
       "configs": "Configurations",
-      "alerts": "Alerts"
+      "alerts": "Alerts",
+      "profile": "Profile",
+      "administration": "Administration"
     },
     "footer": {
       "live": "LIVE"
@@ -77,5 +80,41 @@
   },
   "common": {
     "loading": "Loading…"
+  },
+  "account": {
+    "logout": "Sign out",
+    "no_group": "No group"
+  },
+  "profile": {
+    "title": "Profile",
+    "identity": {
+      "title": "Identity",
+      "email": "Email",
+      "groups": "Groups"
+    },
+    "security": {
+      "title": "Security",
+      "current": "Current password",
+      "new": "New password",
+      "confirm": "Confirm new password",
+      "submit": "Change password",
+      "success": "Password updated.",
+      "err_current": "Current password is incorrect.",
+      "err_weak": "Password must be at least 12 characters and different from current.",
+      "err_mismatch": "The two new passwords do not match.",
+      "err_generic": "Something went wrong."
+    },
+    "preferences": {
+      "title": "Preferences",
+      "theme": "Theme",
+      "theme_light": "Light",
+      "theme_dark": "Dark",
+      "theme_system": "System",
+      "language": "Language"
+    }
+  },
+  "admin": {
+    "title": "Administration",
+    "placeholder": "User management is coming in v0.3."
   }
 }

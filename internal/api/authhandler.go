@@ -33,17 +33,25 @@ func (a *API) handleLogin(w http.ResponseWriter, r *http.Request) {
 		respondError(w, 401, "invalid credentials")
 		return
 	}
-
 	if bcrypt.CompareHashAndPassword([]byte(user.PasswordHash), []byte(req.Password)) != nil {
 		respondError(w, 401, "invalid credentials")
 		return
 	}
 
-	token, err := a.auth.GenerateToken(user.ID, user.Email, user.Role)
+	groups, err := a.db.GetUserGroups(user.ID)
+	if err != nil {
+		respondError(w, 500, "failed to load user groups")
+		return
+	}
+	groupNames := make([]string, 0, len(groups))
+	for _, g := range groups {
+		groupNames = append(groupNames, g.Name)
+	}
+
+	token, err := a.auth.GenerateToken(user.ID, user.Email, groupNames)
 	if err != nil {
 		respondError(w, 500, "failed to generate token")
 		return
 	}
-
 	respondJSON(w, 200, map[string]string{"token": token})
 }

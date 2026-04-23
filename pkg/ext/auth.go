@@ -12,11 +12,11 @@ type userInfoKey struct{}
 type UserInfo struct {
 	UserID string
 	Email  string
-	Role   string
+	Groups []string // noms de groupes système (viewer|editor|administrator)
 }
 
 type AuthProvider interface {
-	GenerateToken(userID, email, role string) (string, error)
+	GenerateToken(userID, email string, groups []string) (string, error)
 	ValidateToken(tokenStr string) (*UserInfo, error)
 	Middleware(next http.Handler) http.Handler
 }

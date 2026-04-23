@@ -111,8 +111,9 @@ func Run(ctx context.Context, opts Options) error {
 	return srv.Run(runCtx)
 }
 
-// seedAdmin creates an admin user on startup if SEED_ADMIN_EMAIL and
-// SEED_ADMIN_PASSWORD are set. Skips silently if the email already exists.
+// seedAdmin creates an administrator user on startup when SEED_ADMIN_EMAIL
+// and SEED_ADMIN_PASSWORD are set. The user is attached to the system
+// `administrator` group — membership is what grants privileges now.
 func seedAdmin(db ext.Store) {
 	email := os.Getenv("SEED_ADMIN_EMAIL")
 	password := os.Getenv("SEED_ADMIN_PASSWORD")
@@ -135,11 +136,14 @@ func seedAdmin(db ext.Store) {
 		ID:           "admin-seed-001",
 		Email:        email,
 		PasswordHash: string(hash),
-		Role:         "admin",
 	}
 	if err := db.CreateUser(user); err != nil {
 		log.Printf("Seed admin: failed to create user: %v", err)
 		return
 	}
-	log.Printf("Seed admin: created user %s", email)
+	if err := db.AttachUserToGroupByName(user.ID, "administrator"); err != nil {
+		log.Printf("Seed admin: failed to attach admin group: %v", err)
+		return
+	}
+	log.Printf("Seed admin: created user %s in group administrator", email)
 }

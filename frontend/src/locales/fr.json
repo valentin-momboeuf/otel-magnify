@@ -1,13 +1,16 @@
 {
   "sidebar": {
     "section": {
-      "fleet": "FLOTTE"
+      "fleet": "FLOTTE",
+      "account": "COMPTE"
     },
     "nav": {
       "dashboard": "Tableau de bord",
       "inventory": "Inventaire",
       "configs": "Configurations",
-      "alerts": "Alertes"
+      "alerts": "Alertes",
+      "profile": "Profil",
+      "administration": "Administration"
     },
     "footer": {
       "live": "LIVE"
@@ -77,5 +80,41 @@
   },
   "common": {
     "loading": "Chargement…"
+  },
+  "account": {
+    "logout": "Se déconnecter",
+    "no_group": "Aucun groupe"
+  },
+  "profile": {
+    "title": "Profil",
+    "identity": {
+      "title": "Identité",
+      "email": "Email",
+      "groups": "Groupes"
+    },
+    "security": {
+      "title": "Sécurité",
+      "current": "Mot de passe actuel",
+      "new": "Nouveau mot de passe",
+      "confirm": "Confirmer le nouveau mot de passe",
+      "submit": "Changer le mot de passe",
+      "success": "Mot de passe mis à jour.",
+      "err_current": "Le mot de passe actuel est incorrect.",
+      "err_weak": "Le mot de passe doit faire au moins 12 caractères et être différent du courant.",
+      "err_mismatch": "Les deux nouveaux mots de passe ne correspondent pas.",
+      "err_generic": "Une erreur est survenue."
+    },
+    "preferences": {
+      "title": "Préférences",
+      "theme": "Thème",
+      "theme_light": "Clair",
+      "theme_dark": "Sombre",
+      "theme_system": "Système",
+      "language": "Langue"
+    }
+  },
+  "admin": {
+    "title": "Administration",
+    "placeholder": "La gestion des utilisateurs arrive en v0.3."
   }
 }

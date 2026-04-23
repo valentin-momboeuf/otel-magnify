@@ -18,7 +18,6 @@ func TestCreateUser(t *testing.T) {
 		ID:           "user-001",
 		Email:        "admin@test.com",
 		PasswordHash: string(hash),
-		Role:         "admin",
 	}
 
 	if err := db.CreateUser(user); err != nil {
@@ -28,9 +27,6 @@ func TestCreateUser(t *testing.T) {
 	got, err := db.GetUserByEmail("admin@test.com")
 	if err != nil {
 		t.Fatalf("GetUserByEmail: %v", err)
-	}
-	if got.Role != "admin" {
-		t.Errorf("Role = %q, want admin", got.Role)
 	}
 	if bcrypt.CompareHashAndPassword([]byte(got.PasswordHash), []byte("secret")) != nil {
 		t.Error("password hash mismatch")
@@ -54,24 +50,18 @@ func TestUpdateUser_UpdatesFields(t *testing.T) {
 		ID:           "user-001",
 		Email:        "alice@test.com",
 		PasswordHash: string(hash),
-		Role:         "viewer",
 	}
 	if err := db.CreateUser(original); err != nil {
 		t.Fatalf("CreateUser: %v", err)
 	}
 
-	updated := original
-	updated.Role = "admin"
-	if err := db.UpdateUser(updated); err != nil {
+	if err := db.UpdateUser(original); err != nil {
 		t.Fatalf("UpdateUser: %v", err)
 	}
 
 	got, err := db.GetUserByEmail("alice@test.com")
 	if err != nil {
 		t.Fatalf("GetUserByEmail: %v", err)
-	}
-	if got.Role != "admin" {
-		t.Errorf("Role = %q, want admin", got.Role)
 	}
 	// PasswordHash must be preserved when the caller passes it unchanged.
 	if got.PasswordHash != string(hash) {
@@ -85,7 +75,6 @@ func TestUpdateUser_NotFound(t *testing.T) {
 	err := db.UpdateUser(models.User{
 		ID:    "ghost-999",
 		Email: "ghost@test.com",
-		Role:  "admin",
 	})
 	if !errors.Is(err, sql.ErrNoRows) {
 		t.Errorf("err = %v, want sql.ErrNoRows", err)

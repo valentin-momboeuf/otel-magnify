@@ -111,3 +111,25 @@ export interface PushActivityPoint {
   day: string
   count: number
 }
+
+export interface Group {
+  id: string
+  name: string
+  role: 'viewer' | 'editor' | 'administrator'
+  is_system: boolean
+  created_at: string
+}
+
+export interface UserPreferences {
+  user_id: string
+  theme: 'light' | 'dark' | 'system'
+  language: 'en' | 'fr'
+  updated_at: string
+}
+
+export interface MeResponse {
+  id: string
+  email: string
+  groups: Group[]
+  preferences: UserPreferences
+}

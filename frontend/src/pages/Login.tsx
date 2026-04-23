@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { authAPI, type AuthMethod } from '../api/client'
+import { authAPI, meAPI, type AuthMethod } from '../api/client'
+import { useStore } from '../store'
 
 const PASSWORD_METHOD: AuthMethod = {
   id: 'password',
@@ -11,6 +12,7 @@ const PASSWORD_METHOD: AuthMethod = {
 
 export default function Login() {
   const navigate  = useNavigate()
+  const setMe     = useStore((s) => s.setMe)
   const [email,    setEmail]    = useState('')
   const [password, setPassword] = useState('')
   const [error,    setError]    = useState('')
@@ -44,6 +46,10 @@ export default function Login() {
     try {
       const { token } = await authAPI.login(email, password)
       localStorage.setItem('token', token)
+      // AppShell's boot effect already ran with no token; hydrate `me` here
+      // so the SPA navigate to '/' lands on a screen with the user available.
+      const me = await meAPI.get()
+      setMe(me)
       navigate('/')
     } catch {
       setError('Invalid credentials')

@@ -60,14 +60,14 @@ func newTestAPI(t *testing.T) (ext.Store, http.Handler, *fakeOpAMPPusher) {
 	t.Cleanup(hub.Stop)
 
 	fake := &fakeOpAMPPusher{instances: make(map[string][]opamp.Instance)}
-	router := NewRouter(db, a, hub, fake, "", nil, nil)
+	router := NewRouter(db, a, hub, fake, "", nil, nil, 30*24*time.Hour)
 	return db, router, fake
 }
 
 func authedRequest(t *testing.T, method, url string) *http.Request {
 	t.Helper()
 	a := auth.New("test-secret-key-at-least-32-bytes!")
-	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", []string{"administrator"})
 	req := httptest.NewRequest(method, url, nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 	return req
@@ -76,7 +76,7 @@ func authedRequest(t *testing.T, method, url string) *http.Request {
 func authedPost(t *testing.T, url, body string) *http.Request {
 	t.Helper()
 	a := auth.New("test-secret-key-at-least-32-bytes!")
-	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", []string{"administrator"})
 	req := httptest.NewRequest("POST", url, strings.NewReader(body))
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "text/yaml")
@@ -420,7 +420,7 @@ func TestDeleteWorkload(t *testing.T) {
 	_ = db.UpsertWorkload(models.Workload{ID: "w1", Type: "collector", Status: "connected", LastSeenAt: time.Now().UTC(), Labels: models.Labels{}})
 
 	a := auth.New("test-secret-key-at-least-32-bytes!")
-	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", []string{"administrator"})
 	req := httptest.NewRequest("DELETE", "/api/workloads/w1", nil)
 	req.Header.Set("Authorization", "Bearer "+token)
 

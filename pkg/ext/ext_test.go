@@ -22,7 +22,7 @@ func TestUserInfoContextRoundTrip(t *testing.T) {
 	info := &ext.UserInfo{
 		UserID: "u-123",
 		Email:  "test@example.com",
-		Role:   "admin",
+		Groups: []string{"administrator"},
 	}
 
 	ctx := ext.ContextWithUserInfo(context.Background(), info)
@@ -37,8 +37,8 @@ func TestUserInfoContextRoundTrip(t *testing.T) {
 	if got.Email != info.Email {
 		t.Errorf("Email = %q, want %q", got.Email, info.Email)
 	}
-	if got.Role != info.Role {
-		t.Errorf("Role = %q, want %q", got.Role, info.Role)
+	if len(got.Groups) != 1 || got.Groups[0] != "administrator" {
+		t.Errorf("Groups = %v, want [administrator]", got.Groups)
 	}
 }
 

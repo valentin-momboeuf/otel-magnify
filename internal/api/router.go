@@ -6,12 +6,14 @@ import (
 	"io/fs"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/go-chi/chi/v5"
 	"github.com/go-chi/chi/v5/middleware"
 	"github.com/go-chi/cors"
 
 	"github.com/magnify-labs/otel-magnify/internal/opamp"
+	"github.com/magnify-labs/otel-magnify/internal/perm"
 	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
@@ -23,15 +25,16 @@ type OpAMPPusher interface {
 }
 
 type API struct {
-	db          ext.Store
-	auth        ext.AuthProvider
-	hub         *Hub
-	opamp       OpAMPPusher
-	authMethods []ext.AuthMethod
+	db                ext.Store
+	auth              ext.AuthProvider
+	hub               *Hub
+	opamp             OpAMPPusher
+	authMethods       []ext.AuthMethod
+	workloadRetention time.Duration
 }
 
-func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods []ext.AuthMethod) http.Handler {
-	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv, authMethods: authMethods}
+func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods []ext.AuthMethod, workloadRetention time.Duration) http.Handler {
+	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv, authMethods: authMethods, workloadRetention: workloadRetention}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -86,10 +89,11 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 		r.Get("/api/workloads/{id}/instances", api.handleListWorkloadInstances)
 		r.Get("/api/workloads/{id}/events", api.handleListWorkloadEvents)
 		r.Get("/api/workloads/{id}/events/stats", api.handleWorkloadEventsStats)
-		r.Post("/api/workloads/{id}/config", api.handlePushWorkloadConfig)
-		r.Post("/api/workloads/{id}/config/validate", api.handleValidateWorkloadConfig)
+		r.With(api.RequirePerm(perm.PushConfig)).Post("/api/workloads/{id}/config", api.handlePushWorkloadConfig)
+		r.With(api.RequirePerm(perm.ValidateConfig)).Post("/api/workloads/{id}/config/validate", api.handleValidateWorkloadConfig)
 		r.Get("/api/workloads/{id}/configs", api.handleGetWorkloadConfigHistory)
-		r.Delete("/api/workloads/{id}", api.handleDeleteWorkload)
+		r.With(api.RequirePerm(perm.ArchiveWorkload)).Post("/api/workloads/{id}/archive", api.handleArchiveWorkload)
+		r.With(api.RequirePerm(perm.DeleteWorkload)).Delete("/api/workloads/{id}", api.handleDeleteWorkload)
 
 		// Legacy /api/agents/... redirects (remove at next minor release).
 		r.Get("/api/agents", redirectAgentsToWorkloads)
@@ -99,13 +103,17 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 		r.Post("/api/agents/{id}/config/validate", redirectAgentsToWorkloads)
 
 		r.Get("/api/configs", api.handleListConfigs)
-		r.Post("/api/configs", api.handleCreateConfig)
+		r.With(api.RequirePerm(perm.CreateConfigTpl)).Post("/api/configs", api.handleCreateConfig)
 		r.Get("/api/configs/{id}", api.handleGetConfig)
 
 		r.Get("/api/alerts", api.handleListAlerts)
-		r.Post("/api/alerts/{id}/resolve", api.handleResolveAlert)
+		r.With(api.RequirePerm(perm.ResolveAlert)).Post("/api/alerts/{id}/resolve", api.handleResolveAlert)
 
 		r.Get("/api/pushes/activity", api.handleListPushActivity)
+
+		r.Get("/api/me", api.handleGetMe)
+		r.Put("/api/me/password", api.handlePutPassword)
+		r.Put("/api/me/preferences", api.handlePutPreferences)
 	})
 
 	// Serve embedded frontend assets as catch-all (SPA fallback)
