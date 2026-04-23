@@ -5,6 +5,18 @@ import type {
   PushActivityPoint, MeResponse, UserPreferences,
 } from '../types'
 
+declare module 'axios' {
+  export interface AxiosRequestConfig {
+    // When true, the 401 response interceptor skips the logout + redirect to /login.
+    // Use for endpoints where 401 is a business-logic signal (e.g. PUT /api/me/password
+    // returning 401 when current_password is wrong) rather than a session-expired signal.
+    skipAuthRedirect?: boolean
+  }
+  export interface InternalAxiosRequestConfig {
+    skipAuthRedirect?: boolean
+  }
+}
+
 export type AuthMethod = {
   id: string
   type: 'password' | 'sso'
@@ -25,7 +37,7 @@ api.interceptors.request.use((config) => {
 api.interceptors.response.use(
   (res) => res,
   (err) => {
-    if (err.response?.status === 401) {
+    if (err.response?.status === 401 && !err.config?.skipAuthRedirect) {
       localStorage.removeItem('token')
       window.location.href = '/login'
     }
@@ -96,7 +108,7 @@ export const authAPI = {
 export const meAPI = {
   get: () => api.get<MeResponse>('/me').then((r) => r.data),
   changePassword: (current: string, next: string) =>
-    api.put('/me/password', { current_password: current, new_password: next }),
+    api.put('/me/password', { current_password: current, new_password: next }, { skipAuthRedirect: true }),
   updatePreferences: (prefs: Pick<UserPreferences, 'theme' | 'language'>) =>
     api.put<UserPreferences>('/me/preferences', prefs).then((r) => r.data),
 }
