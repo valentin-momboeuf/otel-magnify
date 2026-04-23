@@ -133,8 +133,34 @@ type User struct {
 	ID           string  `json:"id"`
 	Email        string  `json:"email"`
 	PasswordHash string  `json:"-"`
-	Role         string  `json:"role"` // "admin" | "viewer"
 	TenantID     *string `json:"tenant_id,omitempty"`
+}
+
+// Group represents an RBAC group. In Spec A only the three seeded system
+// groups exist (viewer, editor, administrator); custom groups arrive in
+// Spec B. The Role column is the authoritative permission input — custom
+// groups inherit their permission set from their Role.
+type Group struct {
+	ID        string    `json:"id"`
+	Name      string    `json:"name"`
+	Role      string    `json:"role"`      // viewer | editor | administrator
+	IsSystem  bool      `json:"is_system"`
+	CreatedAt time.Time `json:"created_at"`
+}
+
+// UserGroup is the many-to-many pivot row between users and groups.
+type UserGroup struct {
+	UserID  string `json:"user_id"`
+	GroupID string `json:"group_id"`
+}
+
+// UserPreferences holds the user-scoped UI preferences (theme + language).
+// A missing row means "defaults": theme=system, language=en.
+type UserPreferences struct {
+	UserID    string    `json:"user_id"`
+	Theme     string    `json:"theme"`    // light | dark | system
+	Language  string    `json:"language"` // en | fr
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // FingerprintKeys is a small JSON map persisted alongside a Workload to
