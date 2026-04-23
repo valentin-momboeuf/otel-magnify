@@ -4,6 +4,9 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 
 	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
@@ -14,7 +17,7 @@ var _ ext.AuthProvider = (*Auth)(nil)
 func TestGenerateAndValidateToken(t *testing.T) {
 	a := New("test-secret-key-at-least-32-bytes!")
 
-	token, err := a.GenerateToken("user-001", "admin@test.com", "admin")
+	token, err := a.GenerateToken("user-001", "admin@test.com", []string{"administrator"})
 	if err != nil {
 		t.Fatalf("GenerateToken: %v", err)
 	}
@@ -29,8 +32,8 @@ func TestGenerateAndValidateToken(t *testing.T) {
 	if info.Email != "admin@test.com" {
 		t.Errorf("Email = %q, want admin@test.com", info.Email)
 	}
-	if info.Role != "admin" {
-		t.Errorf("Role = %q, want admin", info.Role)
+	if len(info.Groups) != 1 || info.Groups[0] != "administrator" {
+		t.Errorf("Groups = %v, want [administrator]", info.Groups)
 	}
 }
 
@@ -61,7 +64,7 @@ func TestMiddleware_NoToken(t *testing.T) {
 func TestMiddleware_ValidToken(t *testing.T) {
 	a := New("test-secret-key-at-least-32-bytes!")
 
-	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", []string{"administrator"})
 
 	handler := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		info := ext.UserInfoFromContext(r.Context())
@@ -78,5 +81,29 @@ func TestMiddleware_ValidToken(t *testing.T) {
 
 	if rec.Code != 200 {
 		t.Errorf("status = %d, want 200", rec.Code)
+	}
+}
+
+func TestValidateToken_LegacyRoleClaim(t *testing.T) {
+	secret := "0123456789abcdef0123456789abcdef"
+	c := jwt.MapClaims{
+		"user_id": "u1",
+		"email":   "ops@example.com",
+		"role":    "admin",
+		"exp":     time.Now().Add(time.Hour).Unix(),
+	}
+	tok := jwt.NewWithClaims(jwt.SigningMethodHS256, c)
+	signed, err := tok.SignedString([]byte(secret))
+	if err != nil {
+		t.Fatalf("sign: %v", err)
+	}
+
+	a := New(secret)
+	info, err := a.ValidateToken(signed)
+	if err != nil {
+		t.Fatalf("ValidateToken: %v", err)
+	}
+	if len(info.Groups) != 1 || info.Groups[0] != "administrator" {
+		t.Errorf("expected groups=[administrator], got %v", info.Groups)
 	}
 }

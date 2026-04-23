@@ -12,11 +12,14 @@ import (
 	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
-// claims holds the JWT payload. Internal to this package.
+// claims holds the JWT payload. `Role` is kept for tolerant parsing of
+// legacy v0.1.x tokens still in circulation (24h TTL). New tokens emit
+// `Groups` exclusively.
 type claims struct {
-	UserID string `json:"user_id"`
-	Email  string `json:"email"`
-	Role   string `json:"role"`
+	UserID string   `json:"user_id"`
+	Email  string   `json:"email"`
+	Groups []string `json:"groups,omitempty"`
+	Role   string   `json:"role,omitempty"` // legacy, read-only
 	jwt.RegisteredClaims
 }
 
@@ -27,17 +30,14 @@ type Auth struct {
 
 // New creates an Auth instance. The secret must be at least 32 bytes for
 // adequate HMAC-SHA256 security.
-func New(secret string) *Auth {
-	return &Auth{secret: []byte(secret)}
-}
+func New(secret string) *Auth { return &Auth{secret: []byte(secret)} }
 
-// GenerateToken mints a signed JWT for the given user attributes.
-// Tokens expire after 24 hours.
-func (a *Auth) GenerateToken(userID, email, role string) (string, error) {
+// GenerateToken mints a signed JWT. Tokens expire after 24h.
+func (a *Auth) GenerateToken(userID, email string, groups []string) (string, error) {
 	c := claims{
 		UserID: userID,
 		Email:  email,
-		Role:   role,
+		Groups: groups,
 		RegisteredClaims: jwt.RegisteredClaims{
 			ExpiresAt: jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
 			IssuedAt:  jwt.NewNumericDate(time.Now()),
@@ -47,9 +47,9 @@ func (a *Auth) GenerateToken(userID, email, role string) (string, error) {
 	return token.SignedString(a.secret)
 }
 
-// ValidateToken parses and verifies the token string, returning the embedded
-// user info on success. It explicitly rejects tokens signed with a non-HMAC
-// algorithm to prevent the "alg:none" attack.
+// ValidateToken parses and verifies the token. Legacy tokens carrying
+// `role` instead of `groups` are converted transparently (admin →
+// administrator, viewer → viewer).
 func (a *Auth) ValidateToken(tokenStr string) (*ext.UserInfo, error) {
 	token, err := jwt.ParseWithClaims(tokenStr, &claims{}, func(token *jwt.Token) (any, error) {
 		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
@@ -64,7 +64,19 @@ func (a *Auth) ValidateToken(tokenStr string) (*ext.UserInfo, error) {
 	if !ok || !token.Valid {
 		return nil, fmt.Errorf("invalid token claims")
 	}
-	return &ext.UserInfo{UserID: c.UserID, Email: c.Email, Role: c.Role}, nil
+
+	groups := c.Groups
+	if len(groups) == 0 && c.Role != "" {
+		groups = []string{legacyRoleToGroupName(c.Role)}
+	}
+	return &ext.UserInfo{UserID: c.UserID, Email: c.Email, Groups: groups}, nil
+}
+
+func legacyRoleToGroupName(role string) string {
+	if role == "admin" {
+		return "administrator"
+	}
+	return role
 }
 
 // Middleware returns an HTTP handler that enforces Bearer token authentication.
