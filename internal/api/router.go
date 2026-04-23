@@ -12,6 +12,7 @@ import (
 	"github.com/go-chi/cors"
 
 	"github.com/magnify-labs/otel-magnify/internal/opamp"
+	"github.com/magnify-labs/otel-magnify/internal/perm"
 	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
 
@@ -86,10 +87,10 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 		r.Get("/api/workloads/{id}/instances", api.handleListWorkloadInstances)
 		r.Get("/api/workloads/{id}/events", api.handleListWorkloadEvents)
 		r.Get("/api/workloads/{id}/events/stats", api.handleWorkloadEventsStats)
-		r.Post("/api/workloads/{id}/config", api.handlePushWorkloadConfig)
-		r.Post("/api/workloads/{id}/config/validate", api.handleValidateWorkloadConfig)
+		r.With(api.RequirePerm(perm.PushConfig)).Post("/api/workloads/{id}/config", api.handlePushWorkloadConfig)
+		r.With(api.RequirePerm(perm.ValidateConfig)).Post("/api/workloads/{id}/config/validate", api.handleValidateWorkloadConfig)
 		r.Get("/api/workloads/{id}/configs", api.handleGetWorkloadConfigHistory)
-		r.Delete("/api/workloads/{id}", api.handleDeleteWorkload)
+		r.With(api.RequirePerm(perm.DeleteWorkload)).Delete("/api/workloads/{id}", api.handleDeleteWorkload)
 
 		// Legacy /api/agents/... redirects (remove at next minor release).
 		r.Get("/api/agents", redirectAgentsToWorkloads)
@@ -99,11 +100,11 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 		r.Post("/api/agents/{id}/config/validate", redirectAgentsToWorkloads)
 
 		r.Get("/api/configs", api.handleListConfigs)
-		r.Post("/api/configs", api.handleCreateConfig)
+		r.With(api.RequirePerm(perm.CreateConfigTpl)).Post("/api/configs", api.handleCreateConfig)
 		r.Get("/api/configs/{id}", api.handleGetConfig)
 
 		r.Get("/api/alerts", api.handleListAlerts)
-		r.Post("/api/alerts/{id}/resolve", api.handleResolveAlert)
+		r.With(api.RequirePerm(perm.ResolveAlert)).Post("/api/alerts/{id}/resolve", api.handleResolveAlert)
 
 		r.Get("/api/pushes/activity", api.handleListPushActivity)
 
