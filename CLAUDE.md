@@ -7,14 +7,14 @@ Go backend + React frontend, single binary deployment.
 
 ## Architecture
 
-- `backend/` — Go module `github.com/magnify-labs/otel-magnify`
-  - `cmd/server/` — entrypoint, embeds frontend via `embed.FS`
-  - `internal/opamp/` — OpAMP server (opamp-go), agent registry, config push
-  - `internal/api/` — chi router, REST handlers, WebSocket hub
-  - `internal/alerts/` — alert engine (30s tick), webhook notifier
-  - `internal/auth/` — JWT HS256, middleware
-  - `internal/store/` — SQLite/Postgres via goose migrations
-  - `pkg/models/` — shared structs
+Go module `github.com/magnify-labs/otel-magnify` (lives at the repo root — `go.mod` is at the top level):
+- `cmd/server/` — entrypoint, embeds frontend via `embed.FS`
+- `internal/opamp/` — OpAMP server (opamp-go), agent registry, config push
+- `internal/api/` — chi router, REST handlers, WebSocket hub
+- `internal/alerts/` — alert engine (30s tick), webhook notifier
+- `internal/auth/` — JWT HS256, middleware
+- `internal/store/` — SQLite/Postgres via goose migrations
+- `pkg/models/` — shared structs
 - `frontend/` — React 18 + TypeScript + Vite
   - Zustand for state, TanStack Query for fetching, CodeMirror 6 for YAML editor
   - Design system: "Signal Deck" (warm gold accent, Plus Jakarta Sans + Fira Code)
@@ -25,8 +25,8 @@ Go backend + React frontend, single binary deployment.
 
 ```bash
 # Backend
-cd backend && go test ./...
-cd backend && go build ./cmd/server/
+go test ./...
+go build ./cmd/server/
 
 # Frontend
 cd frontend && npx tsc --noEmit

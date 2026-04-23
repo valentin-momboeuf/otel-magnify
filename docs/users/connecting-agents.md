@@ -130,10 +130,9 @@ distroless and otherwise has no writable path for the supervisor storage dir.
 
 ## Simulating an SDK agent
 
-For development and testing, the repo ships a small simulator at `backend/cmd/sdkagent/` that connects as a fake SDK agent.
+For development and testing, the repo ships a small simulator at `cmd/sdkagent/` that connects as a fake SDK agent.
 
 ```bash
-cd backend
 go run ./cmd/sdkagent/ --endpoint ws://localhost:4320/v1/opamp --name demo-sdk-agent
 ```
 

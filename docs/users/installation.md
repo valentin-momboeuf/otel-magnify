@@ -35,7 +35,6 @@ See the chart values under `helm/otel-magnify/values.yaml` for ingress, resource
 Build from source:
 
 ```bash
-cd backend
 go build -o otel-magnify ./cmd/server/
 JWT_SECRET=change-me ./otel-magnify
 ```

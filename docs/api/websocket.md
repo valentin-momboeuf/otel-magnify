@@ -25,7 +25,7 @@ Every message is a JSON object with a `type` discriminator. Additional fields ar
 | `alert_update` | An alert transitions (fired, acknowledged, resolved). | `alert` — full `models.Alert`. |
 | `auto_rollback_applied` | The server auto-pushed the last-known-good config after a failure. | `workload_id`, `from_hash`, `to_hash`, `reason`. |
 
-For authoritative payload shapes, consult `backend/internal/api/wshub.go` (or the matching file in the current revision).
+For authoritative payload shapes, consult `internal/api/wshub.go` (or the matching file in the current revision).
 
 ## Reconnect behavior
 

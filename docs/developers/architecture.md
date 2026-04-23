@@ -33,18 +33,18 @@ flowchart LR
 ## Module layout
 
 ```
-backend/
-├── cmd/server/          # entrypoint, embeds frontend via embed.FS
-├── cmd/sdkagent/        # SDK agent simulator (dev tool)
-├── internal/
-│   ├── api/             # chi router, REST handlers, WebSocket hub
-│   ├── alerts/          # alert engine, webhook notifier
-│   ├── auth/            # JWT HS256, middleware
-│   ├── config/          # env-based configuration
-│   ├── opamp/           # OpAMP server, workload registry, config push
-│   ├── workloads/       # fingerprint + in-memory instance registry + janitor
-│   └── store/           # SQLite/Postgres via goose migrations
-└── pkg/models/          # shared structs
+cmd/server/          # entrypoint, embeds frontend via embed.FS
+cmd/sdkagent/        # SDK agent simulator (dev tool)
+internal/
+├── api/             # chi router, REST handlers, WebSocket hub
+├── alerts/          # alert engine, webhook notifier
+├── auth/            # JWT HS256, middleware
+├── config/          # env-based configuration
+├── opamp/           # OpAMP server, workload registry, config push
+├── workloads/       # fingerprint + in-memory instance registry + janitor
+└── store/           # SQLite/Postgres via goose migrations
+pkg/models/          # shared structs
+go.mod               # module root (github.com/magnify-labs/otel-magnify)
 ```
 
 ## Key design decisions

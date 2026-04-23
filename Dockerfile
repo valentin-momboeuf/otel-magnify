@@ -6,10 +6,12 @@ COPY frontend/ ./
 RUN npm run build
 
 FROM golang:alpine AS backend-build
-WORKDIR /app/backend
-COPY backend/go.mod backend/go.sum ./
+WORKDIR /app
+COPY go.mod go.sum ./
 RUN go mod download
-COPY backend/ ./
+COPY cmd/ ./cmd/
+COPY internal/ ./internal/
+COPY pkg/ ./pkg/
 COPY --from=frontend-build /app/frontend/dist ./pkg/frontend/dist
 RUN CGO_ENABLED=0 go build -o /otel-magnify ./cmd/server/
 
