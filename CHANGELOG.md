@@ -1,6 +1,18 @@
 # Changelog
 
 All notable changes to this project are documented here.
+## v0.1.1 — 2026-04-23
+
+First usable release. `v0.1.0` is published on the Go proxy but its module
+zip contained no Go source (the `go.mod` lived at `backend/` but declared
+the module at the repo root, and the proxy could not reconcile the two).
+`v0.1.1` moves the module to the repo root so `go install` and external
+Go consumers work as expected.
+
+### Refactoring
+- Move Go module from backend/ to repo root (#15)
+
+
 ## v0.1.0 — 2026-04-22
 
 ### Bug Fixes
@@ -65,6 +77,7 @@ All notable changes to this project are documented here.
 - Clarify Handler() test-only contract and Run() exclusivity
 - Document workload identity model and K8s resource attributes
 - Add design handoff with React prototype for UI rebuild
+- Update changelog for v0.1.0
 
 
 ### Features
