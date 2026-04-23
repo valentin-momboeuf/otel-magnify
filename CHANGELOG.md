@@ -27,6 +27,11 @@ All notable changes to this project are documented here.
 - Add Admin page stub gated by users:manage
 
 
+### Bug Fixes
+- Skip 401 logout redirect for changePassword so Profile surfaces "current password incorrect" instead of logging the user out
+- Avoid /login reload loop and hydrate `me` after login (AppShell boot hydration was running without a token and tripping the 401 interceptor)
+
+
 ### Internationalization
 - Add profile/admin/account keys in en+fr
 
@@ -37,66 +42,7 @@ All notable changes to this project are documented here.
 
 ### Testing
 - Cover profile page for viewer/editor/admin + password/theme/language flows
-
-
-## v0.2.0 — 2026-04-23
-
-### Features
-- Add groups table with seeded system roles
-- Migrate users.role to user_groups membership
-- Add user_preferences table
-- Add Group/UserGroup/UserPreferences; drop User.Role
-- Add groups read-only accessors
-- Add user_groups attach/list helpers
-- Add user_preferences get/upsert helpers
-- Introduce perm package and switch UserInfo to Groups
-- Emit groups claim and tolerate legacy role tokens
-- Seed admin via administrator group membership
-- Add GET /api/me endpoint
-- Gate write endpoints with RequirePerm middleware
-- Add POST /api/workloads/{id}/archive for editors
-- Add PUT /api/me/password
-- Add PUT /api/me/preferences
-- Add MeResponse types and meAPI client
-- Hydrate me at boot and add perm util
-- Add useTheme hook and RequirePerm gate
-- Add Account section and identity card to sidebar
-- Add Profile page (identity, password, preferences)
-- Add Admin page stub gated by users:manage
-
-
-### Refactoring
-- Expose groups and user_preferences on Store
-
-
-## v0.2.0 — 2026-04-23
-
-### Features
-- Add groups table with seeded system roles
-- Migrate users.role to user_groups membership
-- Add user_preferences table
-- Add Group/UserGroup/UserPreferences; drop User.Role
-- Add groups read-only accessors
-- Add user_groups attach/list helpers
-- Add user_preferences get/upsert helpers
-- Introduce perm package and switch UserInfo to Groups
-- Emit groups claim and tolerate legacy role tokens
-- Seed admin via administrator group membership
-- Add GET /api/me endpoint
-- Gate write endpoints with RequirePerm middleware
-- Add POST /api/workloads/{id}/archive for editors
-- Add PUT /api/me/password
-- Add PUT /api/me/preferences
-- Add MeResponse types and meAPI client
-- Hydrate me at boot and add perm util
-- Add useTheme hook and RequirePerm gate
-- Add Account section and identity card to sidebar
-- Add Profile page (identity, password, preferences)
-- Add Admin page stub gated by users:manage
-
-
-### Refactoring
-- Expose groups and user_preferences on Store
+- Add real-backend profile flow spec (opt-in docker-compose e2e via scripts/e2e-real.sh)
 
 
 ## v0.1.1 — 2026-04-23
