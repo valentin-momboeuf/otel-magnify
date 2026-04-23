@@ -11,12 +11,19 @@ import Alerts from './pages/Alerts'
 import Login from './pages/Login'
 import { connectWS, disconnectWS } from './api/websocket'
 import { queryClient } from './api/queryClient'
+import { meAPI } from './api/client'
+import { useStore } from './store'
 
 function AppShell() {
+  const setMe = useStore((s) => s.setMe)
+
   useEffect(() => {
     connectWS()
+    meAPI.get().then(setMe).catch(() => {
+      // 401 → already handled by the axios interceptor (redirect /login).
+    })
     return () => disconnectWS()
-  }, [])
+  }, [setMe])
 
   return (
     <Routes>

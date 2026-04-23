@@ -1,5 +1,8 @@
 import { create } from 'zustand'
-import type { Workload, Alert, RemoteConfigStatus, AutoRollbackEvent } from '../types'
+import type {
+  Workload, Alert, RemoteConfigStatus, AutoRollbackEvent,
+  MeResponse, UserPreferences,
+} from '../types'
 
 interface AppState {
   workloads: Workload[]
@@ -8,6 +11,8 @@ interface AppState {
   lastRollback: Record<string, AutoRollbackEvent | undefined>
   connectedInstanceCounts: Record<string, number | undefined>
   driftedInstanceCounts: Record<string, number | undefined>
+
+  me: MeResponse | null
 
   setWorkloads: (workloads: Workload[]) => void
   updateWorkload: (workload: Workload) => void
@@ -20,6 +25,9 @@ interface AppState {
   clearAutoRollback: (workloadId: string) => void
 
   setInstanceCounts: (workloadId: string, connected: number, drifted: number) => void
+
+  setMe: (me: MeResponse | null) => void
+  updateMyPreferences: (prefs: UserPreferences) => void
 }
 
 export const useStore = create<AppState>((set) => ({
@@ -29,6 +37,8 @@ export const useStore = create<AppState>((set) => ({
   lastRollback: {},
   connectedInstanceCounts: {},
   driftedInstanceCounts: {},
+
+  me: null,
 
   setWorkloads: (workloads) => set({ workloads }),
 
@@ -64,4 +74,8 @@ export const useStore = create<AppState>((set) => ({
       connectedInstanceCounts: { ...state.connectedInstanceCounts, [workloadId]: connected },
       driftedInstanceCounts: { ...state.driftedInstanceCounts, [workloadId]: drifted },
     })),
+
+  setMe: (me) => set({ me }),
+  updateMyPreferences: (prefs) =>
+    set((state) => (state.me ? { me: { ...state.me, preferences: prefs } } : {})),
 }))
