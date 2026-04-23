@@ -16,7 +16,7 @@ func TestCreateAndListConfigs(t *testing.T) {
 
 	body := `{"name":"collector-base","content":"receivers:\n  otlp:"}`
 	a := auth.New("test-secret-key-at-least-32-bytes!")
-	token, _ := a.GenerateToken("user-001", "admin@test.com", "admin")
+	token, _ := a.GenerateToken("user-001", "admin@test.com", []string{"administrator"})
 
 	req := httptest.NewRequest("POST", "/api/configs", bytes.NewBufferString(body))
 	req.Header.Set("Authorization", "Bearer "+token)
@@ -48,7 +48,7 @@ func TestLoginHandler(t *testing.T) {
 
 	hash, _ := hashPassword("testpass123")
 	db.CreateUser(models.User{
-		ID: "user-001", Email: "admin@test.com", PasswordHash: hash, Role: "admin",
+		ID: "user-001", Email: "admin@test.com", PasswordHash: hash,
 	})
 
 	body := `{"email":"admin@test.com","password":"testpass123"}`
