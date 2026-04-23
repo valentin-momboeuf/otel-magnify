@@ -11,6 +11,16 @@ type Store interface {
 	GetUserByEmail(email string) (models.User, error)
 	UpdateUser(u models.User) error
 
+	// Groups (RBAC fondation, Spec A).
+	ListSystemGroups() ([]models.Group, error)
+	GetGroupByName(name string) (models.Group, error)
+	AttachUserToGroupByName(userID, groupName string) error
+	GetUserGroups(userID string) ([]models.Group, error)
+
+	// User preferences (theme + language).
+	GetUserPreferences(userID string) (models.UserPreferences, error)
+	UpsertUserPreferences(p models.UserPreferences) error
+
 	UpsertWorkload(w models.Workload) error
 	GetWorkload(id string) (models.Workload, error)
 	ListWorkloads(includeArchived bool) ([]models.Workload, error)
