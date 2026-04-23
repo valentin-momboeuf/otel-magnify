@@ -13,11 +13,11 @@ test.describe('Sidebar', () => {
     }))
   })
 
-  test('renders FLEET section with four items and no ENTERPRISE section', async ({ loggedInPage: page }) => {
+  test('renders FLEET + ACCOUNT sections with five items and no ENTERPRISE section', async ({ loggedInPage: page }) => {
     await page.goto('/')
     await expect(page.locator('.sidebar-section-label').filter({ hasText: /FLEET|FLOTTE/ })).toBeVisible()
     await expect(page.locator('.sidebar-section-label').filter({ hasText: /ENTERPRISE/i })).toHaveCount(0)
-    await expect(page.locator('.sidebar-nav-item a')).toHaveCount(4)
+    await expect(page.locator('.sidebar-nav-item a')).toHaveCount(5)
   })
 
   test('dashboard item is active on /', async ({ loggedInPage: page }) => {
