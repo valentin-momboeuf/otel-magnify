@@ -7,6 +7,7 @@ package bootstrap
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io/fs"
 	"log"
 	"os"
@@ -38,6 +39,18 @@ type Options struct {
 	// all, pass a non-nil empty FS (e.g. fstest.MapFS{}) — leaving this
 	// field zero installs the community default.
 	StaticFS fs.FS
+
+	// PreRun is called after migrations and seedAdmin, before the
+	// server is constructed. Edition binaries use it to run edition-
+	// scoped migrations, build dynamic state (e.g. a provider
+	// registry), and return additional server options. Returned
+	// options are appended to ExtraServerOptions. Returning an error
+	// aborts Run and propagates the error to the caller.
+	//
+	// The callback receives both the opened Store and the constructed
+	// AuthProvider so callers can mint tokens or query state without
+	// re-initialising those subsystems.
+	PreRun func(store ext.Store, auth ext.AuthProvider) ([]server.Option, error)
 }
 
 // Run loads configuration from the environment, opens the database,
@@ -69,6 +82,15 @@ func Run(ctx context.Context, opts Options) error {
 
 	a := auth.New(cfg.JWTSecret)
 
+	var preRunOpts []server.Option
+	if opts.PreRun != nil {
+		var err error
+		preRunOpts, err = opts.PreRun(db, a)
+		if err != nil {
+			return fmt.Errorf("pre-run: %w", err)
+		}
+	}
+
 	serverOpts := []server.Option{}
 
 	if wh := alerts.NewWebhookNotifier(cfg.WebhookURL); wh != nil {
@@ -82,6 +104,7 @@ func Run(ctx context.Context, opts Options) error {
 	serverOpts = append(serverOpts, server.WithStaticFS(staticFS))
 
 	serverOpts = append(serverOpts, opts.ExtraServerOptions...)
+	serverOpts = append(serverOpts, preRunOpts...)
 
 	srv := server.New(server.Config{
 		ListenAddr:              cfg.ListenAddr,

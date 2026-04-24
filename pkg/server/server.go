@@ -19,14 +19,15 @@ import (
 
 // Server composes the otel-magnify subsystems.
 type Server struct {
-	cfg         Config
-	store       ext.Store
-	auth        ext.AuthProvider
-	notifiers   []ext.AlertNotifier
-	auditLogger ext.AuditLogger
-	staticFS    fs.FS
-	routerHooks []func(chi.Router)
-	authMethods []ext.AuthMethod
+	cfg                Config
+	store              ext.Store
+	auth               ext.AuthProvider
+	notifiers          []ext.AlertNotifier
+	auditLogger        ext.AuditLogger
+	staticFS           fs.FS
+	routerHooks        []func(chi.Router)
+	authMethods        []ext.AuthMethod
+	authMethodProvider func() []ext.AuthMethod
 }
 
 // New creates a Server with the given store, auth provider, and options.
@@ -126,7 +127,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.cfg.WorkloadJanitorInterval, s.cfg.WorkloadEventRetention)
 
 	// REST API router
-	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.authMethods, s.cfg.WorkloadRetention)
+	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention)
 
 	// Apply router hooks (enterprise can add RBAC middleware, extra routes, etc.)
 	if len(s.routerHooks) > 0 {
@@ -167,6 +168,19 @@ func (s *Server) Run(ctx context.Context) error {
 	return nil
 }
 
+// currentAuthMethods returns the effective auth method list. If a provider
+// was registered via WithAuthMethodProvider and it returns a non-nil
+// slice, that slice wins. Otherwise the static list (password + any
+// WithAuthMethod entries) is returned.
+func (s *Server) currentAuthMethods() []ext.AuthMethod {
+	if s.authMethodProvider != nil {
+		if m := s.authMethodProvider(); m != nil {
+			return m
+		}
+	}
+	return s.authMethods
+}
+
 // Handler builds the HTTP handler served by the public API listener,
 // without starting the WebSocket hub or the OpAMP server. Routes that
 // depend on those (e.g. /ws, /api/agents/{id}/config) cannot be
@@ -179,5 +193,5 @@ func (s *Server) Handler() http.Handler {
 		DisconnectGrace:   s.cfg.WorkloadDisconnectGrace,
 		RetentionDuration: s.cfg.WorkloadRetention,
 	})
-	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.authMethods, s.cfg.WorkloadRetention)
+	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention)
 }

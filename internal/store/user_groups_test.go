@@ -71,3 +71,127 @@ func TestGetUserGroups_UnknownUser(t *testing.T) {
 		t.Errorf("expected empty slice for unknown user, got %d", len(groups))
 	}
 }
+
+func TestDetachUserFromGroup_Idempotent(t *testing.T) {
+	db := newTestDB(t)
+	seedUser(t, db, "u1", "a@b.c")
+	if err := db.AttachUserToGroupByName("u1", "viewer"); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+
+	// First detach: removes the membership.
+	if err := db.DetachUserFromGroup("u1", "viewer"); err != nil {
+		t.Fatalf("first detach: %v", err)
+	}
+	groups, err := db.GetUserGroups("u1")
+	if err != nil {
+		t.Fatalf("GetUserGroups: %v", err)
+	}
+	if len(groups) != 0 {
+		t.Fatalf("expected 0 groups after detach, got %d", len(groups))
+	}
+
+	// Second detach: idempotent no-op, no error.
+	if err := db.DetachUserFromGroup("u1", "viewer"); err != nil {
+		t.Fatalf("second detach should be no-op, got: %v", err)
+	}
+}
+
+func TestDetachUserFromGroup_UnknownGroup_ReturnsError(t *testing.T) {
+	db := newTestDB(t)
+	seedUser(t, db, "u1", "a@b.c")
+
+	err := db.DetachUserFromGroup("u1", "does-not-exist")
+	if err == nil {
+		t.Fatal("expected error for unknown group, got nil")
+	}
+}
+
+func TestDetachUserFromGroup_UnknownUser_ReturnsError(t *testing.T) {
+	db := newTestDB(t)
+	err := db.DetachUserFromGroup("ghost", "viewer")
+	if err == nil {
+		t.Fatal("expected error for unknown user, got nil")
+	}
+}
+
+func TestReplaceUserGroups_ReplacesExactly(t *testing.T) {
+	db := newTestDB(t)
+	seedUser(t, db, "u1", "a@b.c")
+	if err := db.AttachUserToGroupByName("u1", "viewer"); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	if err := db.AttachUserToGroupByName("u1", "editor"); err != nil {
+		t.Fatalf("attach editor: %v", err)
+	}
+
+	if err := db.ReplaceUserGroups("u1", []string{"administrator"}); err != nil {
+		t.Fatalf("ReplaceUserGroups: %v", err)
+	}
+	groups, err := db.GetUserGroups("u1")
+	if err != nil {
+		t.Fatalf("GetUserGroups: %v", err)
+	}
+	if len(groups) != 1 || groups[0].Name != "administrator" {
+		names := make([]string, len(groups))
+		for i, g := range groups {
+			names[i] = g.Name
+		}
+		t.Fatalf("expected exactly [administrator], got %v", names)
+	}
+}
+
+func TestReplaceUserGroups_EmptyReplacement_RemovesAll(t *testing.T) {
+	db := newTestDB(t)
+	seedUser(t, db, "u1", "a@b.c")
+	if err := db.AttachUserToGroupByName("u1", "viewer"); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+	if err := db.AttachUserToGroupByName("u1", "editor"); err != nil {
+		t.Fatalf("attach editor: %v", err)
+	}
+
+	if err := db.ReplaceUserGroups("u1", nil); err != nil {
+		t.Fatalf("ReplaceUserGroups(nil): %v", err)
+	}
+	groups, err := db.GetUserGroups("u1")
+	if err != nil {
+		t.Fatalf("GetUserGroups: %v", err)
+	}
+	if len(groups) != 0 {
+		t.Fatalf("expected 0 groups, got %d", len(groups))
+	}
+}
+
+func TestReplaceUserGroups_UnknownGroupName_RollsBack(t *testing.T) {
+	db := newTestDB(t)
+	seedUser(t, db, "u1", "a@b.c")
+	if err := db.AttachUserToGroupByName("u1", "viewer"); err != nil {
+		t.Fatalf("attach viewer: %v", err)
+	}
+
+	err := db.ReplaceUserGroups("u1", []string{"editor", "does-not-exist"})
+	if err == nil {
+		t.Fatal("expected error for unknown group name")
+	}
+	// Rollback: user must still be in `viewer` only — no partial write.
+	groups, err := db.GetUserGroups("u1")
+	if err != nil {
+		t.Fatalf("GetUserGroups: %v", err)
+	}
+	if len(groups) != 1 || groups[0].Name != "viewer" {
+		names := make([]string, len(groups))
+		for i, g := range groups {
+			names[i] = g.Name
+		}
+		t.Fatalf("expected [viewer] after rollback, got %v", names)
+	}
+}
+
+func TestReplaceUserGroups_UnknownUser_ReturnsError(t *testing.T) {
+	db := newTestDB(t)
+	err := db.ReplaceUserGroups("ghost", []string{"viewer"})
+	if err == nil {
+		t.Fatal("expected error for unknown user")
+	}
+}

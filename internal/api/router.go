@@ -29,11 +29,11 @@ type API struct {
 	auth              ext.AuthProvider
 	hub               *Hub
 	opamp             OpAMPPusher
-	authMethods       []ext.AuthMethod
+	authMethods       func() []ext.AuthMethod
 	workloadRetention time.Duration
 }
 
-func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods []ext.AuthMethod, workloadRetention time.Duration) http.Handler {
+func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods func() []ext.AuthMethod, workloadRetention time.Duration) http.Handler {
 	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv, authMethods: authMethods, workloadRetention: workloadRetention}
 
 	r := chi.NewRouter()

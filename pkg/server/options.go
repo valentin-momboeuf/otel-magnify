@@ -67,3 +67,26 @@ func WithAuthMethod(m ext.AuthMethod) Option {
 		s.authMethods = append(s.authMethods, m)
 	}
 }
+
+// WithAuthMethodProvider registers a callback consulted on every
+// GET /api/auth/methods request. When set, the provider's return value
+// fully replaces the static list built from the default "password"
+// method plus any WithAuthMethod(...) entries. The fallback to the
+// static list applies when no provider is registered or the provider
+// itself returns nil.
+//
+// Enterprise binaries use this to serve a DB-backed, runtime-mutable
+// list of SSO providers without restarting.
+//
+// The callback pointer is registered once at server construction and
+// never swapped; only its return value is consulted on each request.
+// Thread-safety of the callback body is the caller's responsibility:
+// the returned slice is JSON-encoded synchronously on the request
+// goroutine, so the callback must return a slice that will not be
+// mutated after return (typically, return a fresh copy or an immutable
+// snapshot).
+func WithAuthMethodProvider(fn func() []ext.AuthMethod) Option {
+	return func(s *Server) {
+		s.authMethodProvider = fn
+	}
+}

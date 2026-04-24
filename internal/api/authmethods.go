@@ -11,5 +11,5 @@ type authMethodsResponse struct {
 }
 
 func (a *API) handleListAuthMethods(w http.ResponseWriter, _ *http.Request) {
-	respondJSON(w, http.StatusOK, authMethodsResponse{Methods: a.authMethods})
+	respondJSON(w, http.StatusOK, authMethodsResponse{Methods: a.authMethods()})
 }
