@@ -42,6 +42,13 @@ func Open(driver, dsn string) (*DB, error) {
 	return &DB{DB: db, driver: driver}, nil
 }
 
+// SQLDB exposes the underlying *sql.DB for callers (typically the
+// enterprise edition bootstrap) that need to run additional migrations
+// or direct queries against the same database handle.
+func (d *DB) SQLDB() *sql.DB {
+	return d.DB
+}
+
 // Migrate runs all pending goose migrations embedded in the binary.
 //
 // On SQLite we temporarily disable foreign_keys for the duration of the run
