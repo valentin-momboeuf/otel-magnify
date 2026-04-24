@@ -189,3 +189,76 @@ func TestAuthMethods_DuplicateIDKeepsFirst(t *testing.T) {
 		t.Errorf("default method was overridden: got DisplayName=%q", body.Methods[0].DisplayName)
 	}
 }
+
+func TestAuthMethodProvider_DynamicOverridesStatic(t *testing.T) {
+	db, err := store.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	dynamic := []ext.AuthMethod{
+		{ID: "password", Type: "password", DisplayName: "Email + password", LoginURL: "/api/auth/login"},
+		{ID: "okta-main", Type: "sso", DisplayName: "Okta Corp", LoginURL: "/api/auth/sso/okta-main/login"},
+	}
+	srv := server.New(server.Config{ListenAddr: ":0", OpAMPAddr: ":0"}, db, a,
+		server.WithAuthMethod(ext.AuthMethod{ID: "static-leftover", Type: "sso", DisplayName: "Ignored"}),
+		server.WithAuthMethodProvider(func() []ext.AuthMethod { return dynamic }),
+	)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/methods", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200", rec.Code)
+	}
+	var body struct {
+		Methods []ext.AuthMethod `json:"methods"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Methods) != 2 || body.Methods[1].ID != "okta-main" {
+		ids := make([]string, len(body.Methods))
+		for i, m := range body.Methods {
+			ids[i] = m.ID
+		}
+		t.Fatalf("expected [password, okta-main], got %v", ids)
+	}
+}
+
+func TestAuthMethodProvider_NilProvider_FallbacksToStatic(t *testing.T) {
+	db, err := store.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	srv := server.New(server.Config{ListenAddr: ":0", OpAMPAddr: ":0"}, db, a)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/auth/methods", nil)
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d want 200", rec.Code)
+	}
+	var body struct {
+		Methods []ext.AuthMethod `json:"methods"`
+	}
+	if err := json.NewDecoder(rec.Body).Decode(&body); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	if len(body.Methods) != 1 || body.Methods[0].ID != "password" {
+		t.Fatalf("expected [password] only, got %+v", body.Methods)
+	}
+}

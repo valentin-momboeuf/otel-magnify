@@ -67,3 +67,18 @@ func WithAuthMethod(m ext.AuthMethod) Option {
 		s.authMethods = append(s.authMethods, m)
 	}
 }
+
+// WithAuthMethodProvider registers a callback consulted on every
+// GET /api/auth/methods request. When set, the provider's return value
+// fully replaces the static list built from the default "password"
+// method plus any WithAuthMethod(...) entries. The fallback to the
+// static list applies when no provider is registered or the provider
+// itself returns nil.
+//
+// Enterprise binaries use this to serve a DB-backed, runtime-mutable
+// list of SSO providers without restarting.
+func WithAuthMethodProvider(fn func() []ext.AuthMethod) Option {
+	return func(s *Server) {
+		s.authMethodProvider = fn
+	}
+}
