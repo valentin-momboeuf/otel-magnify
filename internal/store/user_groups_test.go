@@ -71,3 +71,46 @@ func TestGetUserGroups_UnknownUser(t *testing.T) {
 		t.Errorf("expected empty slice for unknown user, got %d", len(groups))
 	}
 }
+
+func TestDetachUserFromGroup_Idempotent(t *testing.T) {
+	db := newTestDB(t)
+	seedUser(t, db, "u1", "a@b.c")
+	if err := db.AttachUserToGroupByName("u1", "viewer"); err != nil {
+		t.Fatalf("attach: %v", err)
+	}
+
+	// First detach: removes the membership.
+	if err := db.DetachUserFromGroup("u1", "viewer"); err != nil {
+		t.Fatalf("first detach: %v", err)
+	}
+	groups, err := db.GetUserGroups("u1")
+	if err != nil {
+		t.Fatalf("GetUserGroups: %v", err)
+	}
+	if len(groups) != 0 {
+		t.Fatalf("expected 0 groups after detach, got %d", len(groups))
+	}
+
+	// Second detach: idempotent no-op, no error.
+	if err := db.DetachUserFromGroup("u1", "viewer"); err != nil {
+		t.Fatalf("second detach should be no-op, got: %v", err)
+	}
+}
+
+func TestDetachUserFromGroup_UnknownGroup_ReturnsError(t *testing.T) {
+	db := newTestDB(t)
+	seedUser(t, db, "u1", "a@b.c")
+
+	err := db.DetachUserFromGroup("u1", "does-not-exist")
+	if err == nil {
+		t.Fatal("expected error for unknown group, got nil")
+	}
+}
+
+func TestDetachUserFromGroup_UnknownUser_ReturnsError(t *testing.T) {
+	db := newTestDB(t)
+	err := db.DetachUserFromGroup("ghost", "viewer")
+	if err == nil {
+		t.Fatal("expected error for unknown user, got nil")
+	}
+}

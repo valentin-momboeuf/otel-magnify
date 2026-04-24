@@ -15,6 +15,7 @@ type Store interface {
 	ListSystemGroups() ([]models.Group, error)
 	GetGroupByName(name string) (models.Group, error)
 	AttachUserToGroupByName(userID, groupName string) error
+	DetachUserFromGroup(userID, groupName string) error
 	GetUserGroups(userID string) ([]models.Group, error)
 
 	// User preferences (theme + language).
