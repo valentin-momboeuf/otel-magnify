@@ -1,57 +1,31 @@
 # Changelog
 
 All notable changes to this project are documented here.
-## v0.2.0 — 2026-04-23
-
-### Features
-- Add groups table with seeded system roles
-- Migrate users.role to user_groups membership
-- Add user_preferences table
-- Add Group/UserGroup/UserPreferences; drop User.Role
-- Add groups read-only accessors
-- Add user_groups attach/list helpers
-- Add user_preferences get/upsert helpers
-- Introduce perm package and switch UserInfo to Groups
-- Emit groups claim and tolerate legacy role tokens
-- Seed admin via administrator group membership
-- Add GET /api/me endpoint
-- Gate write endpoints with RequirePerm middleware
-- Add POST /api/workloads/{id}/archive for editors
-- Add PUT /api/me/password
-- Add PUT /api/me/preferences
-- Add MeResponse types and meAPI client
-- Hydrate me at boot and add perm util
-- Add useTheme hook and RequirePerm gate
-- Add Account section and identity card to sidebar
-- Add Profile page (identity, password, preferences)
-- Add Admin page stub gated by users:manage
-
+## v0.2.1 — 2026-04-24
 
 ### Bug Fixes
-- Skip 401 logout redirect for changePassword so Profile surfaces "current password incorrect" instead of logging the user out
-- Avoid /login reload loop and hydrate `me` after login (AppShell boot hydration was running without a token and tripping the 401 interceptor)
+- Request full state on unknown-instance heartbeat (#17)
 
 
-### Internationalization
-- Add profile/admin/account keys in en+fr
+### Features
+- Extension hooks for SSO (Detach/Replace groups, WithAuthMethodProvider, bootstrap.PreRun) (#18)
 
 
-### Refactoring
-- Expose groups and user_preferences on Store
+## v0.2.0 — 2026-04-23
+
+### Documentation
+- Dedupe v0.2.0 changelog and note post-merge fixes
 
 
-### Testing
-- Cover profile page for viewer/editor/admin + password/theme/language flows
-- Add real-backend profile flow spec (opt-in docker-compose e2e via scripts/e2e-real.sh)
+### Features
+- RBAC groups + profile page (v0.2.0) (#16)
 
 
 ## v0.1.1 — 2026-04-23
 
-First usable release. `v0.1.0` is published on the Go proxy but its module
-zip contained no Go source (the `go.mod` lived at `backend/` but declared
-the module at the repo root, and the proxy could not reconcile the two).
-`v0.1.1` moves the module to the repo root so `go install` and external
-Go consumers work as expected.
+### Documentation
+- Update changelog for v0.1.1
+
 
 ### Refactoring
 - Move Go module from backend/ to repo root (#15)
@@ -227,6 +201,15 @@ Go consumers work as expected.
 - Rename Agent pages/components/store to Workload and update WS dispatcher
 - Wire cmd/server to pkg/frontend
 - Reduce cmd/server to a bootstrap.Run wrapper
+
+
+### Testing
+- Playwright coverage for edit, validate, push, diff, history, theme
+- E2e coverage for supervised/read-only collector UX
+- Cover DB-error fallback in disconnect broadcast
+- Integration coverage for onConnectionClose broadcast
+- Add Playwright coverage for workload inventory, instances, activity
+- Migrate legacy agent specs to workload endpoints
 
 
 
