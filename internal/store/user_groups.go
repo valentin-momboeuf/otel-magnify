@@ -62,6 +62,12 @@ func (d *DB) DetachUserFromGroup(userID, groupName string) error {
 // groupNames are removed; memberships in groupNames but not in the DB
 // are added. The operation runs inside a single transaction so partial
 // states are not observable.
+//
+// Group names are resolved to IDs before the transaction opens. A
+// concurrent rename or deletion of a group between the resolve and the
+// commit will surface as a foreign-key error rather than an
+// unknown-group error. No partial write can occur; the transaction
+// rolls back as usual.
 func (d *DB) ReplaceUserGroups(userID string, groupNames []string) error {
 	// Pre-resolve all group IDs before touching the DB (cheap, and
 	// lets us surface unknown-group errors before opening the tx).
