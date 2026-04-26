@@ -1,7 +1,11 @@
 import { create } from 'zustand'
 import type {
-  Workload, Alert, RemoteConfigStatus, AutoRollbackEvent,
-  MeResponse, UserPreferences,
+  Workload,
+  Alert,
+  RemoteConfigStatus,
+  AutoRollbackEvent,
+  MeResponse,
+  UserPreferences,
 } from '../types'
 
 interface AppState {
@@ -55,8 +59,7 @@ export const useStore = create<AppState>((set) => ({
 
   setAlerts: (alerts) => set({ alerts }),
   addAlert: (alert) => set((state) => ({ alerts: [alert, ...state.alerts] })),
-  resolveAlert: (id) =>
-    set((state) => ({ alerts: state.alerts.filter((a) => a.id !== id) })),
+  resolveAlert: (id) => set((state) => ({ alerts: state.alerts.filter((a) => a.id !== id) })),
 
   setConfigStatus: (workloadId, status) =>
     set((state) => ({ configStatus: { ...state.configStatus, [workloadId]: status } })),

@@ -16,9 +16,7 @@ export default function PushStatusBanner({ status, rollback, onDismissRollback }
             <span className="push-banner-label">{label(status.status)}</span>
             <code className="push-banner-hash">{status.config_hash.substring(0, 8)}</code>
           </div>
-          {status.error_message && (
-            <pre className="push-banner-error">{status.error_message}</pre>
-          )}
+          {status.error_message && <pre className="push-banner-error">{status.error_message}</pre>}
         </div>
       )}
       {rollback && (
@@ -29,7 +27,11 @@ export default function PushStatusBanner({ status, rollback, onDismissRollback }
               {rollback.from_hash.substring(0, 8)} → {rollback.to_hash.substring(0, 8)}
             </code>
             {onDismissRollback && (
-              <button className="push-banner-dismiss" onClick={onDismissRollback} aria-label="Dismiss">
+              <button
+                className="push-banner-dismiss"
+                onClick={onDismissRollback}
+                aria-label="Dismiss"
+              >
                 ×
               </button>
             )}
@@ -43,9 +45,13 @@ export default function PushStatusBanner({ status, rollback, onDismissRollback }
 
 function label(s: PushStatus): string {
   switch (s) {
-    case 'applying': return 'Applying config...'
-    case 'applied':  return '✓ Applied'
-    case 'failed':   return '✗ Failed'
-    case 'pending':  return 'Pending...'
+    case 'applying':
+      return 'Applying config...'
+    case 'applied':
+      return '✓ Applied'
+    case 'failed':
+      return '✗ Failed'
+    case 'pending':
+      return 'Pending...'
   }
 }

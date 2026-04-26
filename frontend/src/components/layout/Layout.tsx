@@ -7,7 +7,15 @@ import '../../styles/sidebar.css'
 
 function IconDashboard() {
   return (
-    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      className="nav-icon"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <rect x="1.5" y="1.5" width="5" height="5" rx="1" />
       <rect x="9.5" y="1.5" width="5" height="5" rx="1" />
       <rect x="1.5" y="9.5" width="5" height="5" rx="1" />
@@ -17,7 +25,15 @@ function IconDashboard() {
 }
 function IconInventory() {
   return (
-    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      className="nav-icon"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <circle cx="8" cy="5" r="2.5" />
       <path d="M2.5 15c0-3 2.5-5 5.5-5s5.5 2 5.5 5" />
     </svg>
@@ -25,14 +41,29 @@ function IconInventory() {
 }
 function IconConfigs() {
   return (
-    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+    <svg
+      className="nav-icon"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+    >
       <path d="M3 4h10M3 8h7M3 12h5" />
     </svg>
   )
 }
 function IconAlerts() {
   return (
-    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      className="nav-icon"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M8 2L2 13h12L8 2z" />
       <path d="M8 6.5v3" />
       <circle cx="8" cy="11" r="0.5" fill="currentColor" stroke="none" />
@@ -41,7 +72,14 @@ function IconAlerts() {
 }
 function IconProfile() {
   return (
-    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round">
+    <svg
+      className="nav-icon"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+    >
       <circle cx="8" cy="6" r="2.5" />
       <path d="M3 14c0-2.5 2-4 5-4s5 1.5 5 4" />
     </svg>
@@ -49,17 +87,25 @@ function IconProfile() {
 }
 function IconAdmin() {
   return (
-    <svg className="nav-icon" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" strokeLinejoin="round">
+    <svg
+      className="nav-icon"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.4"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
       <path d="M8 1.5L2.5 4v4.5c0 3 2.5 5.5 5.5 6 3-0.5 5.5-3 5.5-6V4L8 1.5z" />
     </svg>
   )
 }
 
 const fleetNav = [
-  { path: '/',          key: 'dashboard', Icon: IconDashboard, end: true  },
+  { path: '/', key: 'dashboard', Icon: IconDashboard, end: true },
   { path: '/inventory', key: 'inventory', Icon: IconInventory, end: false },
-  { path: '/configs',   key: 'configs',   Icon: IconConfigs,   end: false },
-  { path: '/alerts',    key: 'alerts',    Icon: IconAlerts,    end: false },
+  { path: '/configs', key: 'configs', Icon: IconConfigs, end: false },
+  { path: '/alerts', key: 'alerts', Icon: IconAlerts, end: false },
 ] as const
 
 function initials(email: string): string {
@@ -82,15 +128,24 @@ function IdentityCard() {
 
   return (
     <div className="identity-card">
-      <button className="identity-trigger" onClick={() => setOpen((v) => !v)} aria-haspopup="menu" aria-expanded={open}>
-        <div className="identity-avatar" aria-hidden>{initials(me.email)}</div>
+      <button
+        className="identity-trigger"
+        onClick={() => setOpen((v) => !v)}
+        aria-haspopup="menu"
+        aria-expanded={open}
+      >
+        <div className="identity-avatar" aria-hidden>
+          {initials(me.email)}
+        </div>
         <div className="identity-body">
           <div className="identity-email">{me.email}</div>
           <div className="identity-groups">
             {me.groups.map((g) => g.name).join(' · ') || t('account.no_group')}
           </div>
         </div>
-        <span className="identity-chevron" aria-hidden>▸</span>
+        <span className="identity-chevron" aria-hidden>
+          ▸
+        </span>
       </button>
       {open && (
         <div role="menu" className="identity-popover">

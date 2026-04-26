@@ -7,8 +7,8 @@ export default function Configs() {
   const queryClient = useQueryClient()
   const { data: configs, isLoading } = useQuery({ queryKey: ['configs'], queryFn: configsAPI.list })
 
-  const [name,     setName]     = useState('')
-  const [content,  setContent]  = useState('')
+  const [name, setName] = useState('')
+  const [content, setContent] = useState('')
   const [showForm, setShowForm] = useState(false)
 
   const createMutation = useMutation({
@@ -25,7 +25,10 @@ export default function Configs() {
     <div>
       <div className="page-header">
         <h1 className="page-title">Configs</h1>
-        <button className={`btn ${showForm ? '' : 'btn-primary'}`} onClick={() => setShowForm(!showForm)}>
+        <button
+          className={`btn ${showForm ? '' : 'btn-primary'}`}
+          onClick={() => setShowForm(!showForm)}
+        >
           {showForm ? 'Cancel' : '+ New Config'}
         </button>
       </div>
@@ -79,10 +82,19 @@ export default function Configs() {
               <tr key={c.id}>
                 <td style={{ fontFamily: 'var(--mono)', color: 'var(--text-hi)' }}>{c.name}</td>
                 <td style={{ fontFamily: 'var(--mono)', fontSize: '0.8rem' }}>{c.created_by}</td>
-                <td style={{ fontFamily: 'var(--mono)', fontSize: '0.75rem', color: 'var(--muted)', whiteSpace: 'nowrap' }}>
+                <td
+                  style={{
+                    fontFamily: 'var(--mono)',
+                    fontSize: '0.75rem',
+                    color: 'var(--muted)',
+                    whiteSpace: 'nowrap',
+                  }}
+                >
                   {new Date(c.created_at).toLocaleString()}
                 </td>
-                <td><code>{c.id.substring(0, 12)}...</code></td>
+                <td>
+                  <code>{c.id.substring(0, 12)}...</code>
+                </td>
               </tr>
             ))}
           </tbody>

@@ -17,11 +17,11 @@ export default function Inventory() {
   })
   const [searchParams] = useSearchParams()
 
-  const [search,        setSearch]        = useState('')
-  const [filterType,    setFilterType]    = useState<string>(searchParams.get('type') ?? '')
-  const [filterStatus,  setFilterStatus]  = useState<string>('')
+  const [search, setSearch] = useState('')
+  const [filterType, setFilterType] = useState<string>(searchParams.get('type') ?? '')
+  const [filterStatus, setFilterStatus] = useState<string>('')
   const [filterControl, setFilterControl] = useState<ControlFilter>(
-    (searchParams.get('control') as ControlFilter) ?? ''
+    (searchParams.get('control') as ControlFilter) ?? '',
   )
 
   useEffect(() => {
@@ -34,12 +34,12 @@ export default function Inventory() {
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
     return (workloads ?? []).filter((w) => {
-      if (filterType   && w.type   !== filterType)   return false
+      if (filterType && w.type !== filterType) return false
       if (filterStatus && w.status !== filterStatus) return false
       if (filterControl) {
-        if (w.type !== 'collector')                                    return false
-        if (filterControl === 'supervised' && !isSupervised(w))        return false
-        if (filterControl === 'readonly'   && !isReadOnlyCollector(w)) return false
+        if (w.type !== 'collector') return false
+        if (filterControl === 'supervised' && !isSupervised(w)) return false
+        if (filterControl === 'readonly' && !isReadOnlyCollector(w)) return false
       }
       if (needle) {
         const haystack = `${w.display_name ?? ''} ${w.id}`.toLowerCase()
@@ -66,12 +66,20 @@ export default function Inventory() {
           onChange={(e) => setSearch(e.target.value)}
           placeholder={t('inventory.filter.search_placeholder')}
         />
-        <select className="filter-select" value={filterType} onChange={(e) => setFilterType(e.target.value)}>
+        <select
+          className="filter-select"
+          value={filterType}
+          onChange={(e) => setFilterType(e.target.value)}
+        >
           <option value="">{t('inventory.filter.type.all')}</option>
           <option value="collector">{t('inventory.filter.type.collector')}</option>
           <option value="sdk">{t('inventory.filter.type.sdk')}</option>
         </select>
-        <select className="filter-select" value={filterStatus} onChange={(e) => setFilterStatus(e.target.value)}>
+        <select
+          className="filter-select"
+          value={filterStatus}
+          onChange={(e) => setFilterStatus(e.target.value)}
+        >
           <option value="">{t('inventory.filter.status.all')}</option>
           <option value="connected">{t('inventory.filter.status.connected')}</option>
           <option value="disconnected">{t('inventory.filter.status.disconnected')}</option>

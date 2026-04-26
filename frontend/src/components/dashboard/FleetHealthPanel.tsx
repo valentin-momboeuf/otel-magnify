@@ -11,18 +11,19 @@ const CIRC = 2 * Math.PI * RADIUS
 
 export default function FleetHealthPanel({ workloads }: Props) {
   const { t } = useTranslation()
-  const connected    = workloads.filter((w) => w.status === 'connected').length
-  const degraded     = workloads.filter((w) => w.status === 'degraded').length
+  const connected = workloads.filter((w) => w.status === 'connected').length
+  const degraded = workloads.filter((w) => w.status === 'degraded').length
   const disconnected = workloads.filter((w) => w.status === 'disconnected').length
-  const total        = connected + degraded + disconnected
+  const total = connected + degraded + disconnected
 
-  const arcs = total > 0
-    ? [
-        { color: 'var(--green)', share: connected / total },
-        { color: 'var(--amber)', share: degraded / total },
-        { color: 'var(--red)',   share: disconnected / total },
-      ]
-    : []
+  const arcs =
+    total > 0
+      ? [
+          { color: 'var(--green)', share: connected / total },
+          { color: 'var(--amber)', share: degraded / total },
+          { color: 'var(--red)', share: disconnected / total },
+        ]
+      : []
 
   let offset = 0
   const segments = arcs.map((arc) => {
@@ -40,11 +41,21 @@ export default function FleetHealthPanel({ workloads }: Props) {
       </header>
 
       <div className="fleet-health-body">
-        <svg className="fleet-donut" viewBox="0 0 100 100" aria-label={t('dashboard.panel.fleet_health')}>
+        <svg
+          className="fleet-donut"
+          viewBox="0 0 100 100"
+          aria-label={t('dashboard.panel.fleet_health')}
+        >
           <circle cx={50} cy={50} r={RADIUS} className="fleet-donut-track" strokeWidth={STROKE} />
           <g transform="rotate(-90 50 50)">
             {total === 0 ? (
-              <circle cx={50} cy={50} r={RADIUS} className="fleet-donut-track" strokeWidth={STROKE} />
+              <circle
+                cx={50}
+                cy={50}
+                r={RADIUS}
+                className="fleet-donut-track"
+                strokeWidth={STROKE}
+              />
             ) : (
               segments.map((seg, i) => (
                 <circle
@@ -61,13 +72,27 @@ export default function FleetHealthPanel({ workloads }: Props) {
               ))
             )}
           </g>
-          <text x={50} y={52} textAnchor="middle" className="fleet-donut-label">{total}</text>
+          <text x={50} y={52} textAnchor="middle" className="fleet-donut-label">
+            {total}
+          </text>
         </svg>
 
         <div className="fleet-breakdown">
-          <FleetRow dotClass="fleet-dot-connected"    label={t('dashboard.fleet.connected')}    value={connected} />
-          <FleetRow dotClass="fleet-dot-degraded"     label={t('dashboard.fleet.degraded')}     value={degraded} />
-          <FleetRow dotClass="fleet-dot-disconnected" label={t('dashboard.fleet.disconnected')} value={disconnected} />
+          <FleetRow
+            dotClass="fleet-dot-connected"
+            label={t('dashboard.fleet.connected')}
+            value={connected}
+          />
+          <FleetRow
+            dotClass="fleet-dot-degraded"
+            label={t('dashboard.fleet.degraded')}
+            value={degraded}
+          />
+          <FleetRow
+            dotClass="fleet-dot-disconnected"
+            label={t('dashboard.fleet.disconnected')}
+            value={disconnected}
+          />
         </div>
       </div>
     </section>

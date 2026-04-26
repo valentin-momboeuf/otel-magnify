@@ -64,9 +64,18 @@
   letter-spacing: 0.02em;
 }
 
-.delta-positive { background: var(--green-dim); color: var(--green); }
-.delta-negative { background: var(--red-dim);   color: var(--red); }
-.delta-neutral  { background: var(--surface-2); color: var(--text-muted); }
+.delta-positive {
+  background: var(--green-dim);
+  color: var(--green);
+}
+.delta-negative {
+  background: var(--red-dim);
+  color: var(--red);
+}
+.delta-neutral {
+  background: var(--surface-2);
+  color: var(--text-muted);
+}
 
 /* ── Panels ── */
 .panel-head {
@@ -195,9 +204,15 @@
   flex-shrink: 0;
 }
 
-.fleet-dot-connected    { background: var(--green); }
-.fleet-dot-degraded     { background: var(--amber); }
-.fleet-dot-disconnected { background: var(--red); }
+.fleet-dot-connected {
+  background: var(--green);
+}
+.fleet-dot-degraded {
+  background: var(--amber);
+}
+.fleet-dot-disconnected {
+  background: var(--red);
+}
 
 .fleet-breakdown-value {
   font-family: var(--mono);

@@ -1,8 +1,16 @@
 import axios from 'axios'
 import type {
-  Workload, Instance, WorkloadEvent, EventsStats,
-  Config, Alert, WorkloadConfig, ValidationResult,
-  PushActivityPoint, MeResponse, UserPreferences,
+  Workload,
+  Instance,
+  WorkloadEvent,
+  EventsStats,
+  Config,
+  Alert,
+  WorkloadConfig,
+  ValidationResult,
+  PushActivityPoint,
+  MeResponse,
+  UserPreferences,
 } from '../types'
 
 declare module 'axios' {
@@ -42,7 +50,7 @@ api.interceptors.response.use(
       window.location.href = '/login'
     }
     return Promise.reject(err)
-  }
+  },
 )
 
 export const workloadsAPI = {
@@ -101,14 +109,17 @@ export const pushesAPI = {
 export const authAPI = {
   login: (email: string, password: string) =>
     api.post<{ token: string }>('/auth/login', { email, password }).then((r) => r.data),
-  getMethods: () =>
-    api.get<{ methods: AuthMethod[] }>('/auth/methods').then((r) => r.data.methods),
+  getMethods: () => api.get<{ methods: AuthMethod[] }>('/auth/methods').then((r) => r.data.methods),
 }
 
 export const meAPI = {
   get: () => api.get<MeResponse>('/me').then((r) => r.data),
   changePassword: (current: string, next: string) =>
-    api.put('/me/password', { current_password: current, new_password: next }, { skipAuthRedirect: true }),
+    api.put(
+      '/me/password',
+      { current_password: current, new_password: next },
+      { skipAuthRedirect: true },
+    ),
   updatePreferences: (prefs: Pick<UserPreferences, 'theme' | 'language'>) =>
     api.put<UserPreferences>('/me/preferences', prefs).then((r) => r.data),
 }

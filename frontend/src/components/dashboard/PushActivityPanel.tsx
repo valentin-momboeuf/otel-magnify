@@ -24,7 +24,12 @@ export default function PushActivityPanel() {
         <span className="panel-hint">{total}</span>
       </header>
 
-      <svg className="push-chart" viewBox="0 0 280 140" preserveAspectRatio="none" aria-label={t('dashboard.panel.push_activity')}>
+      <svg
+        className="push-chart"
+        viewBox="0 0 280 140"
+        preserveAspectRatio="none"
+        aria-label={t('dashboard.panel.push_activity')}
+      >
         {points.map((p, i) => {
           const barW = 28
           const gap = (280 - barW * 7) / 6

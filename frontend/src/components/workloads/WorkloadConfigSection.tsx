@@ -25,15 +25,19 @@ export default function WorkloadConfigSection({ workload }: Props) {
   const rollback = useStore((s) => s.lastRollback[workload.id])
   const clearRollback = useStore((s) => s.clearAutoRollback)
 
-  const [editMode, setEditMode]       = useState(false)
-  const [tab, setTab]                 = useState<Tab>('edit')
-  const [draftYaml, setDraftYaml]     = useState('')
+  const [editMode, setEditMode] = useState(false)
+  const [tab, setTab] = useState<Tab>('edit')
+  const [draftYaml, setDraftYaml] = useState('')
   const [pendingHash, setPendingHash] = useState<string | null>(null)
-  const [timedOut, setTimedOut]       = useState(false)
-  const [validation, setValidation]   = useState<ValidationResult | null>(null)
-  const [pushError, setPushError]     = useState<string | null>(null)
+  const [timedOut, setTimedOut] = useState(false)
+  const [validation, setValidation] = useState<ValidationResult | null>(null)
+  const [pushError, setPushError] = useState<string | null>(null)
 
-  const { data: config, isLoading, isError } = useQuery({
+  const {
+    data: config,
+    isLoading,
+    isError,
+  } = useQuery({
     queryKey: ['workload-config', workload.active_config_id],
     queryFn: () => configsAPI.get(workload.active_config_id!),
     enabled: workload.type === 'collector' && !!workload.active_config_id,
@@ -122,7 +126,11 @@ export default function WorkloadConfigSection({ workload }: Props) {
   }
 
   const derivedStatus = pendingHash
-    ? { status: 'applying' as const, config_hash: pendingHash, updated_at: new Date().toISOString() }
+    ? {
+        status: 'applying' as const,
+        config_hash: pendingHash,
+        updated_at: new Date().toISOString(),
+      }
     : configStatus
 
   const canPush =
@@ -168,7 +176,8 @@ export default function WorkloadConfigSection({ workload }: Props) {
           <div className="empty-state">No config reported yet.</div>
         )}
         <div className="config-readonly-note">
-          Read-only — this collector uses the <code>opamp</code> extension which can only report its config. Run it under the OpAMP Supervisor to enable config push.{' '}
+          Read-only — this collector uses the <code>opamp</code> extension which can only report its
+          config. Run it under the OpAMP Supervisor to enable config push.{' '}
           <a
             href={`${DOCS_BASE_URL}/users/connecting-agents.md#running-a-collector-via-opamp-supervisor`}
             target="_blank"
@@ -185,7 +194,12 @@ export default function WorkloadConfigSection({ workload }: Props) {
   const editorPanel = (
     <div>
       <div className="tabstrip">
-        <button className={`tab ${tab === 'edit' ? 'tab-active' : ''}`} onClick={() => setTab('edit')}>Edit</button>
+        <button
+          className={`tab ${tab === 'edit' ? 'tab-active' : ''}`}
+          onClick={() => setTab('edit')}
+        >
+          Edit
+        </button>
         <button
           className={`tab ${tab === 'diff' ? 'tab-active' : ''}`}
           onClick={() => setTab('diff')}
@@ -219,9 +233,7 @@ export default function WorkloadConfigSection({ workload }: Props) {
         </div>
       )}
 
-      {pushError && (
-        <div className="error-text error-text-push">{pushError}</div>
-      )}
+      {pushError && <div className="error-text error-text-push">{pushError}</div>}
 
       <div className="btn-row">
         <button
@@ -245,7 +257,9 @@ export default function WorkloadConfigSection({ workload }: Props) {
         >
           {pendingHash ? 'Applying...' : pushMutation.isPending ? 'Pushing...' : 'Push'}
         </button>
-        <button className="btn" onClick={cancelEdit} disabled={!!pendingHash}>Cancel</button>
+        <button className="btn" onClick={cancelEdit} disabled={!!pendingHash}>
+          Cancel
+        </button>
         {timedOut && (
           <span className="error-text error-text-inline">
             No response from workload — still applying?
@@ -260,8 +274,12 @@ export default function WorkloadConfigSection({ workload }: Props) {
     return (
       <>
         <p className="section-title">Configuration</p>
-        {editMode ? editorPanel : (
-          <button className="btn" onClick={() => enterEditMode('')}>Push a config</button>
+        {editMode ? (
+          editorPanel
+        ) : (
+          <button className="btn" onClick={() => enterEditMode('')}>
+            Push a config
+          </button>
         )}
         <PushStatusBanner
           status={derivedStatus}
@@ -298,10 +316,14 @@ export default function WorkloadConfigSection({ workload }: Props) {
         <div>
           <YamlEditor value={activeContent} readOnly />
           <div className="btn-row btn-row-top">
-            <button className="btn" onClick={() => enterEditMode(activeContent)}>Edit</button>
+            <button className="btn" onClick={() => enterEditMode(activeContent)}>
+              Edit
+            </button>
           </div>
         </div>
-      ) : editorPanel}
+      ) : (
+        editorPanel
+      )}
 
       <PushStatusBanner
         status={derivedStatus}

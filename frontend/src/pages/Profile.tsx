@@ -20,13 +20,19 @@ function PasswordSection() {
     mutationFn: ({ current, next }: { current: string; next: string }) =>
       meAPI.changePassword(current, next),
     onSuccess: () => {
-      setCurrent(''); setNext(''); setConfirm('')
+      setCurrent('')
+      setNext('')
+      setConfirm('')
       setMessage({ kind: 'ok', text: t('profile.security.success') })
     },
     onError: (err: { response?: { status?: number; data?: { error?: string } } }) => {
       const status = err.response?.status
       if (status === 401) setMessage({ kind: 'err', text: t('profile.security.err_current') })
-      else if (status === 400) setMessage({ kind: 'err', text: err.response?.data?.error ?? t('profile.security.err_weak') })
+      else if (status === 400)
+        setMessage({
+          kind: 'err',
+          text: err.response?.data?.error ?? t('profile.security.err_weak'),
+        })
       else setMessage({ kind: 'err', text: t('profile.security.err_generic') })
     },
   })
@@ -46,22 +52,48 @@ function PasswordSection() {
       <h3>{t('profile.security.title')}</h3>
       <form onSubmit={handleSubmit} className="profile-form">
         <div className="field">
-          <label className="field-label" htmlFor="pw-current">{t('profile.security.current')}</label>
-          <input id="pw-current" type="password" className="field-input"
-                 value={current} onChange={(e) => setCurrent(e.target.value)} autoComplete="current-password" />
+          <label className="field-label" htmlFor="pw-current">
+            {t('profile.security.current')}
+          </label>
+          <input
+            id="pw-current"
+            type="password"
+            className="field-input"
+            value={current}
+            onChange={(e) => setCurrent(e.target.value)}
+            autoComplete="current-password"
+          />
         </div>
         <div className="field">
-          <label className="field-label" htmlFor="pw-new">{t('profile.security.new')}</label>
-          <input id="pw-new" type="password" className="field-input"
-                 value={next} onChange={(e) => setNext(e.target.value)} autoComplete="new-password" />
+          <label className="field-label" htmlFor="pw-new">
+            {t('profile.security.new')}
+          </label>
+          <input
+            id="pw-new"
+            type="password"
+            className="field-input"
+            value={next}
+            onChange={(e) => setNext(e.target.value)}
+            autoComplete="new-password"
+          />
         </div>
         <div className="field">
-          <label className="field-label" htmlFor="pw-confirm">{t('profile.security.confirm')}</label>
-          <input id="pw-confirm" type="password" className="field-input"
-                 value={confirm} onChange={(e) => setConfirm(e.target.value)} autoComplete="new-password" />
+          <label className="field-label" htmlFor="pw-confirm">
+            {t('profile.security.confirm')}
+          </label>
+          <input
+            id="pw-confirm"
+            type="password"
+            className="field-input"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            autoComplete="new-password"
+          />
         </div>
         {message && (
-          <div className={message.kind === 'err' ? 'error-text' : 'success-text'}>{message.text}</div>
+          <div className={message.kind === 'err' ? 'error-text' : 'success-text'}>
+            {message.text}
+          </div>
         )}
         <button type="submit" className="btn btn-primary" disabled={mutation.isPending}>
           {mutation.isPending ? t('common.loading') : t('profile.security.submit')}
@@ -105,8 +137,13 @@ function PreferencesSection() {
         <div className="radio-row">
           {(['light', 'dark', 'system'] as Theme[]).map((v) => (
             <label key={v} className="radio-pill">
-              <input type="radio" name="theme" value={v} checked={theme === v}
-                     onChange={() => handleThemeChange(v)} />
+              <input
+                type="radio"
+                name="theme"
+                value={v}
+                checked={theme === v}
+                onChange={() => handleThemeChange(v)}
+              />
               <span>{t(`profile.preferences.theme_${v}`)}</span>
             </label>
           ))}
@@ -114,9 +151,15 @@ function PreferencesSection() {
       </div>
 
       <div className="field">
-        <label className="field-label" htmlFor="lang-select">{t('profile.preferences.language')}</label>
-        <select id="lang-select" className="field-input" value={language}
-                onChange={(e) => handleLangChange(e.target.value as Lang)}>
+        <label className="field-label" htmlFor="lang-select">
+          {t('profile.preferences.language')}
+        </label>
+        <select
+          id="lang-select"
+          className="field-input"
+          value={language}
+          onChange={(e) => handleLangChange(e.target.value as Lang)}
+        >
           <option value="en">English</option>
           <option value="fr">Français</option>
         </select>
@@ -148,7 +191,9 @@ export default function Profile() {
               <span className="chip chip-muted">{t('account.no_group')}</span>
             ) : (
               me.groups.map((g) => (
-                <span key={g.id} className="chip">{g.name}</span>
+                <span key={g.id} className="chip">
+                  {g.name}
+                </span>
               ))
             )}
           </div>

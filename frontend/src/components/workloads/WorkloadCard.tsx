@@ -9,7 +9,17 @@ import { useStore } from '../../store'
 function TypeIcon({ type }: { type: 'collector' | 'sdk' }) {
   if (type === 'collector') {
     return (
-      <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--accent)' }}>
+      <svg
+        width="18"
+        height="18"
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.3"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        style={{ color: 'var(--accent)' }}
+      >
         <path d="M2 4h12M2 8h12M2 12h12" />
         <circle cx="5" cy="4" r="1" fill="currentColor" stroke="none" />
         <circle cx="8" cy="8" r="1" fill="currentColor" stroke="none" />
@@ -18,7 +28,17 @@ function TypeIcon({ type }: { type: 'collector' | 'sdk' }) {
     )
   }
   return (
-    <svg width="18" height="18" viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.3" strokeLinecap="round" strokeLinejoin="round" style={{ color: 'var(--blue)' }}>
+    <svg
+      width="18"
+      height="18"
+      viewBox="0 0 16 16"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.3"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      style={{ color: 'var(--blue)' }}
+    >
       <rect x="3" y="2" width="10" height="12" rx="2" />
       <path d="M6 6h4M6 9h2" />
     </svg>

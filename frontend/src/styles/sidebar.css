@@ -56,7 +56,7 @@
   animation: pulse 2s ease-in-out infinite;
 }
 
-[data-theme="paper"] .sidebar-signal-dot {
+[data-theme='paper'] .sidebar-signal-dot {
   box-shadow: none;
 }
 
@@ -111,7 +111,9 @@
   font-weight: 600;
   color: var(--text);
   text-decoration: none;
-  transition: background var(--dur-fast) var(--ease), color var(--dur-fast) var(--ease);
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
 }
 
 .sidebar-nav-item a .nav-icon {
@@ -206,7 +208,9 @@
   color: var(--text);
   cursor: pointer;
   text-align: left;
-  transition: background var(--dur) var(--ease), border-color var(--dur) var(--ease);
+  transition:
+    background var(--dur) var(--ease),
+    border-color var(--dur) var(--ease);
 }
 .identity-trigger:hover {
   background: var(--surface-3);
