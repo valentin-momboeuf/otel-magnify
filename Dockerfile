@@ -15,7 +15,7 @@ COPY pkg/ ./pkg/
 COPY --from=frontend-build /app/frontend/dist ./pkg/frontend/dist
 RUN CGO_ENABLED=0 go build -o /otel-magnify ./cmd/server/
 
-FROM alpine:3.19
+FROM alpine:3.23
 RUN apk add --no-cache ca-certificates
 COPY --from=backend-build /otel-magnify /usr/local/bin/otel-magnify
 EXPOSE 8080 4320
