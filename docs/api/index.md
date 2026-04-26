@@ -14,7 +14,7 @@ otel-magnify is pre-1.0. REST payloads and WebSocket event shapes may change bet
 
 ## Base URL
 
-```
+```text
 http://<host>:8080
 ```
 

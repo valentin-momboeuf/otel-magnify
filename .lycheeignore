@@ -1,0 +1,11 @@
+# URLs excluded from broken-link checks (lychee).
+# One regex per line.
+
+# Localhost and example documentation URLs
+^https?://localhost
+^https?://127\.0\.0\.1
+^https?://example\.(com|org)
+
+# GitHub anchors that may not exist at check time
+^https?://github\.com/Magnify-Labs/otel-magnify/issues/
+^https?://github\.com/Magnify-Labs/otel-magnify/security/advisories/new

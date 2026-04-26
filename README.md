@@ -31,7 +31,7 @@ Monitor, configure, and alert on your OTel Collectors and SDK agents from a sing
 
 ## Architecture
 
-```
+```text
 ┌─────────────────────────────────────────────────────┐
 │                   otel-magnify                      │
 │                                                     │
@@ -221,7 +221,7 @@ Once connected, agents are grouped into workloads and appear automatically in th
 
 ## Project Structure
 
-```
+```text
 cmd/server/         # Entrypoint
 internal/
 ├── api/            # REST handlers, WebSocket hub, static serving

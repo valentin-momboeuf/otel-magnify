@@ -1,0 +1,17 @@
+# https://github.com/DavidAnson/markdownlint
+default: true
+
+# Pragmatic relaxations
+MD013: false   # line length — leave free
+MD033: false   # inline HTML — used for badges and the OpenSSF placeholder
+MD041: false   # first line h1 — not enforced everywhere
+
+# Cosmetic rules disabled to keep the lint signal/noise ratio useful.
+# Re-enable individually if a cleanup pass is done.
+MD007: false   # ul-indent (4-space indents tolerated)
+MD012: false   # no-multiple-blanks
+MD022: false   # blanks-around-headings
+MD032: false   # blanks-around-lists
+
+MD024:
+  siblings_only: true   # allow repeated h2 across different sections

@@ -6,7 +6,7 @@ labels: security, automated
 assignees: valentin-momboeuf
 ---
 
-# Weekly security findings
+## Weekly security findings
 
 This issue is opened (or refreshed) every Monday by the `security-scheduled`
 workflow. It surfaces findings that are tracked across runs but do not block
