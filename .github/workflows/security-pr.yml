@@ -66,24 +66,23 @@ jobs:
       - run: npm run format:check
 
   vulns-go:
-    name: govulncheck + osv-scanner (Go)
+    name: govulncheck (Go)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
       - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
         with:
           go-version: '1.25'
+      # govulncheck is the canonical Go vuln scanner — does call-graph analysis
+      # so it only flags vulnerabilities reachable from our code. We previously
+      # also ran osv-scanner here, but it does naive dependency scanning and
+      # produced noise on non-reachable CVEs (e.g. pgx GHSA-j88v-2chj-qfwx).
+      # osv-scanner stays in vulns-fe for npm where no call-graph tool exists.
       - name: govulncheck
         uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee # v1.0.4
         with:
           go-version-input: '1.25'
           go-package: ./...
-      - name: osv-scanner
-        uses: google/osv-scanner-action/osv-scanner-action@b00f71e051ddddc6e46a193c31c8c0bf283bf9e6 # v1.9.2
-        with:
-          scan-args: |-
-            --recursive
-            ./
 
   vulns-fe:
     name: osv-scanner (npm)
