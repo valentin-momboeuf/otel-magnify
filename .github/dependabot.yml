@@ -1,0 +1,62 @@
+version: 2
+updates:
+  # Go modules
+  - package-ecosystem: gomod
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "06:00"
+      timezone: "Europe/Paris"
+    open-pull-requests-limit: 10
+    labels: ["deps", "deps:go"]
+    groups:
+      otel:
+        patterns: ["go.opentelemetry.io/*"]
+      aws:
+        patterns: ["github.com/aws/*"]
+      grpc-protobuf:
+        patterns: ["google.golang.org/grpc", "google.golang.org/protobuf"]
+
+  # Docker base images
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["deps", "deps:docker"]
+
+  - package-ecosystem: docker
+    directory: "/cmd/sdkagent"
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["deps", "deps:docker"]
+
+  # GitHub Actions
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+      day: monday
+    labels: ["deps", "deps:ci"]
+
+  # Frontend npm
+  - package-ecosystem: npm
+    directory: "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+    open-pull-requests-limit: 10
+    labels: ["deps", "deps:npm"]
+    groups:
+      react:
+        patterns: ["react", "react-*", "@types/react*"]
+      eslint:
+        patterns: ["eslint", "eslint-*", "@eslint/*"]
+      typescript:
+        patterns: ["typescript", "@typescript-eslint/*", "typescript-eslint"]
+      vite:
+        patterns: ["vite", "@vitejs/*"]
+      playwright:
+        patterns: ["@playwright/test"]
