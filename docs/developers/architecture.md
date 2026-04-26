@@ -32,7 +32,7 @@ flowchart LR
 
 ## Module layout
 
-```
+```text
 cmd/server/          # entrypoint, embeds frontend via embed.FS
 cmd/sdkagent/        # SDK agent simulator (dev tool)
 internal/

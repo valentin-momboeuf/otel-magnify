@@ -1,0 +1,6 @@
+node_modules/
+frontend/node_modules/
+frontend/playwright-report/
+frontend/test-results/
+# Design handoff is human-authored prose, not maintained docs
+design_handoff_otel_magnify/
