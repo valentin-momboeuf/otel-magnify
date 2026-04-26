@@ -1,0 +1,15 @@
+[extend]
+useDefault = true
+
+[allowlist]
+description = "otel-magnify — exclusions documentées"
+paths = [
+  '''.*_test\.go''',
+  '''testdata/.*''',
+  '''docs/.*''',
+  # Design handoff prototype — contains a placeholder token literal (otm_live_*)
+  # hardcoded in a UI mockup. Not a real secret format; auth is JWT HS256.
+  '''design_handoff_otel_magnify/.*''',
+  '''package-lock\.json''',
+  '''go\.sum''',
+]
