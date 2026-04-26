@@ -1,0 +1,16 @@
+# CODEOWNERS — automatic review on critical paths.
+# Any PR touching these paths requires review from the listed owner.
+# Maintainer-of-record until Magnify Labs incorporation.
+
+* @valentin-momboeuf
+
+# Security-critical — mandatory review
+/SECURITY.md          @valentin-momboeuf
+/.github/             @valentin-momboeuf
+/.gitleaks.toml       @valentin-momboeuf
+/.golangci.yml        @valentin-momboeuf
+/.hadolint.yaml       @valentin-momboeuf
+/.trivyignore         @valentin-momboeuf
+/lefthook.yml         @valentin-momboeuf
+/internal/auth/       @valentin-momboeuf
+/internal/perm/       @valentin-momboeuf
