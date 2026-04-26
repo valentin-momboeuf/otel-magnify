@@ -1,0 +1,153 @@
+name: security-pr
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+jobs:
+  secrets:
+    name: gitleaks (secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      - name: gitleaks
+        uses: gitleaks/gitleaks-action@ff98106e4c7b2bc287b24eaf42907196329070c7 # v2.3.7
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_CONFIG: .gitleaks.toml
+
+  lint-go:
+    name: golangci-lint (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+        with:
+          go-version: '1.25'
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@a4f60bb28d35aeee14e6880718e0c85ff1882e64 # v6.5.2
+        with:
+          version: v2.0.2
+          args: --timeout=5m
+
+  lint-fe:
+    name: ESLint + Prettier (frontend)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+
+  vulns-go:
+    name: govulncheck + osv-scanner (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+        with:
+          go-version: '1.25'
+      - name: govulncheck
+        uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee # v1.0.4
+        with:
+          go-version-input: '1.25'
+          go-package: ./...
+      - name: osv-scanner
+        uses: google/osv-scanner-action/osv-scanner-action@b00f71e051ddddc6e46a193c31c8c0bf283bf9e6 # v1.9.2
+        with:
+          scan-args: |-
+            --recursive
+            --skip-git
+            ./
+
+  vulns-fe:
+    name: osv-scanner (npm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: osv-scanner (frontend)
+        uses: google/osv-scanner-action/osv-scanner-action@b00f71e051ddddc6e46a193c31c8c0bf283bf9e6 # v1.9.2
+        with:
+          scan-args: |-
+            --lockfile=frontend/package-lock.json
+
+  docker-lint:
+    name: hadolint (Dockerfile)
+    runs-on: ubuntu-latest
+    continue-on-error: true # warning, pas bloquant
+    strategy:
+      matrix:
+        dockerfile: ['Dockerfile', 'cmd/sdkagent/Dockerfile']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: hadolint
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          config: .hadolint.yaml
+          format: sarif
+          output-file: hadolint-${{ strategy.job-index }}.sarif
+          no-fail: true
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@dd75a5cdde0acaa83ee3e51eada3b6b4615e3a8a # v3.27.7
+        if: always()
+        with:
+          sarif_file: hadolint-${{ strategy.job-index }}.sarif
+          category: hadolint-${{ strategy.job-index }}
+
+  iac:
+    name: trivy config + checkov (IaC)
+    runs-on: ubuntu-latest
+    continue-on-error: true # warning
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: trivy config scan
+        uses: aquasecurity/trivy-action@18f2510ee396bbf400402947b394f2dd8c87dbb0 # 0.29.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-config.sarif
+          exit-code: '0'
+      - name: Upload trivy SARIF
+        uses: github/codeql-action/upload-sarif@dd75a5cdde0acaa83ee3e51eada3b6b4615e3a8a # v3.27.7
+        if: always()
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+      - name: checkov (Helm)
+        uses: bridgecrewio/checkov-action@5bcfaf5a35f25cbc15e56ed68c1185395a2a4bb3 # v12.2901.0
+        with:
+          directory: helm/
+          framework: helm
+          output_format: sarif
+          output_file_path: checkov.sarif
+          soft_fail: true
+      - name: Upload checkov SARIF
+        uses: github/codeql-action/upload-sarif@dd75a5cdde0acaa83ee3e51eada3b6b4615e3a8a # v3.27.7
+        if: always()
+        with:
+          sarif_file: checkov.sarif/results_sarif.sarif
+          category: checkov-helm
