@@ -3,6 +3,10 @@
 ![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)
 ![Status: pre-1.0](https://img.shields.io/badge/Status-pre--1.0-yellow.svg)
 [![Docs](https://img.shields.io/badge/docs-mkdocs--material-blue.svg)](https://magnify-labs.github.io/otel-magnify/)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/Magnify-Labs/otel-magnify/badge)](https://scorecard.dev/viewer/?uri=github.com/Magnify-Labs/otel-magnify)
+<!-- Add once https://www.bestpractices.dev project is registered: -->
+<!-- [![OpenSSF Best Practices](https://www.bestpractices.dev/projects/<PROJECT_ID>/badge)](https://www.bestpractices.dev/projects/<PROJECT_ID>) -->
+
 
 → [Documentation](https://magnify-labs.github.io/otel-magnify/) · [Roadmap](ROADMAP.md)
 
