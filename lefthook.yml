@@ -1,0 +1,42 @@
+# Hooks pre-commit + pre-push for otel-magnify (community).
+# Cible un commit propre sans dépendance à Go natif côté dev.
+# See CONTRIBUTING.md for the binaries to install.
+
+pre-commit:
+  parallel: true
+  commands:
+    gitleaks:
+      tags: secrets
+      run: gitleaks protect --staged --no-banner --config .gitleaks.toml
+
+    golangci-lint:
+      tags: lint go
+      glob: "*.go"
+      run: golangci-lint run --new-from-rev=HEAD {staged_files}
+
+    eslint:
+      tags: lint frontend
+      glob: "frontend/**/*.{ts,tsx,js,jsx}"
+      root: "frontend/"
+      run: npx --no-install eslint {staged_files}
+
+    prettier:
+      tags: format frontend
+      glob: "frontend/**/*.{ts,tsx,js,jsx,css,json,md}"
+      root: "frontend/"
+      run: npx --no-install prettier --check {staged_files}
+
+pre-push:
+  commands:
+    govulncheck:
+      tags: vulns
+      run: |
+        docker run --rm -v "$PWD:/app" -w /app \
+          -e GOFLAGS='-buildvcs=false' \
+          golang:1.25 sh -c 'go install golang.org/x/vuln/cmd/govulncheck@latest && govulncheck ./...'
+
+    frontend-build:
+      tags: build
+      glob: "frontend/**"
+      root: "frontend/"
+      run: npm run build
