@@ -1,0 +1,111 @@
+name: release
+
+on:
+  push:
+    tags: ['v*.*.*']
+
+permissions:
+  contents: write          # create the GitHub Release
+  packages: write          # push to ghcr.io
+  id-token: write          # cosign keyless OIDC
+  attestations: write      # build provenance attestation
+
+jobs:
+  build-image:
+    name: Build + push multi-arch image
+    runs-on: ubuntu-latest
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
+      tags: ${{ steps.meta.outputs.tags }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - uses: docker/setup-qemu-action@ce360397dd3f832beb865e1373c09c0e9f86d70a # v4.0.0
+      - uses: docker/setup-buildx-action@4d04d5d9486b7bd6fa91e7baf45bbb4f8b9deedd # v4.0.0
+
+      - name: Login to GHCR
+        uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Docker meta
+        id: meta
+        uses: docker/metadata-action@030e881283bb7a6894de51c315a6bfe6a94e05cf # v6.0.0
+        with:
+          images: ghcr.io/${{ github.repository_owner }}/otel-magnify
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest
+
+      - name: Build & push
+        id: build
+        uses: docker/build-push-action@bcafcacb16a39f128d818304e6c9c0c18556b85f # v7.1.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+          provenance: true
+          sbom: true
+
+  trivy-gate:
+    name: Trivy CRITICAL gate on built image
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: Trivy image scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          image-ref: ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}
+          severity: CRITICAL
+          exit-code: '1'
+          ignore-unfixed: true
+          trivyignores: .trivyignore
+
+  sbom-and-sign:
+    name: SBOM + cosign sign
+    needs: build-image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Install cosign
+        uses: sigstore/cosign-installer@cad07c2e89fa2edd6e2d7bab4c1aa38e53f76003 # v4.1.1
+
+      - name: Install syft
+        uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
+
+      - name: Generate SBOM (SPDX)
+        run: |
+          syft "ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}" \
+            -o spdx-json=otel-magnify.spdx.json
+
+      - name: Generate SBOM (CycloneDX)
+        run: |
+          syft "ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}" \
+            -o cyclonedx-json=otel-magnify.cyclonedx.json
+
+      - name: Sign image (cosign keyless)
+        run: |
+          cosign sign --yes "ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}"
+
+      - name: Attest SBOM (SPDX)
+        run: |
+          cosign attest --yes \
+            --predicate otel-magnify.spdx.json \
+            --type spdx \
+            "ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}"
+
+      - name: Attach SBOMs to GitHub Release
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
+        with:
+          files: |
+            otel-magnify.spdx.json
+            otel-magnify.cyclonedx.json
