@@ -45,7 +45,6 @@ jobs:
           args: |
             --no-progress
             --max-concurrency 4
-            --exclude-mail
             --accept 200,206,403,429
             './**/*.md'
           format: markdown

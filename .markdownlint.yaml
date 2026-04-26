@@ -12,6 +12,7 @@ MD007: false   # ul-indent (4-space indents tolerated)
 MD012: false   # no-multiple-blanks
 MD022: false   # blanks-around-headings
 MD032: false   # blanks-around-lists
+MD060: false   # table-column-style — new in v0.40, demands pipe-spacing on every table
 
 MD024:
   siblings_only: true   # allow repeated h2 across different sections
