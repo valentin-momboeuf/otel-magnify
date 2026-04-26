@@ -29,7 +29,11 @@ export default function YamlEditor({ value, onChange, readOnly = false }: Props)
           yaml(),
           signalDeckYaml,
           EditorView.theme({
-            '&': { height: '400px', border: '1px solid var(--border, #2a2822)', borderRadius: '4px' },
+            '&': {
+              height: '400px',
+              border: '1px solid var(--border, #2a2822)',
+              borderRadius: '4px',
+            },
           }),
           readOnlyCompartment.current.of(EditorState.readOnly.of(readOnly)),
           EditorView.updateListener.of((update) => {

@@ -35,8 +35,8 @@ export default function InstancesTab({ workloadId, activeConfigHash }: Props) {
         {instances.map((i) => {
           const drift = Boolean(
             activeConfigHash &&
-              i.effective_config_hash &&
-              i.effective_config_hash !== activeConfigHash,
+            i.effective_config_hash &&
+            i.effective_config_hash !== activeConfigHash,
           )
           return (
             <tr key={i.instance_uid} className={drift ? 'instance-drift' : undefined}>

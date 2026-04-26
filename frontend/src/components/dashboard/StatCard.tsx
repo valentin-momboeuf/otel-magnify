@@ -29,5 +29,10 @@ export default function StatCard({ label, value, link, delta }: Props) {
 function DeltaChip({ value }: { value: number }) {
   const sign = value > 0 ? '+' : ''
   const tone = value > 0 ? 'positive' : value < 0 ? 'negative' : 'neutral'
-  return <span className={`delta-chip delta-${tone}`}>{sign}{value}</span>
+  return (
+    <span className={`delta-chip delta-${tone}`}>
+      {sign}
+      {value}
+    </span>
+  )
 }

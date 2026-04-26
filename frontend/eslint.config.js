@@ -2,11 +2,12 @@ import js from '@eslint/js'
 import globals from 'globals'
 import reactHooks from 'eslint-plugin-react-hooks'
 import reactRefresh from 'eslint-plugin-react-refresh'
+import security from 'eslint-plugin-security'
 import tseslint from 'typescript-eslint'
 import { defineConfig, globalIgnores } from 'eslint/config'
 
 export default defineConfig([
-  globalIgnores(['dist']),
+  globalIgnores(['dist', 'playwright-report', 'test-results']),
   {
     files: ['**/*.{ts,tsx}'],
     extends: [
@@ -14,10 +15,32 @@ export default defineConfig([
       tseslint.configs.recommended,
       reactHooks.configs.flat.recommended,
       reactRefresh.configs.vite,
+      security.configs.recommended,
     ],
     languageOptions: {
       ecmaVersion: 2020,
       globals: globals.browser,
+    },
+    rules: {
+      // Disabled: fires on every legitimate dynamic property access (e.g. acc[day],
+      // map[status], updated[idx]). All flagged instances are false positives — keys
+      // are derived from typed API responses or internal accumulators, not user input.
+      'security/detect-object-injection': 'off',
+
+      // Downgraded: this rule is new in eslint-plugin-react-hooks v7 and considered
+      // overly strict by parts of the React community. Our existing effects sync
+      // state from external sources (WS messages, URL params) where setState in
+      // effect is the canonical pattern. To re-enable as 'error', refactor those
+      // sites to useSyncExternalStore.
+      'react-hooks/set-state-in-effect': 'warn',
+    },
+  },
+  {
+    // Playwright fixtures use `use(...)` which the lint rule misidentifies as a
+    // React Hook. The pattern is documented Playwright API, not a React Hook.
+    files: ['tests/**/*.ts'],
+    rules: {
+      'react-hooks/rules-of-hooks': 'off',
     },
   },
 ])

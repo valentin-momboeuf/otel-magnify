@@ -25,7 +25,9 @@
   margin-bottom: 1rem;
 }
 
-.profile-form .field { margin-bottom: 0.9rem; }
+.profile-form .field {
+  margin-bottom: 0.9rem;
+}
 
 .field-readonly {
   padding: 0.5rem 0.6rem;
@@ -37,7 +39,11 @@
   font-size: 13px;
 }
 
-.chip-row { display: flex; gap: 0.4rem; flex-wrap: wrap; }
+.chip-row {
+  display: flex;
+  gap: 0.4rem;
+  flex-wrap: wrap;
+}
 .chip {
   padding: 0.2rem 0.6rem;
   border-radius: 999px;
@@ -54,7 +60,10 @@
   border: 1px dashed var(--border);
 }
 
-.radio-row { display: flex; gap: 0.4rem; }
+.radio-row {
+  display: flex;
+  gap: 0.4rem;
+}
 .radio-pill {
   position: relative;
   display: inline-flex;

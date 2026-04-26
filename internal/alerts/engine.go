@@ -98,7 +98,6 @@ func (e *Engine) evaluateWorkloadDown(w models.Workload, now time.Time) {
 			e.hub.BroadcastAlertUpdate(alert)
 		}
 		for _, n := range e.notifiers {
-			n := n
 			go n.Send(alert)
 		}
 	}
@@ -139,7 +138,6 @@ func (e *Engine) evaluateConfigDrift(w models.Workload, now time.Time) {
 			e.hub.BroadcastAlertUpdate(alert)
 		}
 		for _, n := range e.notifiers {
-			n := n
 			go n.Send(alert)
 		}
 	}
@@ -182,7 +180,6 @@ func (e *Engine) evaluateVersionOutdated(w models.Workload, now time.Time) {
 			e.hub.BroadcastAlertUpdate(alert)
 		}
 		for _, n := range e.notifiers {
-			n := n
 			go n.Send(alert)
 		}
 	}

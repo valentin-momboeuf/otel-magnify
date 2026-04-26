@@ -45,12 +45,18 @@ export default function PushHistoryTable({ workloadId }: Props) {
           {history.map((row) => (
             <tr key={`${row.config_id}-${row.applied_at}`}>
               <td>{new Date(row.applied_at).toLocaleString()}</td>
-              <td><span className={`status-pill status-${row.status}`}>{row.status}</span></td>
+              <td>
+                <span className={`status-pill status-${row.status}`}>{row.status}</span>
+              </td>
               <td>{row.pushed_by || '—'}</td>
-              <td><code>{row.config_id.substring(0, 8)}</code></td>
+              <td>
+                <code>{row.config_id.substring(0, 8)}</code>
+              </td>
               <td className="history-error">{row.error_message || ''}</td>
               <td>
-                <button className="btn btn-small" onClick={() => setViewing(row)}>View</button>
+                <button className="btn btn-small" onClick={() => setViewing(row)}>
+                  View
+                </button>
                 {row.status === 'applied' && row.content && (
                   <button
                     className="btn btn-small"
@@ -71,7 +77,9 @@ export default function PushHistoryTable({ workloadId }: Props) {
           <div className="modal" onClick={(e) => e.stopPropagation()}>
             <div className="modal-header">
               <span>Config {viewing.config_id.substring(0, 12)}</span>
-              <button className="btn btn-small" onClick={() => setViewing(null)}>Close</button>
+              <button className="btn btn-small" onClick={() => setViewing(null)}>
+                Close
+              </button>
             </div>
             <YamlEditor value={viewing.content ?? ''} readOnly />
           </div>

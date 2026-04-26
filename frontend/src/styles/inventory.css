@@ -55,7 +55,10 @@
   cursor: pointer;
   color: inherit;
   text-decoration: none;
-  transition: transform var(--dur-fast) var(--ease), border-color var(--dur-fast) var(--ease), background var(--dur-fast) var(--ease);
+  transition:
+    transform var(--dur-fast) var(--ease),
+    border-color var(--dur-fast) var(--ease),
+    background var(--dur-fast) var(--ease);
 }
 
 .workload-card:hover {
@@ -177,9 +180,16 @@
   white-space: nowrap;
 }
 
-.label-chip-key { color: var(--text-muted); }
-.label-chip-eq  { color: var(--border-hi); margin: 0 2px; }
-.label-chip-val { color: var(--text-hi); }
+.label-chip-key {
+  color: var(--text-muted);
+}
+.label-chip-eq {
+  color: var(--border-hi);
+  margin: 0 2px;
+}
+.label-chip-val {
+  color: var(--text-hi);
+}
 
 .label-chip-extra {
   color: var(--text-muted);

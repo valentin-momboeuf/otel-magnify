@@ -1,0 +1,58 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  build-test-go:
+    name: Go build + test (Go 1.25)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      # We intentionally use the `golang:1.25` minor tag (not a digest pin) so
+      # that Docker Hub patches (1.25.x) are picked up automatically. The minor
+      # tag is bounded — it will never drift to 1.26. Renovate could pin the
+      # digest with auto-bump if we want stricter posture later.
+      - name: Build & test in golang:1.25 container
+        run: |
+          docker run --rm \
+            -v "$PWD:/app" \
+            -w /app \
+            -e GOFLAGS='-mod=mod -buildvcs=false' \
+            golang:1.25 sh -c 'go build ./... && go test ./...'
+
+  build-frontend:
+    name: Frontend build + lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Build
+        run: npm run build

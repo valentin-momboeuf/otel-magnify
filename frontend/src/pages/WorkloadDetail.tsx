@@ -20,7 +20,7 @@ export default function WorkloadDetail() {
   const [tab, setTab] = useState<Tab>('overview')
 
   if (isLoading) return <div className="loading">Loading workload...</div>
-  if (!workload)  return <div className="error-text">Workload not found.</div>
+  if (!workload) return <div className="error-text">Workload not found.</div>
 
   const supervised = isSupervised(workload)
   const isCollector = workload.type === 'collector'
@@ -79,7 +79,9 @@ export default function WorkloadDetail() {
             {isCollector && (
               <div className="detail-cell">
                 <div className="detail-cell-label">Control</div>
-                <div className={`detail-cell-value ${supervised ? 'control-supervised' : 'control-readonly'}`}>
+                <div
+                  className={`detail-cell-value ${supervised ? 'control-supervised' : 'control-readonly'}`}
+                >
                   {supervised ? 'Supervised' : 'Read-only'}
                   <span className="detail-cell-sub">
                     {supervised ? 'OpAMP Supervisor' : 'opamp extension only'}
@@ -125,10 +127,7 @@ export default function WorkloadDetail() {
       )}
 
       {tab === 'instances' && (
-        <InstancesTab
-          workloadId={workload.id}
-          activeConfigHash={workload.active_config_hash}
-        />
+        <InstancesTab workloadId={workload.id} activeConfigHash={workload.active_config_hash} />
       )}
 
       {tab === 'activity' && <ActivityTab workloadId={workload.id} />}

@@ -1,0 +1,158 @@
+name: security-pr
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  security-events: write
+  pull-requests: read
+
+jobs:
+  secrets:
+    name: gitleaks (secrets)
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 0
+      # gitleaks/gitleaks-action v2 requires a paid license for organisations.
+      # We run the open-source binary via the official Docker image instead.
+      - name: gitleaks (Docker)
+        run: |
+          docker run --rm \
+            -v "${{ github.workspace }}:/repo:ro" \
+            zricethezav/gitleaks:v8.18.4 \
+            detect --source=/repo --config=/repo/.gitleaks.toml --no-banner --redact -v
+
+  lint-go:
+    name: golangci-lint (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+        with:
+          go-version: '1.25'
+          cache: true
+      - name: golangci-lint
+        uses: golangci/golangci-lint-action@a4f60bb28d35aeee14e6880718e0c85ff1882e64 # v6.5.2
+        with:
+          version: v2.11.4
+          args: --timeout=5m
+          # Enforce on new diffs only — existing errcheck/etc. findings are
+          # tracked for cleanup (see TODO 09 in Obsidian) and don't block
+          # this PR.
+          only-new-issues: true
+
+  lint-fe:
+    name: ESLint + Prettier (frontend)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: '22'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run format:check
+
+  vulns-go:
+    name: govulncheck (Go)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
+        with:
+          go-version: '1.25'
+      # govulncheck is the canonical Go vuln scanner — does call-graph analysis
+      # so it only flags vulnerabilities reachable from our code. We previously
+      # also ran osv-scanner here, but it does naive dependency scanning and
+      # produced noise on non-reachable CVEs (e.g. pgx GHSA-j88v-2chj-qfwx).
+      # osv-scanner stays in vulns-fe for npm where no call-graph tool exists.
+      - name: govulncheck
+        uses: golang/govulncheck-action@b625fbe08f3bccbe446d94fbf87fcc875a4f50ee # v1.0.4
+        with:
+          go-version-input: '1.25'
+          go-package: ./...
+
+  vulns-fe:
+    name: osv-scanner (npm)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: osv-scanner (frontend)
+        uses: google/osv-scanner-action/osv-scanner-action@b00f71e051ddddc6e46a193c31c8c0bf283bf9e6 # v1.9.2
+        with:
+          scan-args: |-
+            --lockfile=frontend/package-lock.json
+
+  docker-lint:
+    name: hadolint (Dockerfile)
+    runs-on: ubuntu-latest
+    continue-on-error: true # warning, pas bloquant
+    strategy:
+      matrix:
+        dockerfile: ['Dockerfile', 'cmd/sdkagent/Dockerfile']
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: hadolint
+        uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          config: .hadolint.yaml
+          format: sarif
+          output-file: hadolint-${{ strategy.job-index }}.sarif
+          no-fail: true
+      - name: Upload SARIF
+        uses: github/codeql-action/upload-sarif@65216971a11ded447a6b76263d5a144519e5eee1 # codeql-bundle-v2.25.2
+        if: always()
+        with:
+          sarif_file: hadolint-${{ strategy.job-index }}.sarif
+          category: hadolint-${{ strategy.job-index }}
+
+  iac:
+    name: trivy config + checkov (IaC)
+    runs-on: ubuntu-latest
+    continue-on-error: true # warning
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+      - name: trivy config scan
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: config
+          scan-ref: .
+          format: sarif
+          output: trivy-config.sarif
+          exit-code: '0'
+      - name: Upload trivy SARIF
+        uses: github/codeql-action/upload-sarif@65216971a11ded447a6b76263d5a144519e5eee1 # codeql-bundle-v2.25.2
+        if: always()
+        with:
+          sarif_file: trivy-config.sarif
+          category: trivy-config
+      - name: checkov (Helm)
+        uses: bridgecrewio/checkov-action@4a99082c85209d45681ede7f3f230941caf8e366 # v12.2901.0
+        with:
+          directory: helm/
+          framework: helm
+          output_format: sarif
+          output_file_path: checkov.sarif
+          soft_fail: true
+      - name: Upload checkov SARIF
+        uses: github/codeql-action/upload-sarif@65216971a11ded447a6b76263d5a144519e5eee1 # codeql-bundle-v2.25.2
+        if: always()
+        with:
+          sarif_file: checkov.sarif/results_sarif.sarif
+          category: checkov-helm

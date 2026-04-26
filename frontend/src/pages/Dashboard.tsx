@@ -13,20 +13,27 @@ import '../styles/dashboard.css'
 
 export default function Dashboard() {
   const { t } = useTranslation()
-  const { data: workloads } = useQuery({ queryKey: ['workloads'], queryFn: () => workloadsAPI.list() })
-  const { data: alerts }    = useQuery({ queryKey: ['alerts'],    queryFn: () => alertsAPI.list(false) })
+  const { data: workloads } = useQuery({
+    queryKey: ['workloads'],
+    queryFn: () => workloadsAPI.list(),
+  })
+  const { data: alerts } = useQuery({ queryKey: ['alerts'], queryFn: () => alertsAPI.list(false) })
 
   const setWorkloads = useStore((s) => s.setWorkloads)
-  const setAlerts    = useStore((s) => s.setAlerts)
+  const setAlerts = useStore((s) => s.setAlerts)
 
-  useEffect(() => { if (workloads) setWorkloads(workloads) }, [workloads, setWorkloads])
-  useEffect(() => { if (alerts)    setAlerts(alerts) },       [alerts,    setAlerts])
+  useEffect(() => {
+    if (workloads) setWorkloads(workloads)
+  }, [workloads, setWorkloads])
+  useEffect(() => {
+    if (alerts) setAlerts(alerts)
+  }, [alerts, setAlerts])
 
   const ws = workloads ?? []
-  const connected  = ws.filter((w) => w.status === 'connected').length
-  const degraded   = ws.filter((w) => w.status === 'degraded').length
-  const collectors = ws.filter((w) => w.type   === 'collector').length
-  const sdks       = ws.filter((w) => w.type   === 'sdk').length
+  const connected = ws.filter((w) => w.status === 'connected').length
+  const degraded = ws.filter((w) => w.status === 'degraded').length
+  const collectors = ws.filter((w) => w.type === 'collector').length
+  const sdks = ws.filter((w) => w.type === 'sdk').length
   const supervised = ws.filter(isSupervised).length
 
   return (
@@ -39,12 +46,24 @@ export default function Dashboard() {
       </header>
 
       <section className="stat-grid">
-        <StatCard label={t('dashboard.stat.collectors')}    value={collectors}          link="/inventory?type=collector" />
-        <StatCard label={t('dashboard.stat.sdks')}          value={sdks}                link="/inventory?type=sdk" />
-        <StatCard label={t('dashboard.stat.supervised')}    value={supervised}          link="/inventory?control=supervised" />
-        <StatCard label={t('dashboard.stat.connected')}     value={connected} />
-        <StatCard label={t('dashboard.stat.degraded')}      value={degraded} />
-        <StatCard label={t('dashboard.stat.active_alerts')} value={alerts?.length ?? 0} link="/alerts" />
+        <StatCard
+          label={t('dashboard.stat.collectors')}
+          value={collectors}
+          link="/inventory?type=collector"
+        />
+        <StatCard label={t('dashboard.stat.sdks')} value={sdks} link="/inventory?type=sdk" />
+        <StatCard
+          label={t('dashboard.stat.supervised')}
+          value={supervised}
+          link="/inventory?control=supervised"
+        />
+        <StatCard label={t('dashboard.stat.connected')} value={connected} />
+        <StatCard label={t('dashboard.stat.degraded')} value={degraded} />
+        <StatCard
+          label={t('dashboard.stat.active_alerts')}
+          value={alerts?.length ?? 0}
+          link="/alerts"
+        />
       </section>
 
       <section className="dashboard-grid">

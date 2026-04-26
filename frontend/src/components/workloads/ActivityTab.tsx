@@ -36,9 +36,7 @@ export default function ActivityTab({ workloadId }: Props) {
         <strong>{stats?.disconnected ?? 0}</strong> disconnect
         {stats?.disconnected === 1 ? '' : 's'} in the last 24h
         {stats && (
-          <span className="activity-header-meta">
-            ({stats.churn_rate_per_hour.toFixed(2)}/h)
-          </span>
+          <span className="activity-header-meta">({stats.churn_rate_per_hour.toFixed(2)}/h)</span>
         )}
       </header>
 
@@ -55,9 +53,7 @@ export default function ActivityTab({ workloadId }: Props) {
                     {new Date(e.occurred_at).toLocaleTimeString()}
                   </time>
                   <span className="activity-dot" aria-hidden="true" />
-                  <span className="activity-event-type">
-                    {e.event_type.replace('_', ' ')}
-                  </span>
+                  <span className="activity-event-type">{e.event_type.replace('_', ' ')}</span>
                   <span className="mono activity-identity">
                     {e.pod_name || e.instance_uid.slice(0, 8)}
                   </span>

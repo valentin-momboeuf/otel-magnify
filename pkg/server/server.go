@@ -102,8 +102,9 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	opampHTTP := &http.Server{
-		Handler:     opampMux,
-		ConnContext: connCtx,
+		Handler:           opampMux,
+		ConnContext:       connCtx,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
 		log.Printf("OpAMP server listening on %s", opampListener.Addr())
@@ -143,7 +144,8 @@ func (s *Server) Run(ctx context.Context) error {
 		return err
 	}
 	apiHTTP := &http.Server{
-		Handler: router,
+		Handler:           router,
+		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
 		log.Printf("API server listening on %s", apiListener.Addr())

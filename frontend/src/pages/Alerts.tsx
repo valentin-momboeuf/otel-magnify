@@ -46,14 +46,18 @@ export default function Alerts() {
             {(alerts ?? []).map((a) => (
               <tr key={a.id}>
                 <td>
-                  <Link to={`/workloads/${a.workload_id}`}><code>{a.workload_id}</code></Link>
+                  <Link to={`/workloads/${a.workload_id}`}>
+                    <code>{a.workload_id}</code>
+                  </Link>
                 </td>
-                <td><code>{a.rule}</code></td>
-                <td><StatusBadge status={a.severity} /></td>
+                <td>
+                  <code>{a.rule}</code>
+                </td>
+                <td>
+                  <StatusBadge status={a.severity} />
+                </td>
                 <td className="alert-message-cell">{a.message}</td>
-                <td className="table-timestamp">
-                  {new Date(a.fired_at).toLocaleString()}
-                </td>
+                <td className="table-timestamp">{new Date(a.fired_at).toLocaleString()}</td>
                 <td>
                   <button
                     className="btn-resolve"

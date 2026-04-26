@@ -11,15 +11,15 @@ const PASSWORD_METHOD: AuthMethod = {
 }
 
 export default function Login() {
-  const navigate  = useNavigate()
-  const setMe     = useStore((s) => s.setMe)
-  const [email,    setEmail]    = useState('')
+  const navigate = useNavigate()
+  const setMe = useStore((s) => s.setMe)
+  const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
-  const [error,    setError]    = useState('')
-  const [loading,  setLoading]  = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
   // Default to the password-only list so the page stays usable if the
   // methods endpoint fails. Overwritten on mount with the server's answer.
-  const [methods,  setMethods]  = useState<AuthMethod[]>([PASSWORD_METHOD])
+  const [methods, setMethods] = useState<AuthMethod[]>([PASSWORD_METHOD])
 
   useEffect(() => {
     let cancelled = false
@@ -37,7 +37,7 @@ export default function Login() {
   }, [])
 
   const hasPassword = methods.some((m) => m.type === 'password')
-  const ssoMethods  = methods.filter((m) => m.type === 'sso')
+  const ssoMethods = methods.filter((m) => m.type === 'sso')
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -71,7 +71,9 @@ export default function Login() {
         {hasPassword && (
           <>
             <div className="field">
-              <label className="field-label" htmlFor="login-email">Email</label>
+              <label className="field-label" htmlFor="login-email">
+                Email
+              </label>
               <input
                 id="login-email"
                 type="email"
@@ -84,7 +86,9 @@ export default function Login() {
             </div>
 
             <div className="field">
-              <label className="field-label" htmlFor="login-password">Password</label>
+              <label className="field-label" htmlFor="login-password">
+                Password
+              </label>
               <input
                 id="login-password"
                 type="password"
@@ -100,7 +104,12 @@ export default function Login() {
               type="submit"
               className="btn btn-primary"
               disabled={loading}
-              style={{ width: '100%', justifyContent: 'center', padding: '0.6rem', marginTop: '0.5rem' }}
+              style={{
+                width: '100%',
+                justifyContent: 'center',
+                padding: '0.6rem',
+                marginTop: '0.5rem',
+              }}
             >
               {loading ? 'Authenticating...' : 'Sign in'}
             </button>
@@ -108,7 +117,10 @@ export default function Login() {
         )}
 
         {ssoMethods.length > 0 && (
-          <div className="login-sso" style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}>
+          <div
+            className="login-sso"
+            style={{ marginTop: '1rem', display: 'flex', flexDirection: 'column', gap: '0.5rem' }}
+          >
             {ssoMethods.map((m) => (
               <a
                 key={m.id}

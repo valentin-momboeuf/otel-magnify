@@ -1,0 +1,18 @@
+# https://github.com/hadolint/hadolint
+ignored:
+  # DL3008 — pin apt versions: too strict for fast dev images
+  - DL3008
+  # DL3018 — pin apk versions: idem
+  - DL3018
+  # DL3059 — multiple consecutive RUN: intentional for cache layers
+  - DL3059
+  # DL3006 — explicit image tags: distroless/static-debian12 is a stable rolling
+  # tag maintained by Google. Pinning to a digest is a separate effort tracked
+  # alongside golang:1.25 (see ci.yml comment).
+  - DL3006
+
+trustedRegistries:
+  - docker.io
+  - ghcr.io
+  # Google distroless: official, widely used as a minimal runtime base image.
+  - gcr.io

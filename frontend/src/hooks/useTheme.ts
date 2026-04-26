@@ -12,12 +12,8 @@ export function useTheme() {
     const mq = window.matchMedia('(prefers-color-scheme: dark)')
 
     const apply = () => {
-      const effective =
-        pref === 'system' ? (mq.matches ? 'dark' : 'light') : pref
-      document.documentElement.setAttribute(
-        'data-theme',
-        THEMES[effective as 'dark' | 'light'],
-      )
+      const effective = pref === 'system' ? (mq.matches ? 'dark' : 'light') : pref
+      document.documentElement.setAttribute('data-theme', THEMES[effective as 'dark' | 'light'])
     }
 
     apply()

@@ -27,14 +27,23 @@ function AppShell() {
     // /login too, and a 401 here would trip the axios interceptor into a
     // window.location = '/login' reload loop.
     if (localStorage.getItem('token')) {
-      meAPI.get().then(setMe).catch(() => {})
+      meAPI
+        .get()
+        .then(setMe)
+        .catch(() => {})
     }
     return () => disconnectWS()
   }, [setMe])
 
   return (
     <Routes>
-      <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+      <Route
+        element={
+          <ProtectedRoute>
+            <Layout />
+          </ProtectedRoute>
+        }
+      >
         <Route path="/" element={<Dashboard />} />
         <Route path="/inventory" element={<Workloads />} />
         <Route path="/workloads/:id" element={<WorkloadDetail />} />

@@ -37,13 +37,18 @@ export default function DeployedVersionsPanel({ workloads }: Props) {
             <div key={r.version} className="versions-row">
               <span className="versions-label">{r.version}</span>
               <span className="versions-bar">
-                <span className="versions-bar-fill" style={{ width: `${(r.count / max) * 100}%` }} />
+                <span
+                  className="versions-bar-fill"
+                  style={{ width: `${(r.count / max) * 100}%` }}
+                />
               </span>
               <span className="versions-count">{r.count}</span>
             </div>
           ))}
           {extraCount > 0 && (
-            <div className="versions-empty">{t('dashboard.versions.others', { count: extraCount })}</div>
+            <div className="versions-empty">
+              {t('dashboard.versions.others', { count: extraCount })}
+            </div>
           )}
         </div>
       )}

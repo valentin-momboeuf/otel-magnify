@@ -33,9 +33,15 @@ export default function RecentAlertsPanel({ alerts }: Props) {
           <tbody>
             {rows.map((a) => (
               <tr key={a.id}>
-                <td><code>{a.workload_id}</code></td>
-                <td><code>{a.rule}</code></td>
-                <td><StatusBadge status={a.severity} /></td>
+                <td>
+                  <code>{a.workload_id}</code>
+                </td>
+                <td>
+                  <code>{a.rule}</code>
+                </td>
+                <td>
+                  <StatusBadge status={a.severity} />
+                </td>
                 <td>{a.message}</td>
                 <td className="table-timestamp">{new Date(a.fired_at).toLocaleString()}</td>
               </tr>

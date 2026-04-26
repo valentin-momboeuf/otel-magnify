@@ -143,7 +143,7 @@ type User struct {
 type Group struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
-	Role      string    `json:"role"`      // viewer | editor | administrator
+	Role      string    `json:"role"` // viewer | editor | administrator
 	IsSystem  bool      `json:"is_system"`
 	CreatedAt time.Time `json:"created_at"`
 }
@@ -202,7 +202,7 @@ type Workload struct {
 	FingerprintSource   string               `json:"fingerprint_source"` // "k8s" | "host" | "uid"
 	FingerprintKeys     FingerprintKeys      `json:"fingerprint_keys"`
 	DisplayName         string               `json:"display_name"`
-	Type                string               `json:"type"`   // "collector" | "sdk"
+	Type                string               `json:"type"` // "collector" | "sdk"
 	Version             string               `json:"version"`
 	Status              string               `json:"status"` // "connected" | "disconnected" | "degraded"
 	LastSeenAt          time.Time            `json:"last_seen_at"`
