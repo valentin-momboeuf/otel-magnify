@@ -1,0 +1,27 @@
+# License allowlist for otel-magnify (community).
+# One SPDX identifier per line. Comments allowed.
+# Adding a new entry requires PR with justification.
+#
+# Update process: when a new transitive dep introduces a license not
+# listed here, the licenses CI job blocks the PR. The fix is either:
+#   1. Replace the dep with one under an existing license, or
+#   2. Add the license here with a brief justification (commented)
+
+# Permissive
+Apache-2.0
+MIT
+BSD-2-Clause
+BSD-3-Clause
+ISC
+0BSD
+Zlib
+
+# Public-domain-equivalent
+Unlicense
+CC0-1.0
+
+# Weak copyleft (file-scope only — the Mozilla family is fine for proprietary linking)
+MPL-2.0
+
+# Composites observed in npm tree (frontend)
+MIT AND ISC
