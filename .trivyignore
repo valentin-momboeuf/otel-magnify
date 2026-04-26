@@ -1,0 +1,4 @@
+# CVE allowlist for trivy scans.
+# Format: <CVE-ID>  # <Reason — re-evaluate <date>>
+#
+# Empty for now — entries will be added explicitly via PR with justification.
