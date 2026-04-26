@@ -9,8 +9,8 @@ import (
 // resource attributes. Source identifies which strategy matched; Keys records
 // the attributes that contributed (for debugging and UI display).
 type FingerprintResult struct {
-	ID     string            // 24 hex chars (sha256 prefix)
-	Source string            // "k8s" | "host" | "uid"
+	ID     string // 24 hex chars (sha256 prefix)
+	Source string // "k8s" | "host" | "uid"
 	Keys   map[string]string
 }
 

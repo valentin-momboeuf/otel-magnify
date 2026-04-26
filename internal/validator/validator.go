@@ -149,9 +149,9 @@ func Validate(yamlContent []byte, available *models.AvailableComponents) Result 
 			path := fmt.Sprintf("service.extensions[%d]", i)
 			if _, defined := definedByCategory["extensions"][id]; !defined {
 				errs = append(errs, Error{
-					Code: "undefined_component",
+					Code:    "undefined_component",
 					Message: fmt.Sprintf("service.extensions references %q which is not defined under top-level 'extensions'", id),
-					Path: path,
+					Path:    path,
 				})
 				continue
 			}

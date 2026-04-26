@@ -79,7 +79,9 @@ func TestFingerprintStability(t *testing.T) {
 	// map-iteration-order flakiness).
 	attrs := map[string]string{"k8s.cluster.name": "prod", "k8s.namespace.name": "obs", "k8s.deployment.name": "otel"}
 	for i := 0; i < 100; i++ {
-		if Fingerprint(attrs, "").ID != Fingerprint(attrs, "").ID {
+		id1 := Fingerprint(attrs, "").ID
+		id2 := Fingerprint(attrs, "").ID
+		if id1 != id2 {
 			t.Fatal("non-deterministic fingerprint")
 		}
 	}
