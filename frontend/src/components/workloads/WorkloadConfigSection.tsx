@@ -310,12 +310,7 @@ export default function WorkloadConfigSection({ workload }: Props) {
         loadConfigMutation.mutate(id)
       }}
       aria-label="Apply a saved config"
-      disabled={
-        loadConfigMutation.isPending ||
-        !!pendingHash ||
-        isConfigsEmpty ||
-        configsListError
-      }
+      disabled={loadConfigMutation.isPending || !!pendingHash || isConfigsEmpty || configsListError}
     >
       <option value="">{placeholderLabel}</option>
       {(savedConfigs ?? []).map((c) => (
