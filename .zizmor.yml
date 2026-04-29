@@ -1,0 +1,10 @@
+# .zizmor.yml — config zizmor
+#
+# Vide initialement. Toute exclusion ajoutée ici exige un commentaire de
+# justification (pattern aligné sur .gitleaks.toml et .trivyignore).
+#
+# Exemple (à dé-commenter au cas par cas seulement) :
+# rules:
+#   template-injection:
+#     ignore:
+#       - .github/workflows/release.yml  # justification : <pourquoi>
