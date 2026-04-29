@@ -441,3 +441,30 @@ test('selector is absent for SDK workloads', async ({ loggedInPage: page }) => {
   // SDK workload is displayed (SDK don't have config management UI)
   await expect(page.locator('body')).toContainText('demo-app')
 })
+
+test('selecting a config overwrites in-progress draft silently (no confirm)', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'old: true\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [{ id: 'cfg-eu', name: 'collector-prod-eu' }])
+  await mockConfigDetail(page, 'cfg-eu', 'collector-prod-eu', 'replaced: true\n')
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+  // Enter edit mode and type something
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await page.locator('.cm-content').first().click()
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.type('user-typed-mess: yes\n')
+
+  // Now select a saved config
+  await page.locator('select.apply-config-select').selectOption('cfg-eu')
+
+  // The draft should now contain the saved config's content, not the typed mess.
+  // Editor visible is the right-hand panel of the MergeView (Diff tab is auto-active).
+  await expect(page.locator('.cm-mergeView .cm-content').nth(1)).toContainText('replaced: true')
+  await expect(page.locator('.cm-mergeView .cm-content').nth(1)).not.toContainText(
+    'user-typed-mess',
+  )
+})
