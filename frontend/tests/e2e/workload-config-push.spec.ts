@@ -332,3 +332,21 @@ test('apply-saved-config selector renders in supervised collector branch', async
   await expect(selector.locator('option').nth(1)).toContainText('collector-prod-eu')
   await expect(selector.locator('option').nth(2)).toContainText('collector-prod-us')
 })
+
+test('bootstrap workload (no active config): selecting falls back to Edit tab', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page, { active_config_id: undefined })
+  await mockHistory(page, [])
+  await mockConfigsList(page, [{ id: 'cfg-eu', name: 'collector-prod-eu' }])
+  await mockConfigDetail(page, 'cfg-eu', 'collector-prod-eu', 'fresh: true\n')
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+  await page.locator('select.apply-config-select').selectOption('cfg-eu')
+
+  // Edit tab is the only navigable one (Diff is disabled when no active_config_id)
+  await expect(page.locator('.tab-active')).toHaveText('Edit')
+  await expect(page.getByRole('button', { name: 'Diff' })).toBeDisabled()
+  // Editor draft contains the selected config's content
+  await expect(page.locator('.cm-content').first()).toContainText('fresh: true')
+})
