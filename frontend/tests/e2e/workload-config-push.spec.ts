@@ -438,8 +438,9 @@ test('selector is absent for SDK workloads', async ({ loggedInPage: page }) => {
   await page.goto(`/workloads/${WORKLOAD_ID}`)
 
   await expect(page.locator('select.apply-config-select')).toHaveCount(0)
-  // SDK workload is displayed (SDK don't have config management UI)
-  await expect(page.locator('body')).toContainText('demo-app')
+  // SDK label chips visible (page shows labels in both the Labels section and the
+  // Configuration section; assert at least one chip carries the expected text)
+  await expect(page.locator('.label-chip').first()).toContainText('demo-app')
 })
 
 test('selecting a config overwrites in-progress draft silently (no confirm)', async ({

@@ -47,7 +47,6 @@ export default function WorkloadConfigSection({ workload }: Props) {
   const { data: savedConfigs, isError: configsListError } = useQuery({
     queryKey: ['configs'],
     queryFn: configsAPI.list,
-    retry: false,
   })
 
   const activeContent = config?.content ?? ''
