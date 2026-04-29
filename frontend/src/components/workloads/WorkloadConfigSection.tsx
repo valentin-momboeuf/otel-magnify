@@ -306,7 +306,7 @@ export default function WorkloadConfigSection({ workload }: Props) {
       <option value="">— Apply a saved config —</option>
       {(savedConfigs ?? []).map((c) => (
         <option key={c.id} value={c.id}>
-          {c.name}
+          {c.id === workload.active_config_id ? `${c.name} (currently applied)` : c.name}
         </option>
       ))}
     </select>

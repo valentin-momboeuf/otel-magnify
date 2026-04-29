@@ -350,3 +350,23 @@ test('bootstrap workload (no active config): selecting falls back to Edit tab', 
   // Editor draft contains the selected config's content
   await expect(page.locator('.cm-content').first()).toContainText('fresh: true')
 })
+
+test('selector annotates the currently applied config', async ({ loggedInPage: page }) => {
+  await mockWorkload(page) // active_config_id = ACTIVE_CONFIG_ID = 'abc123'
+  await mockConfig(page, 'old: true\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [
+    { id: 'abc123', name: 'collector-prod-eu' },
+    { id: 'cfg-us', name: 'collector-prod-us' },
+  ])
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  const eu = page.locator('select.apply-config-select option').nth(1)
+  await expect(eu).toContainText('collector-prod-eu')
+  await expect(eu).toContainText('(currently applied)')
+
+  const us = page.locator('select.apply-config-select option').nth(2)
+  await expect(us).toContainText('collector-prod-us')
+  await expect(us).not.toContainText('(currently applied)')
+})
