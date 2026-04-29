@@ -32,6 +32,7 @@ export default function WorkloadConfigSection({ workload }: Props) {
   const [timedOut, setTimedOut] = useState(false)
   const [validation, setValidation] = useState<ValidationResult | null>(null)
   const [pushError, setPushError] = useState<string | null>(null)
+  const [selectedConfigId, setSelectedConfigId] = useState('')
 
   const {
     data: config,
@@ -81,6 +82,22 @@ export default function WorkloadConfigSection({ workload }: Props) {
         ? (err.response?.data?.error ?? err.message)
         : 'Failed to push configuration'
       setPushError(msg)
+    },
+  })
+
+  const loadConfigMutation = useMutation({
+    mutationFn: (configId: string) => configsAPI.get(configId),
+    onSuccess: (cfg) => {
+      enterEditMode(cfg.content)
+      setTab(workload.active_config_id ? 'diff' : 'edit')
+      setSelectedConfigId('')
+    },
+    onError: (err: unknown) => {
+      const msg = axios.isAxiosError(err)
+        ? (err.response?.data?.error ?? err.message)
+        : 'Failed to load configuration'
+      setPushError(`Failed to load configuration: ${msg}`)
+      setSelectedConfigId('')
     },
   })
 
@@ -277,11 +294,15 @@ export default function WorkloadConfigSection({ workload }: Props) {
   const applySelector = (
     <select
       className="filter-select apply-config-select"
-      value=""
-      onChange={() => {
-        // handler added in Task 3
+      value={selectedConfigId}
+      onChange={(e) => {
+        const id = e.target.value
+        if (!id) return
+        setSelectedConfigId(id)
+        loadConfigMutation.mutate(id)
       }}
       aria-label="Apply a saved config"
+      disabled={loadConfigMutation.isPending || !!pendingHash}
     >
       <option value="">— Apply a saved config —</option>
       {(savedConfigs ?? []).map((c) => (

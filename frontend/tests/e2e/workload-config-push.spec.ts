@@ -272,6 +272,47 @@ function mockConfigsList(page: Page, configs: Array<{ id: string; name: string }
   )
 }
 
+function mockConfigDetail(
+  page: Page,
+  id: string,
+  name: string,
+  content: string,
+) {
+  return page.route(`**/api/configs/${id}`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id,
+        name,
+        content,
+        created_at: new Date().toISOString(),
+        created_by: 'tester',
+      }),
+    }),
+  )
+}
+
+test('selecting a saved config loads YAML into editor and switches to Diff tab', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'old: true\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [{ id: 'cfg-eu', name: 'collector-prod-eu' }])
+  await mockConfigDetail(page, 'cfg-eu', 'collector-prod-eu', 'new: true\n')
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+  await page.locator('select.apply-config-select').selectOption('cfg-eu')
+
+  // Diff tab should be the active one (workload has active_config_id)
+  await expect(page.locator('.tab-active')).toHaveText('Diff')
+  // Two editor panels visible (the MergeView)
+  await expect(page.locator('.cm-mergeView .cm-editor')).toHaveCount(2)
+  // The right-hand (newYaml) editor contains the selected config's content
+  await expect(page.locator('.cm-mergeView .cm-content').nth(1)).toContainText('new: true')
+})
+
 test('apply-saved-config selector renders in supervised collector branch', async ({
   loggedInPage: page,
 }) => {
