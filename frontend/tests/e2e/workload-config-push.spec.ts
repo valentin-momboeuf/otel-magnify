@@ -370,3 +370,23 @@ test('selector annotates the currently applied config', async ({ loggedInPage: p
   await expect(us).toContainText('collector-prod-us')
   await expect(us).not.toContainText('(currently applied)')
 })
+
+test('empty configs list disables selector with explanatory text', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'a: 1\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [])
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  const selector = page.locator('select.apply-config-select')
+  await expect(selector).toBeDisabled()
+  await expect(selector).toHaveValue('')
+  await expect(selector.locator('option')).toHaveCount(1)
+  await expect(selector.locator('option').first()).toContainText('No saved configs')
+
+  // Editor copy-paste flow still functional: Edit button visible
+  await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible()
+})

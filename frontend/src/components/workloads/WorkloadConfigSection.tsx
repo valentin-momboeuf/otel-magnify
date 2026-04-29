@@ -290,6 +290,11 @@ export default function WorkloadConfigSection({ workload }: Props) {
     </div>
   )
 
+  const isConfigsEmpty = (savedConfigs?.length ?? 0) === 0
+  const placeholderLabel = isConfigsEmpty
+    ? '— No saved configs (create one in Configs) —'
+    : '— Apply a saved config —'
+
   const applySelector = (
     <select
       className="filter-select apply-config-select"
@@ -301,9 +306,13 @@ export default function WorkloadConfigSection({ workload }: Props) {
         loadConfigMutation.mutate(id)
       }}
       aria-label="Apply a saved config"
-      disabled={loadConfigMutation.isPending || !!pendingHash}
+      disabled={
+        loadConfigMutation.isPending ||
+        !!pendingHash ||
+        isConfigsEmpty
+      }
     >
-      <option value="">— Apply a saved config —</option>
+      <option value="">{placeholderLabel}</option>
       {(savedConfigs ?? []).map((c) => (
         <option key={c.id} value={c.id}>
           {c.id === workload.active_config_id ? `${c.name} (currently applied)` : c.name}
