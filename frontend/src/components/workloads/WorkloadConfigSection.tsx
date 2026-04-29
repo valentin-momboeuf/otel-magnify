@@ -88,8 +88,7 @@ export default function WorkloadConfigSection({ workload }: Props) {
   const loadConfigMutation = useMutation({
     mutationFn: (configId: string) => configsAPI.get(configId),
     onSuccess: (cfg) => {
-      enterEditMode(cfg.content)
-      setTab(workload.active_config_id ? 'diff' : 'edit')
+      enterEditMode(cfg.content, workload.active_config_id ? 'diff' : 'edit')
       setSelectedConfigId('')
     },
     onError: (err: unknown) => {
@@ -127,10 +126,10 @@ export default function WorkloadConfigSection({ workload }: Props) {
     return () => clearTimeout(timer)
   }, [pendingHash])
 
-  function enterEditMode(initialContent: string) {
+  function enterEditMode(initialContent: string, targetTab: Tab = 'edit') {
     setDraftYaml(initialContent)
     setEditMode(true)
-    setTab('edit')
+    setTab(targetTab)
     setValidation(null)
     setPushError(null)
   }
