@@ -423,3 +423,21 @@ test('selector is absent in read-only collector branch', async ({ loggedInPage: 
   // Read-only message still shown
   await expect(page.locator('.config-readonly-note')).toContainText('Read-only')
 })
+
+test('selector is absent for SDK workloads', async ({ loggedInPage: page }) => {
+  await mockWorkload(page, {
+    type: 'sdk',
+    active_config_id: undefined,
+    accepts_remote_config: false,
+    available_components: undefined,
+    labels: { 'service.name': 'demo-app' },
+  })
+  await mockHistory(page, [])
+  await mockConfigsList(page, [{ id: 'cfg-eu', name: 'collector-prod-eu' }])
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  await expect(page.locator('select.apply-config-select')).toHaveCount(0)
+  // SDK workload is displayed (SDK don't have config management UI)
+  await expect(page.locator('body')).toContainText('demo-app')
+})
