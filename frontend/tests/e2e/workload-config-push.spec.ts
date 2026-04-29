@@ -410,3 +410,16 @@ test('configs list fetch error shows disabled selector with retry', async ({
   // Editor copy-paste flow still works
   await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible()
 })
+
+test('selector is absent in read-only collector branch', async ({ loggedInPage: page }) => {
+  await mockWorkload(page, { accepts_remote_config: false })
+  await mockConfig(page, 'a: 1\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [{ id: 'cfg-eu', name: 'collector-prod-eu' }])
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  await expect(page.locator('select.apply-config-select')).toHaveCount(0)
+  // Read-only message still shown
+  await expect(page.locator('.config-readonly-note')).toContainText('Read-only')
+})
