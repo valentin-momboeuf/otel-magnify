@@ -390,3 +390,23 @@ test('empty configs list disables selector with explanatory text', async ({
   // Editor copy-paste flow still functional: Edit button visible
   await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible()
 })
+
+test('configs list fetch error shows disabled selector with retry', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'a: 1\n')
+  await mockHistory(page, [])
+  await page.route('**/api/configs', (route) =>
+    route.fulfill({ status: 500, body: '{"error":"boom"}' }),
+  )
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  const selector = page.locator('select.apply-config-select')
+  await expect(selector).toBeDisabled()
+  await expect(selector.locator('option').first()).toContainText('Failed to load configs')
+
+  // Editor copy-paste flow still works
+  await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible()
+})

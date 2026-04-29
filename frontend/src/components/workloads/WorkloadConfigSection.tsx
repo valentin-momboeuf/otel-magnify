@@ -44,9 +44,10 @@ export default function WorkloadConfigSection({ workload }: Props) {
     enabled: workload.type === 'collector' && !!workload.active_config_id,
   })
 
-  const { data: savedConfigs } = useQuery({
+  const { data: savedConfigs, isError: configsListError } = useQuery({
     queryKey: ['configs'],
     queryFn: configsAPI.list,
+    retry: false,
   })
 
   const activeContent = config?.content ?? ''
@@ -290,10 +291,13 @@ export default function WorkloadConfigSection({ workload }: Props) {
     </div>
   )
 
-  const isConfigsEmpty = (savedConfigs?.length ?? 0) === 0
-  const placeholderLabel = isConfigsEmpty
-    ? '— No saved configs (create one in Configs) —'
-    : '— Apply a saved config —'
+  const isConfigsEmpty = !configsListError && (savedConfigs?.length ?? 0) === 0
+  let placeholderLabel = '— Apply a saved config —'
+  if (configsListError) {
+    placeholderLabel = '— Failed to load configs —'
+  } else if (isConfigsEmpty) {
+    placeholderLabel = '— No saved configs (create one in Configs) —'
+  }
 
   const applySelector = (
     <select
@@ -309,7 +313,8 @@ export default function WorkloadConfigSection({ workload }: Props) {
       disabled={
         loadConfigMutation.isPending ||
         !!pendingHash ||
-        isConfigsEmpty
+        isConfigsEmpty ||
+        configsListError
       }
     >
       <option value="">{placeholderLabel}</option>
