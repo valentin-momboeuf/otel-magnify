@@ -43,6 +43,11 @@ export default function WorkloadConfigSection({ workload }: Props) {
     enabled: workload.type === 'collector' && !!workload.active_config_id,
   })
 
+  const { data: savedConfigs } = useQuery({
+    queryKey: ['configs'],
+    queryFn: configsAPI.list,
+  })
+
   const activeContent = config?.content ?? ''
 
   const validateMutation = useMutation({
@@ -269,11 +274,30 @@ export default function WorkloadConfigSection({ workload }: Props) {
     </div>
   )
 
+  const applySelector = (
+    <select
+      className="filter-select apply-config-select"
+      value=""
+      onChange={() => {
+        // handler added in Task 3
+      }}
+      aria-label="Apply a saved config"
+    >
+      <option value="">— Apply a saved config —</option>
+      {(savedConfigs ?? []).map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.name}
+        </option>
+      ))}
+    </select>
+  )
+
   // ── Collector without active config ──────────────────────────────────────
   if (!workload.active_config_id) {
     return (
       <>
         <p className="section-title">Configuration</p>
+        {applySelector}
         {editMode ? (
           editorPanel
         ) : (
@@ -311,6 +335,7 @@ export default function WorkloadConfigSection({ workload }: Props) {
   return (
     <>
       <p className="section-title">Configuration</p>
+      {applySelector}
 
       {!editMode ? (
         <div>

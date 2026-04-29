@@ -253,3 +253,41 @@ test('YAML keys are colored via Signal Deck theme', async ({ loggedInPage: page 
   const color = await firstSpan.evaluate((el) => getComputedStyle(el).color)
   expect(color).toBe('rgb(212, 168, 74)')
 })
+
+function mockConfigsList(page: Page, configs: Array<{ id: string; name: string }>) {
+  return page.route(`**/api/configs`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        configs.map((c) => ({
+          id: c.id,
+          name: c.name,
+          content: '',
+          created_at: new Date().toISOString(),
+          created_by: 'tester',
+        })),
+      ),
+    }),
+  )
+}
+
+test('apply-saved-config selector renders in supervised collector branch', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'a: 1\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [
+    { id: 'cfg-eu', name: 'collector-prod-eu' },
+    { id: 'cfg-us', name: 'collector-prod-us' },
+  ])
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  const selector = page.locator('select.apply-config-select')
+  await expect(selector).toBeVisible()
+  await expect(selector.locator('option')).toHaveCount(3) // placeholder + 2 configs
+  await expect(selector.locator('option').nth(1)).toContainText('collector-prod-eu')
+  await expect(selector.locator('option').nth(2)).toContainText('collector-prod-us')
+})
