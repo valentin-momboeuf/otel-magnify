@@ -1,6 +1,16 @@
 # Changelog
 
 All notable changes to this project are documented here.
+## v0.4.0 — 2026-04-30
+
+### Features
+- Expose WithProtectedRouterHook for auth-protected extensions (#49)
+
+
+### Testing
+- Real-backend Playwright for SSO admin lifecycle (#48)
+
+
 ## v0.3.0 — 2026-04-30
 
 ### Bug Fixes
