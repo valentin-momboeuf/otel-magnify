@@ -190,4 +190,4 @@ jobs:
           # Composite SPDX expressions ("MIT AND ISC") are passed through verbatim.
           allowed=$(grep -v '^#' ../licenses.allowlist.txt | grep -v '^$' | paste -sd';' -)
           npx --yes license-checker --production --onlyAllow "${allowed}" \
-            --excludePackages 'frontend@0.2.0'
+            --excludePackages 'frontend@0.4.0'
