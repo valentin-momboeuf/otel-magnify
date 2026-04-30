@@ -26,13 +26,6 @@ export default defineConfig([
       // map[status], updated[idx]). All flagged instances are false positives — keys
       // are derived from typed API responses or internal accumulators, not user input.
       'security/detect-object-injection': 'off',
-
-      // Downgraded: this rule is new in eslint-plugin-react-hooks v7 and considered
-      // overly strict by parts of the React community. Our existing effects sync
-      // state from external sources (WS messages, URL params) where setState in
-      // effect is the canonical pattern. To re-enable as 'error', refactor those
-      // sites to useSyncExternalStore.
-      'react-hooks/set-state-in-effect': 'warn',
     },
   },
   {
