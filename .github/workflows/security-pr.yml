@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
   pull-requests: read
 
 jobs:
@@ -20,6 +19,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
+          persist-credentials: false
       # gitleaks/gitleaks-action v2 requires a paid license for organisations.
       # We run the open-source binary via the official Docker image instead.
       - name: gitleaks (Docker)
@@ -34,6 +34,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
         with:
           go-version: '1.25'
@@ -56,6 +58,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: '22'
@@ -70,6 +74,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
         with:
           go-version: '1.25'
@@ -89,6 +95,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: osv-scanner (frontend)
         uses: google/osv-scanner-action/osv-scanner-action@b00f71e051ddddc6e46a193c31c8c0bf283bf9e6 # v1.9.2
         with:
@@ -99,11 +107,16 @@ jobs:
     name: hadolint (Dockerfile)
     runs-on: ubuntu-latest
     continue-on-error: true # warning, pas bloquant
+    permissions:
+      contents: read
+      security-events: write   # upload SARIF
     strategy:
       matrix:
         dockerfile: ['Dockerfile', 'cmd/sdkagent/Dockerfile']
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: hadolint
         uses: hadolint/hadolint-action@54c9adbab1582c2ef04b2016b760714a4bfde3cf # v3.1.0
         with:
@@ -128,6 +141,8 @@ jobs:
       security-events: write
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: trivy config scan
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
@@ -162,6 +177,8 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - uses: actions/setup-go@0aaccfd150d50ccaeb58ebd88d36e91967a5f35b # v5.4.0
         with:
           go-version: '1.25'
@@ -190,4 +207,4 @@ jobs:
           # Composite SPDX expressions ("MIT AND ISC") are passed through verbatim.
           allowed=$(grep -v '^#' ../licenses.allowlist.txt | grep -v '^$' | paste -sd';' -)
           npx --yes license-checker --production --onlyAllow "${allowed}" \
-            --excludePackages 'frontend@0.2.0'
+            --excludePackages 'frontend@0.4.0'

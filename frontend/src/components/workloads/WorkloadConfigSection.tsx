@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import axios from 'axios'
-import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
+import { useQuery, useMutation } from '@tanstack/react-query'
 import { configsAPI, workloadsAPI } from '../../api/client'
 import { DOCS_BASE_URL } from '../../constants'
 import YamlEditor from '../config/YamlEditor'
@@ -20,7 +20,6 @@ type Tab = 'edit' | 'diff'
 const PUSH_TIMEOUT_MS = 30_000
 
 export default function WorkloadConfigSection({ workload }: Props) {
-  const queryClient = useQueryClient()
   const configStatus = useStore((s) => s.configStatus[workload.id])
   const rollback = useStore((s) => s.lastRollback[workload.id])
   const clearRollback = useStore((s) => s.clearAutoRollback)
@@ -100,25 +99,26 @@ export default function WorkloadConfigSection({ workload }: Props) {
     },
   })
 
-  // React to WS-driven status updates that match our pending push hash.
-  useEffect(() => {
-    if (!pendingHash || !configStatus) return
-    if (configStatus.config_hash !== pendingHash) return
+  // Reconcile local UI state with WS-driven status updates that match our
+  // pending push hash. Doing this during render (rather than in an effect)
+  // is the React-recommended pattern for adjusting state from external
+  // sources: React drops the in-progress render and starts again with the
+  // new state — no extra commit, no setState-in-effect anti-pattern. The
+  // WS dispatcher already invalidates the related TanStack Query keys, so
+  // this block only resets local UI state.
+  if (pendingHash && configStatus && configStatus.config_hash === pendingHash) {
     if (configStatus.status === 'applied') {
       setPendingHash(null)
       setTimedOut(false)
       setEditMode(false)
       setDraftYaml('')
       setValidation(null)
-      queryClient.invalidateQueries({ queryKey: ['workload', workload.id] })
-      queryClient.invalidateQueries({ queryKey: ['workload-config-history', workload.id] })
     } else if (configStatus.status === 'failed') {
+      // keep editMode + draftYaml so the user can fix and retry
       setPendingHash(null)
       setTimedOut(false)
-      queryClient.invalidateQueries({ queryKey: ['workload-config-history', workload.id] })
-      // keep editMode + draftYaml so the user can fix and retry
     }
-  }, [configStatus, pendingHash, workload.id, queryClient])
+  }
 
   useEffect(() => {
     if (!pendingHash) return

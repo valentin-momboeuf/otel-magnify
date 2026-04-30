@@ -23,6 +23,8 @@ jobs:
         language: [go, javascript-typescript]
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
       - name: Initialize CodeQL
         uses: github/codeql-action/init@65216971a11ded447a6b76263d5a144519e5eee1 # codeql-bundle-v2.25.2
         with:

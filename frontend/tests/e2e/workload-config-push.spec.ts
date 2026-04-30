@@ -163,6 +163,60 @@ test('push failed shows error banner and preserves draft', async ({ loggedInPage
   await expect(page.locator('.cm-content').first()).toContainText('# touched')
 })
 
+test('push applied closes edit mode, clears draft, shows applied banner', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'receivers:\n  otlp: {}\n')
+  await mockHistory(page, [])
+  await mockValidate(page, { valid: true })
+  await page.route(`**/api/workloads/${WORKLOAD_ID}/config`, (route) =>
+    route.fulfill({
+      status: 202,
+      contentType: 'application/json',
+      body: JSON.stringify({ status: 'config push initiated', config_hash: 'feedfacefeedface' }),
+    }),
+  )
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await page.locator('.cm-content').first().click()
+  await page.keyboard.type(' # applied-flow')
+  await page.getByRole('button', { name: 'Validate' }).click()
+  await expect(page.locator('.validation-ok')).toBeVisible()
+  await page.getByRole('button', { name: 'Push' }).click()
+
+  // While the push is pending, the Push button switches to Applying...
+  await expect(page.getByRole('button', { name: 'Applying...' })).toBeVisible()
+
+  // Simulate APPLIED WS event matching our pending hash
+  await page.evaluate(() => {
+    const evt = {
+      type: 'workload_config_status',
+      workload_id: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+      status: {
+        status: 'applied',
+        config_hash: 'feedfacefeedface',
+        updated_at: new Date().toISOString(),
+      },
+    }
+    ;(window as unknown as { __testWsInject?: (ev: unknown) => void }).__testWsInject?.(evt)
+  })
+
+  // Edit mode closed — the editor toolbar buttons are gone, the Edit entry-point is back
+  await expect(page.getByRole('button', { name: 'Push' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Validate' })).toHaveCount(0)
+  await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible()
+
+  // Banner reflects the applied status
+  await expect(page.locator('.push-banner-applied')).toBeVisible()
+  await expect(page.locator('.push-banner-applied')).toContainText('feedface')
+
+  // Re-entering edit mode starts from the active config (not the previous draft)
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await expect(page.locator('.cm-content').first()).not.toContainText('# applied-flow')
+})
+
 test('diff tab shows two editor panels', async ({ loggedInPage: page }) => {
   await mockWorkload(page)
   await mockConfig(page, 'a: 1\n')
