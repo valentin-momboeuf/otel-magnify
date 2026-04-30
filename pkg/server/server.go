@@ -19,16 +19,17 @@ import (
 
 // Server composes the otel-magnify subsystems.
 type Server struct {
-	cfg                Config
-	store              ext.Store
-	auth               ext.AuthProvider
-	notifiers          []ext.AlertNotifier
-	auditLogger        ext.AuditLogger
-	staticFS           fs.FS
-	routerHooks        []func(chi.Router)
-	authMethods        []ext.AuthMethod
-	authMethodProvider func() []ext.AuthMethod
-	features           map[string]bool
+	cfg                  Config
+	store                ext.Store
+	auth                 ext.AuthProvider
+	notifiers            []ext.AlertNotifier
+	auditLogger          ext.AuditLogger
+	staticFS             fs.FS
+	routerHooks          []func(chi.Router)
+	protectedRouterHooks []func(chi.Router)
+	authMethods          []ext.AuthMethod
+	authMethodProvider   func() []ext.AuthMethod
+	features             map[string]bool
 }
 
 // New creates a Server with the given store, auth provider, and options.
@@ -133,7 +134,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.cfg.WorkloadJanitorInterval, s.cfg.WorkloadEventRetention)
 
 	// REST API router
-	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention, s.features)
+	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention, s.features, s.protectedRouterHooks)
 
 	// Apply router hooks (enterprise can add RBAC middleware, extra routes, etc.)
 	if len(s.routerHooks) > 0 {
@@ -200,5 +201,5 @@ func (s *Server) Handler() http.Handler {
 		DisconnectGrace:   s.cfg.WorkloadDisconnectGrace,
 		RetentionDuration: s.cfg.WorkloadRetention,
 	})
-	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention, s.features)
+	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention, s.features, s.protectedRouterHooks)
 }

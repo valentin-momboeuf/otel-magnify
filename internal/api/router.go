@@ -38,7 +38,12 @@ type API struct {
 // routes (health, auth, features), protected REST endpoints, the WebSocket hub,
 // and the embedded SPA catch-all. It is the single composition root shared by
 // the production listener and httptest-based assertions.
-func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods func() []ext.AuthMethod, workloadRetention time.Duration, features map[string]bool) http.Handler {
+//
+// protectedHooks are functions invoked inside the Bearer-token auth group;
+// each hook receives a chi.Router whose requests have already been
+// authenticated and decorated with ext.UserInfoFromContext. Pass nil
+// when no extra protected routes are needed (the standard community case).
+func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods func() []ext.AuthMethod, workloadRetention time.Duration, features map[string]bool, protectedHooks []func(chi.Router)) http.Handler {
 	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv, authMethods: authMethods, workloadRetention: workloadRetention, features: features}
 	if api.features == nil {
 		api.features = map[string]bool{}
@@ -123,6 +128,14 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 		r.Get("/api/me", api.handleGetMe)
 		r.Put("/api/me/password", api.handlePutPassword)
 		r.Put("/api/me/preferences", api.handlePutPreferences)
+
+		// Protected hooks run inside this group, so they inherit the
+		// auth middleware. Enterprise binaries register admin endpoints
+		// here (e.g. /api/admin/sso/*) so RBAC middleware can rely on a
+		// populated UserInfo context.
+		for _, hook := range protectedHooks {
+			hook(r)
+		}
 	})
 
 	// Serve embedded frontend assets as catch-all (SPA fallback)
