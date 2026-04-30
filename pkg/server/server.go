@@ -28,6 +28,7 @@ type Server struct {
 	routerHooks        []func(chi.Router)
 	authMethods        []ext.AuthMethod
 	authMethodProvider func() []ext.AuthMethod
+	features           map[string]bool
 }
 
 // New creates a Server with the given store, auth provider, and options.
@@ -63,6 +64,10 @@ func New(cfg Config, store ext.Store, auth ext.AuthProvider, opts ...Option) *Se
 		dedup = append(dedup, m)
 	}
 	s.authMethods = dedup
+
+	if s.features == nil {
+		s.features = map[string]bool{}
+	}
 
 	if s.cfg.ListenAddr == "" {
 		s.cfg.ListenAddr = ":8080"
@@ -128,7 +133,7 @@ func (s *Server) Run(ctx context.Context) error {
 		s.cfg.WorkloadJanitorInterval, s.cfg.WorkloadEventRetention)
 
 	// REST API router
-	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention)
+	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention, s.features)
 
 	// Apply router hooks (enterprise can add RBAC middleware, extra routes, etc.)
 	if len(s.routerHooks) > 0 {
@@ -195,5 +200,5 @@ func (s *Server) Handler() http.Handler {
 		DisconnectGrace:   s.cfg.WorkloadDisconnectGrace,
 		RetentionDuration: s.cfg.WorkloadRetention,
 	})
-	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention)
+	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention, s.features)
 }

@@ -31,10 +31,14 @@ type API struct {
 	opamp             OpAMPPusher
 	authMethods       func() []ext.AuthMethod
 	workloadRetention time.Duration
+	features          map[string]bool
 }
 
-func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods func() []ext.AuthMethod, workloadRetention time.Duration) http.Handler {
-	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv, authMethods: authMethods, workloadRetention: workloadRetention}
+func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods func() []ext.AuthMethod, workloadRetention time.Duration, features map[string]bool) http.Handler {
+	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv, authMethods: authMethods, workloadRetention: workloadRetention, features: features}
+	if api.features == nil {
+		api.features = map[string]bool{}
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -63,6 +67,7 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 	// Public routes
 	r.Post("/api/auth/login", api.handleLogin)
 	r.Get("/api/auth/methods", api.handleListAuthMethods)
+	r.Get("/api/features", api.handleListFeatures)
 
 	// WebSocket validates its own token via ?token= query param
 	// (browsers cannot set Authorization headers on WS handshakes, so it
