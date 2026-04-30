@@ -401,10 +401,7 @@ func (s *Server) upsertWorkloadFromDescription(uid, workloadID string, fp Finger
 	if v := attrs["service.version"]; v != "" {
 		w.Version = v
 	}
-	w.Type = "sdk"
-	if isCollectorName(w.DisplayName) {
-		w.Type = "collector"
-	}
+	w.Type = classifyAgent(attrs)
 	w.Status = s.registry.AggregatedStatus(workloadID)
 	w.LastSeenAt = time.Now().UTC()
 	w.AcceptsRemoteConfig = msg.Capabilities&acceptsRemoteConfigCap != 0
@@ -637,6 +634,28 @@ func fallback(s, def string) string {
 		return def
 	}
 	return s
+}
+
+// classifyAgent decides whether a workload is an OTel Collector or an SDK,
+// based on identifying attributes. The order of checks is significant:
+// otelcol.version is authoritative when present; os.description containing
+// "otelcol" catches collectors that omit it; telemetry.sdk.language is
+// authoritative for SDKs; the service.name fallback preserves backward
+// compatibility with agents that report none of the above.
+func classifyAgent(attrs map[string]string) string {
+	if attrs["otelcol.version"] != "" {
+		return "collector"
+	}
+	if strings.Contains(strings.ToLower(attrs["os.description"]), "otelcol") {
+		return "collector"
+	}
+	if attrs["telemetry.sdk.language"] != "" {
+		return "sdk"
+	}
+	if isCollectorName(attrs["service.name"]) {
+		return "collector"
+	}
+	return "sdk"
 }
 
 // isCollectorName returns true if the service.name indicates an OTel Collector.

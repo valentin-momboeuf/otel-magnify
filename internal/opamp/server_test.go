@@ -42,6 +42,53 @@ func TestIsCollectorName(t *testing.T) {
 	}
 }
 
+func TestClassifyAgent_CollectorByOtelcolVersion(t *testing.T) {
+	attrs := map[string]string{
+		"otelcol.version": "0.150.1",
+		"service.name":    "my-custom-collector",
+	}
+	if got := classifyAgent(attrs); got != "collector" {
+		t.Errorf("classifyAgent(%v) = %q, want %q", attrs, got, "collector")
+	}
+}
+
+func TestClassifyAgent_CollectorByOsDescription(t *testing.T) {
+	attrs := map[string]string{
+		"os.description": "otelcol/0.150.1 (linux/amd64)",
+	}
+	if got := classifyAgent(attrs); got != "collector" {
+		t.Errorf("classifyAgent(%v) = %q, want %q", attrs, got, "collector")
+	}
+}
+
+func TestClassifyAgent_SDKByLanguage(t *testing.T) {
+	attrs := map[string]string{
+		"telemetry.sdk.language": "go",
+		"service.name":           "otelcol-trap",
+	}
+	if got := classifyAgent(attrs); got != "sdk" {
+		t.Errorf("classifyAgent(%v) = %q, want %q", attrs, got, "sdk")
+	}
+}
+
+func TestClassifyAgent_FallbackByServiceName_Collector(t *testing.T) {
+	attrs := map[string]string{
+		"service.name": "otelcol-foo",
+	}
+	if got := classifyAgent(attrs); got != "collector" {
+		t.Errorf("classifyAgent(%v) = %q, want %q", attrs, got, "collector")
+	}
+}
+
+func TestClassifyAgent_FallbackByServiceName_SDK(t *testing.T) {
+	attrs := map[string]string{
+		"service.name": "my-app",
+	}
+	if got := classifyAgent(attrs); got != "sdk" {
+		t.Errorf("classifyAgent(%v) = %q, want %q", attrs, got, "sdk")
+	}
+}
+
 func TestInstanceCountStartsZero(t *testing.T) {
 	srv := New(nil, nil, Options{})
 	if srv == nil {
