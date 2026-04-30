@@ -1,4 +1,4 @@
-import { useState, useRef, ChangeEvent } from 'react'
+import { useState, useRef, type ChangeEvent } from 'react'
 import { useTranslation } from 'react-i18next'
 
 type Props = {
@@ -95,9 +95,7 @@ export default function MetadataInput({ metadataURL, metadataXML, onChange, disa
                 rows={8}
                 value={metadataXML}
                 readOnly={!editingXML}
-                onChange={(e) =>
-                  onChange({ metadataURL: '', metadataXML: e.target.value })
-                }
+                onChange={(e) => onChange({ metadataURL: '', metadataXML: e.target.value })}
                 disabled={disabled}
               />
               <div className="metadata-xml-actions">

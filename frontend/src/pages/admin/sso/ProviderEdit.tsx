@@ -5,11 +5,7 @@ import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { useStore } from '../../../store'
 import { hasPerm } from '../../../lib/perm'
 import { useFeature } from '../../../hooks/useFeature'
-import {
-  adminSSOAPI,
-  type SSOProviderInput,
-  type SystemGroupName,
-} from '../../../api/admin'
+import { adminSSOAPI, type SSOProviderInput, type SystemGroupName } from '../../../api/admin'
 import { adminSSOKeys } from '../../../api/queryKeys'
 import MetadataInput from '../../../components/admin/MetadataInput'
 import '../../../styles/admin-sso.css'
@@ -102,9 +98,7 @@ export default function ProviderEdit() {
     return (
       <div className="page-admin-sso">
         <div className="banner banner-error">{t('admin.sso.error.not_found')}</div>
-        <button onClick={() => navigate('/admin/sso/providers')}>
-          {t('common.back')}
-        </button>
+        <button onClick={() => navigate('/admin/sso/providers')}>{t('common.back')}</button>
       </div>
     )
   }
@@ -134,15 +128,19 @@ export default function ProviderEdit() {
 
   return (
     <div className="page-admin-sso">
-      <h2>
-        {isEdit ? t('admin.sso.edit.title.edit') : t('admin.sso.edit.title.new')}
-      </h2>
+      <h2>{isEdit ? t('admin.sso.edit.title.edit') : t('admin.sso.edit.title.new')}</h2>
 
-      {error && <div className="banner banner-error" role="alert">{error}</div>}
+      {error && (
+        <div className="banner banner-error" role="alert">
+          {error}
+        </div>
+      )}
 
       <form onSubmit={handleSubmit} className="profile-form" data-testid="provider-form">
         <div className="field">
-          <label className="field-label" htmlFor="sso-id">{t('admin.sso.field.id')}</label>
+          <label className="field-label" htmlFor="sso-id">
+            {t('admin.sso.field.id')}
+          </label>
           <input
             id="sso-id"
             className="field-input"
@@ -158,7 +156,9 @@ export default function ProviderEdit() {
         </div>
 
         <div className="field">
-          <label className="field-label" htmlFor="sso-display">{t('admin.sso.field.display_name')}</label>
+          <label className="field-label" htmlFor="sso-display">
+            {t('admin.sso.field.display_name')}
+          </label>
           <input
             id="sso-display"
             className="field-input"
@@ -178,7 +178,9 @@ export default function ProviderEdit() {
         />
 
         <div className="field">
-          <label className="field-label" htmlFor="sso-spid">{t('admin.sso.field.sp_entity_id')}</label>
+          <label className="field-label" htmlFor="sso-spid">
+            {t('admin.sso.field.sp_entity_id')}
+          </label>
           <input
             id="sso-spid"
             className="field-input"
@@ -232,7 +234,11 @@ export default function ProviderEdit() {
           <button type="button" className="btn" onClick={() => navigate('/admin/sso/providers')}>
             {t('common.cancel')}
           </button>
-          <button type="submit" className="btn btn-primary" disabled={create.isPending || update.isPending}>
+          <button
+            type="submit"
+            className="btn btn-primary"
+            disabled={create.isPending || update.isPending}
+          >
             {t('common.save')}
           </button>
         </div>
@@ -255,15 +261,13 @@ function MappingsSection({ providerID }: { providerID: string }) {
   const create = useMutation({
     mutationFn: (m: { idp_group: string; system_group: SystemGroupName }) =>
       adminSSOAPI.createMapping(providerID, m),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: adminSSOKeys.mappings(providerID) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminSSOKeys.mappings(providerID) }),
   })
 
   const remove = useMutation({
     mutationFn: (m: { idp_group: string; system_group: SystemGroupName }) =>
       adminSSOAPI.deleteMapping(providerID, m),
-    onSuccess: () =>
-      queryClient.invalidateQueries({ queryKey: adminSSOKeys.mappings(providerID) }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: adminSSOKeys.mappings(providerID) }),
   })
 
   const [idpGroup, setIdpGroup] = useState('')
@@ -296,7 +300,9 @@ function MappingsSection({ providerID }: { providerID: string }) {
           <tbody>
             {list.data.map((m) => (
               <tr key={`${m.idp_group}-${m.system_group}`}>
-                <td><code>{m.idp_group}</code></td>
+                <td>
+                  <code>{m.idp_group}</code>
+                </td>
                 <td>{m.system_group}</td>
                 <td>
                   <button
@@ -315,7 +321,9 @@ function MappingsSection({ providerID }: { providerID: string }) {
 
       <form onSubmit={handleAdd} className="profile-form">
         <div className="field">
-          <label className="field-label" htmlFor="map-idp">{t('admin.sso.mappings.idp_group')}</label>
+          <label className="field-label" htmlFor="map-idp">
+            {t('admin.sso.mappings.idp_group')}
+          </label>
           <input
             id="map-idp"
             className="field-input"
@@ -326,7 +334,9 @@ function MappingsSection({ providerID }: { providerID: string }) {
           />
         </div>
         <div className="field">
-          <label className="field-label" htmlFor="map-sys">{t('admin.sso.mappings.system_group')}</label>
+          <label className="field-label" htmlFor="map-sys">
+            {t('admin.sso.mappings.system_group')}
+          </label>
           <select
             id="map-sys"
             className="field-input"
@@ -334,7 +344,9 @@ function MappingsSection({ providerID }: { providerID: string }) {
             onChange={(e) => setSysGroup(e.target.value as SystemGroupName)}
           >
             {SYSTEM_GROUPS.map((g) => (
-              <option key={g} value={g}>{g}</option>
+              <option key={g} value={g}>
+                {g}
+              </option>
             ))}
           </select>
         </div>

@@ -62,9 +62,7 @@ export default function Providers() {
           <button onClick={() => list.refetch()}>{t('common.retry')}</button>
         </div>
       )}
-      {list.data && list.data.length === 0 && (
-        <p className="empty-state">{t('admin.sso.empty')}</p>
-      )}
+      {list.data && list.data.length === 0 && <p className="empty-state">{t('admin.sso.empty')}</p>}
       {list.data && list.data.length > 0 && (
         <table className="admin-table" data-testid="providers-table">
           <thead>

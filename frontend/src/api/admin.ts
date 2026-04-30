@@ -28,16 +28,14 @@ export type SSOMapping = {
 }
 
 export const adminSSOAPI = {
-  listProviders: () =>
-    api.get<SSOProvider[]>('/admin/sso/providers').then((r) => r.data ?? []),
+  listProviders: () => api.get<SSOProvider[]>('/admin/sso/providers').then((r) => r.data ?? []),
   getProvider: (id: string) =>
     api.get<SSOProvider>(`/admin/sso/providers/${id}`).then((r) => r.data),
   createProvider: (p: SSOProviderInput) =>
     api.post<SSOProvider>('/admin/sso/providers', p).then((r) => r.data),
   updateProvider: (id: string, p: Omit<SSOProviderInput, 'id'>) =>
     api.put<SSOProvider>(`/admin/sso/providers/${id}`, p).then((r) => r.data),
-  deleteProvider: (id: string) =>
-    api.delete(`/admin/sso/providers/${id}`),
+  deleteProvider: (id: string) => api.delete(`/admin/sso/providers/${id}`),
   setActive: (id: string, active: boolean) =>
     api.patch(`/admin/sso/providers/${id}/active`, { active }),
 
@@ -51,7 +49,5 @@ export const adminSSOAPI = {
 
 export const featuresAPI = {
   get: () =>
-    api
-      .get<{ features: Record<string, boolean> }>('/features')
-      .then((r) => r.data.features ?? {}),
+    api.get<{ features: Record<string, boolean> }>('/features').then((r) => r.data.features ?? {}),
 }

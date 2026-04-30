@@ -10,7 +10,7 @@ import (
 // not secrets: the features themselves remain gated by their own auth
 // + permission middleware. Public access avoids a round-trip auth
 // before the SPA can render its menu.
-func (a *API) handleListFeatures(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleListFeatures(w http.ResponseWriter, _ *http.Request) {
 	respondJSON(w, http.StatusOK, struct {
 		Features map[string]bool `json:"features"`
 	}{Features: a.features})
