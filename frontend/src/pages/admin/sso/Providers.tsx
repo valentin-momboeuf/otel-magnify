@@ -50,14 +50,14 @@ export default function Providers() {
     <div className="page-admin-sso">
       <header className="page-header">
         <h2>{t('admin.sso.title')}</h2>
-        <button className="btn-primary" onClick={() => navigate('/admin/sso/providers/new')}>
+        <button className="btn btn-primary" onClick={() => navigate('/admin/sso/providers/new')}>
           {t('admin.sso.new')}
         </button>
       </header>
 
       {list.isLoading && <p>{t('common.loading')}</p>}
       {list.isError && (
-        <div className="banner banner-error">
+        <div className="banner banner-error" role="alert">
           {t('admin.sso.error.generic')}
           <button onClick={() => list.refetch()}>{t('common.retry')}</button>
         </div>
@@ -89,13 +89,14 @@ export default function Providers() {
                     checked={p.active}
                     onChange={(e) => setActive.mutate({ id: p.id, active: e.target.checked })}
                     aria-label={t('admin.sso.col.active')}
+                    disabled={setActive.isPending}
                   />
                 </td>
                 <td>
                   <button onClick={() => navigate(`/admin/sso/providers/${p.id}`)}>
                     {t('common.edit')}
                   </button>
-                  <button onClick={() => handleDelete(p)} className="btn-danger">
+                  <button onClick={() => handleDelete(p)} className="btn btn-danger">
                     {t('common.delete')}
                   </button>
                 </td>

@@ -229,10 +229,10 @@ export default function ProviderEdit() {
         </div>
 
         <div className="form-actions">
-          <button type="button" onClick={() => navigate('/admin/sso/providers')}>
+          <button type="button" className="btn" onClick={() => navigate('/admin/sso/providers')}>
             {t('common.cancel')}
           </button>
-          <button type="submit" className="btn-primary" disabled={create.isPending || update.isPending}>
+          <button type="submit" className="btn btn-primary" disabled={create.isPending || update.isPending}>
             {t('common.save')}
           </button>
         </div>
@@ -338,7 +338,7 @@ function MappingsSection({ providerID }: { providerID: string }) {
             ))}
           </select>
         </div>
-        <button type="submit" className="btn-primary" disabled={create.isPending}>
+        <button type="submit" className="btn btn-primary" disabled={create.isPending}>
           {t('admin.sso.mappings.add')}
         </button>
       </form>
