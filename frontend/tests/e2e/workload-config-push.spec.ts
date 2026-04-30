@@ -253,3 +253,219 @@ test('YAML keys are colored via Signal Deck theme', async ({ loggedInPage: page 
   const color = await firstSpan.evaluate((el) => getComputedStyle(el).color)
   expect(color).toBe('rgb(212, 168, 74)')
 })
+
+function mockConfigsList(page: Page, configs: Array<{ id: string; name: string }>) {
+  return page.route(`**/api/configs`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(
+        configs.map((c) => ({
+          id: c.id,
+          name: c.name,
+          content: '',
+          created_at: new Date().toISOString(),
+          created_by: 'tester',
+        })),
+      ),
+    }),
+  )
+}
+
+function mockConfigDetail(
+  page: Page,
+  id: string,
+  name: string,
+  content: string,
+) {
+  return page.route(`**/api/configs/${id}`, (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        id,
+        name,
+        content,
+        created_at: new Date().toISOString(),
+        created_by: 'tester',
+      }),
+    }),
+  )
+}
+
+test('selecting a saved config loads YAML into editor and switches to Diff tab', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'old: true\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [{ id: 'cfg-eu', name: 'collector-prod-eu' }])
+  await mockConfigDetail(page, 'cfg-eu', 'collector-prod-eu', 'new: true\n')
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+  await page.locator('select.apply-config-select').selectOption('cfg-eu')
+
+  // Diff tab should be the active one (workload has active_config_id)
+  await expect(page.locator('.tab-active')).toHaveText('Diff')
+  // Two editor panels visible (the MergeView)
+  await expect(page.locator('.cm-mergeView .cm-editor')).toHaveCount(2)
+  // The right-hand (newYaml) editor contains the selected config's content
+  await expect(page.locator('.cm-mergeView .cm-content').nth(1)).toContainText('new: true')
+})
+
+test('apply-saved-config selector renders in supervised collector branch', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'a: 1\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [
+    { id: 'cfg-eu', name: 'collector-prod-eu' },
+    { id: 'cfg-us', name: 'collector-prod-us' },
+  ])
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  const selector = page.locator('select.apply-config-select')
+  await expect(selector).toBeVisible()
+  await expect(selector.locator('option')).toHaveCount(3) // placeholder + 2 configs
+  await expect(selector.locator('option').nth(1)).toContainText('collector-prod-eu')
+  await expect(selector.locator('option').nth(2)).toContainText('collector-prod-us')
+})
+
+test('bootstrap workload (no active config): selecting falls back to Edit tab', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page, { active_config_id: undefined })
+  await mockHistory(page, [])
+  await mockConfigsList(page, [{ id: 'cfg-eu', name: 'collector-prod-eu' }])
+  await mockConfigDetail(page, 'cfg-eu', 'collector-prod-eu', 'fresh: true\n')
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+  await page.locator('select.apply-config-select').selectOption('cfg-eu')
+
+  // Edit tab is the only navigable one (Diff is disabled when no active_config_id)
+  await expect(page.locator('.tab-active')).toHaveText('Edit')
+  await expect(page.getByRole('button', { name: 'Diff' })).toBeDisabled()
+  // Editor draft contains the selected config's content
+  await expect(page.locator('.cm-content').first()).toContainText('fresh: true')
+})
+
+test('selector annotates the currently applied config', async ({ loggedInPage: page }) => {
+  await mockWorkload(page) // active_config_id = ACTIVE_CONFIG_ID = 'abc123'
+  await mockConfig(page, 'old: true\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [
+    { id: 'abc123', name: 'collector-prod-eu' },
+    { id: 'cfg-us', name: 'collector-prod-us' },
+  ])
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  const eu = page.locator('select.apply-config-select option').nth(1)
+  await expect(eu).toContainText('collector-prod-eu')
+  await expect(eu).toContainText('(currently applied)')
+
+  const us = page.locator('select.apply-config-select option').nth(2)
+  await expect(us).toContainText('collector-prod-us')
+  await expect(us).not.toContainText('(currently applied)')
+})
+
+test('empty configs list disables selector with explanatory text', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'a: 1\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [])
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  const selector = page.locator('select.apply-config-select')
+  await expect(selector).toBeDisabled()
+  await expect(selector).toHaveValue('')
+  await expect(selector.locator('option')).toHaveCount(1)
+  await expect(selector.locator('option').first()).toContainText('No saved configs')
+
+  // Editor copy-paste flow still functional: Edit button visible
+  await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible()
+})
+
+test('configs list fetch error shows disabled selector with retry', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'a: 1\n')
+  await mockHistory(page, [])
+  await page.route('**/api/configs', (route) =>
+    route.fulfill({ status: 500, body: '{"error":"boom"}' }),
+  )
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  const selector = page.locator('select.apply-config-select')
+  await expect(selector).toBeDisabled()
+  await expect(selector.locator('option').first()).toContainText('Failed to load configs')
+
+  // Editor copy-paste flow still works
+  await expect(page.getByRole('button', { name: 'Edit' })).toBeVisible()
+})
+
+test('selector is absent in read-only collector branch', async ({ loggedInPage: page }) => {
+  await mockWorkload(page, { accepts_remote_config: false })
+  await mockConfig(page, 'a: 1\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [{ id: 'cfg-eu', name: 'collector-prod-eu' }])
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  await expect(page.locator('select.apply-config-select')).toHaveCount(0)
+  // Read-only message still shown
+  await expect(page.locator('.config-readonly-note')).toContainText('Read-only')
+})
+
+test('selector is absent for SDK workloads', async ({ loggedInPage: page }) => {
+  await mockWorkload(page, {
+    type: 'sdk',
+    active_config_id: undefined,
+    accepts_remote_config: false,
+    available_components: undefined,
+    labels: { 'service.name': 'demo-app' },
+  })
+  await mockHistory(page, [])
+  await mockConfigsList(page, [{ id: 'cfg-eu', name: 'collector-prod-eu' }])
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+
+  await expect(page.locator('select.apply-config-select')).toHaveCount(0)
+  // SDK label chips visible (page shows labels in both the Labels section and the
+  // Configuration section; assert at least one chip carries the expected text)
+  await expect(page.locator('.label-chip').first()).toContainText('demo-app')
+})
+
+test('selecting a config overwrites in-progress draft silently (no confirm)', async ({
+  loggedInPage: page,
+}) => {
+  await mockWorkload(page)
+  await mockConfig(page, 'old: true\n')
+  await mockHistory(page, [])
+  await mockConfigsList(page, [{ id: 'cfg-eu', name: 'collector-prod-eu' }])
+  await mockConfigDetail(page, 'cfg-eu', 'collector-prod-eu', 'replaced: true\n')
+
+  await page.goto(`/workloads/${WORKLOAD_ID}`)
+  // Enter edit mode and type something
+  await page.getByRole('button', { name: 'Edit' }).click()
+  await page.locator('.cm-content').first().click()
+  await page.keyboard.press('ControlOrMeta+a')
+  await page.keyboard.type('user-typed-mess: yes\n')
+
+  // Now select a saved config
+  await page.locator('select.apply-config-select').selectOption('cfg-eu')
+
+  // The draft should now contain the saved config's content, not the typed mess.
+  // Editor visible is the right-hand panel of the MergeView (Diff tab is auto-active).
+  await expect(page.locator('.cm-mergeView .cm-content').nth(1)).toContainText('replaced: true')
+  await expect(page.locator('.cm-mergeView .cm-content').nth(1)).not.toContainText(
+    'user-typed-mess',
+  )
+})

@@ -32,6 +32,7 @@ export default function WorkloadConfigSection({ workload }: Props) {
   const [timedOut, setTimedOut] = useState(false)
   const [validation, setValidation] = useState<ValidationResult | null>(null)
   const [pushError, setPushError] = useState<string | null>(null)
+  const [selectedConfigId, setSelectedConfigId] = useState('')
 
   const {
     data: config,
@@ -41,6 +42,11 @@ export default function WorkloadConfigSection({ workload }: Props) {
     queryKey: ['workload-config', workload.active_config_id],
     queryFn: () => configsAPI.get(workload.active_config_id!),
     enabled: workload.type === 'collector' && !!workload.active_config_id,
+  })
+
+  const { data: savedConfigs, isError: configsListError } = useQuery({
+    queryKey: ['configs'],
+    queryFn: configsAPI.list,
   })
 
   const activeContent = config?.content ?? ''
@@ -79,6 +85,21 @@ export default function WorkloadConfigSection({ workload }: Props) {
     },
   })
 
+  const loadConfigMutation = useMutation({
+    mutationFn: (configId: string) => configsAPI.get(configId),
+    onSuccess: (cfg) => {
+      enterEditMode(cfg.content, workload.active_config_id ? 'diff' : 'edit')
+      setSelectedConfigId('')
+    },
+    onError: (err: unknown) => {
+      const msg = axios.isAxiosError(err)
+        ? (err.response?.data?.error ?? err.message)
+        : 'Failed to load configuration'
+      setPushError(`Failed to load configuration: ${msg}`)
+      setSelectedConfigId('')
+    },
+  })
+
   // React to WS-driven status updates that match our pending push hash.
   useEffect(() => {
     if (!pendingHash || !configStatus) return
@@ -105,10 +126,10 @@ export default function WorkloadConfigSection({ workload }: Props) {
     return () => clearTimeout(timer)
   }, [pendingHash])
 
-  function enterEditMode(initialContent: string) {
+  function enterEditMode(initialContent: string, targetTab: Tab = 'edit') {
     setDraftYaml(initialContent)
     setEditMode(true)
-    setTab('edit')
+    setTab(targetTab)
     setValidation(null)
     setPushError(null)
   }
@@ -269,11 +290,42 @@ export default function WorkloadConfigSection({ workload }: Props) {
     </div>
   )
 
+  const isConfigsEmpty = !configsListError && (savedConfigs?.length ?? 0) === 0
+  let placeholderLabel = '— Apply a saved config —'
+  if (configsListError) {
+    placeholderLabel = '— Failed to load configs —'
+  } else if (isConfigsEmpty) {
+    placeholderLabel = '— No saved configs (create one in Configs) —'
+  }
+
+  const applySelector = (
+    <select
+      className="filter-select apply-config-select"
+      value={selectedConfigId}
+      onChange={(e) => {
+        const id = e.target.value
+        if (!id) return
+        setSelectedConfigId(id)
+        loadConfigMutation.mutate(id)
+      }}
+      aria-label="Apply a saved config"
+      disabled={loadConfigMutation.isPending || !!pendingHash || isConfigsEmpty || configsListError}
+    >
+      <option value="">{placeholderLabel}</option>
+      {(savedConfigs ?? []).map((c) => (
+        <option key={c.id} value={c.id}>
+          {c.id === workload.active_config_id ? `${c.name} (currently applied)` : c.name}
+        </option>
+      ))}
+    </select>
+  )
+
   // ── Collector without active config ──────────────────────────────────────
   if (!workload.active_config_id) {
     return (
       <>
         <p className="section-title">Configuration</p>
+        {applySelector}
         {editMode ? (
           editorPanel
         ) : (
@@ -311,6 +363,7 @@ export default function WorkloadConfigSection({ workload }: Props) {
   return (
     <>
       <p className="section-title">Configuration</p>
+      {applySelector}
 
       {!editMode ? (
         <div>
