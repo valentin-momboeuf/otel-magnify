@@ -79,7 +79,13 @@
     "empty": "No workloads match the current filter"
   },
   "common": {
-    "loading": "Loading…"
+    "loading": "Loading…",
+    "retry": "Retry",
+    "edit": "Edit",
+    "delete": "Delete",
+    "cancel": "Cancel",
+    "save": "Save",
+    "back": "Back"
   },
   "account": {
     "logout": "Sign out",
@@ -115,6 +121,68 @@
   },
   "admin": {
     "title": "Administration",
-    "placeholder": "User management is coming in v0.3."
+    "placeholder": "More admin tools coming.",
+    "sections": {
+      "title": "Admin sections",
+      "sso": {
+        "description": "Manage SAML SSO providers and group mappings."
+      }
+    },
+    "sso": {
+      "title": "SSO providers",
+      "empty": "No SSO provider configured yet.",
+      "new": "+ New provider",
+      "edit": {
+        "title": {
+          "new": "New SAML provider",
+          "edit": "Edit SAML provider"
+        }
+      },
+      "field": {
+        "id": "Provider ID",
+        "id.help": "Lowercase letters, digits and dashes. 1–64 characters. Cannot be changed after creation.",
+        "display_name": "Display name",
+        "metadata": {
+          "toggle": "Metadata source",
+          "url": "Metadata URL",
+          "xml": "Metadata XML",
+          "upload": "Choose XML file",
+          "edit": "Edit manually",
+          "clear": "Clear"
+        },
+        "sp_entity_id": "SP entity ID",
+        "sp_entity_id.fill": "Auto-fill from current host",
+        "allow_idp_initiated": "Allow IdP-initiated SSO",
+        "default_groups": "Default groups (when no mapping matches)",
+        "active": "Active"
+      },
+      "col": {
+        "display_name": "Display name",
+        "type": "Type",
+        "active": "Active",
+        "actions": "Actions"
+      },
+      "delete": {
+        "confirm": "Delete provider {{id}}? This also removes its mappings."
+      },
+      "mappings": {
+        "title": "Group mappings",
+        "empty": "No mapping. SSO logins will fail unless default groups are set.",
+        "idp_group": "IdP group",
+        "system_group": "System group",
+        "add": "Add mapping"
+      },
+      "error": {
+        "permission": "You don't have permission to manage SSO providers.",
+        "not_found": "Provider not found.",
+        "validation": "{{message}}",
+        "generic": "Something went wrong. Please try again."
+      }
+    }
+  },
+  "nav": {
+    "admin": {
+      "sso": "SSO providers"
+    }
   }
 }

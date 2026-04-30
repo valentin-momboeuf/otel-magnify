@@ -79,7 +79,13 @@
     "empty": "Aucun workload ne correspond aux filtres"
   },
   "common": {
-    "loading": "Chargement…"
+    "loading": "Chargement…",
+    "retry": "Réessayer",
+    "edit": "Modifier",
+    "delete": "Supprimer",
+    "cancel": "Annuler",
+    "save": "Enregistrer",
+    "back": "Retour"
   },
   "account": {
     "logout": "Se déconnecter",
@@ -115,6 +121,68 @@
   },
   "admin": {
     "title": "Administration",
-    "placeholder": "La gestion des utilisateurs arrive en v0.3."
+    "placeholder": "D'autres outils d'administration arrivent bientôt.",
+    "sections": {
+      "title": "Sections d'administration",
+      "sso": {
+        "description": "Gérer les fournisseurs SSO SAML et les mappings de groupes."
+      }
+    },
+    "sso": {
+      "title": "Fournisseurs SSO",
+      "empty": "Aucun fournisseur SSO configuré.",
+      "new": "+ Nouveau fournisseur",
+      "edit": {
+        "title": {
+          "new": "Nouveau fournisseur SAML",
+          "edit": "Modifier le fournisseur SAML"
+        }
+      },
+      "field": {
+        "id": "Identifiant",
+        "id.help": "Minuscules, chiffres et tirets. 1 à 64 caractères. Non modifiable après création.",
+        "display_name": "Nom affiché",
+        "metadata": {
+          "toggle": "Source de la metadata",
+          "url": "URL metadata",
+          "xml": "XML metadata",
+          "upload": "Choisir un fichier XML",
+          "edit": "Modifier manuellement",
+          "clear": "Effacer"
+        },
+        "sp_entity_id": "Entity ID SP",
+        "sp_entity_id.fill": "Remplir depuis l'hôte actuel",
+        "allow_idp_initiated": "Autoriser SSO initié par l'IdP",
+        "default_groups": "Groupes par défaut (si aucun mapping ne match)",
+        "active": "Actif"
+      },
+      "col": {
+        "display_name": "Nom affiché",
+        "type": "Type",
+        "active": "Actif",
+        "actions": "Actions"
+      },
+      "delete": {
+        "confirm": "Supprimer le fournisseur {{id}} ? Ses mappings seront aussi supprimés."
+      },
+      "mappings": {
+        "title": "Mappings de groupes",
+        "empty": "Aucun mapping. Les logins SSO échoueront sauf si des groupes par défaut sont définis.",
+        "idp_group": "Groupe IdP",
+        "system_group": "Groupe système",
+        "add": "Ajouter un mapping"
+      },
+      "error": {
+        "permission": "Vous n'avez pas la permission de gérer les fournisseurs SSO.",
+        "not_found": "Fournisseur introuvable.",
+        "validation": "{{message}}",
+        "generic": "Une erreur est survenue. Veuillez réessayer."
+      }
+    }
+  },
+  "nav": {
+    "admin": {
+      "sso": "Fournisseurs SSO"
+    }
   }
 }
