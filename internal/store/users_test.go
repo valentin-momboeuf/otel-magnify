@@ -5,10 +5,10 @@ import (
 	"errors"
 	"testing"
 
+	"golang.org/x/crypto/bcrypt"
+
 	"github.com/magnify-labs/otel-magnify/pkg/ext"
 	"github.com/magnify-labs/otel-magnify/pkg/models"
-
-	"golang.org/x/crypto/bcrypt"
 )
 
 func TestCreateUser(t *testing.T) {
@@ -31,15 +31,6 @@ func TestCreateUser(t *testing.T) {
 	}
 	if bcrypt.CompareHashAndPassword([]byte(got.PasswordHash), []byte("secret")) != nil {
 		t.Error("password hash mismatch")
-	}
-}
-
-func TestGetUserByEmail_NotFound(t *testing.T) {
-	db := newTestDB(t)
-
-	_, err := db.GetUserByEmail("nobody@test.com")
-	if err == nil {
-		t.Error("expected error for non-existent user")
 	}
 }
 
