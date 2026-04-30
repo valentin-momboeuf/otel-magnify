@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useMemo } from 'react'
 import { useQuery } from '@tanstack/react-query'
 import { useSearchParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
@@ -15,21 +15,28 @@ export default function Inventory() {
     queryKey: ['workloads'],
     queryFn: () => workloadsAPI.list(),
   })
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
 
   const [search, setSearch] = useState('')
-  const [filterType, setFilterType] = useState<string>(searchParams.get('type') ?? '')
   const [filterStatus, setFilterStatus] = useState<string>('')
-  const [filterControl, setFilterControl] = useState<ControlFilter>(
-    (searchParams.get('control') as ControlFilter) ?? '',
-  )
 
-  useEffect(() => {
-    const type = searchParams.get('type')
-    if (type) setFilterType(type)
-    const control = searchParams.get('control') as ControlFilter | null
-    if (control) setFilterControl(control)
-  }, [searchParams])
+  // Filters that are deep-linkable live in the URL. Derive them on every
+  // render so back/forward navigation and external links stay in sync without
+  // a state-syncing effect.
+  const filterType = searchParams.get('type') ?? ''
+  const filterControl = (searchParams.get('control') as ControlFilter | null) ?? ''
+
+  function updateUrlFilter(key: 'type' | 'control', value: string) {
+    setSearchParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (value) next.set(key, value)
+        else next.delete(key)
+        return next
+      },
+      { replace: true },
+    )
+  }
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase()
@@ -69,7 +76,7 @@ export default function Inventory() {
         <select
           className="filter-select"
           value={filterType}
-          onChange={(e) => setFilterType(e.target.value)}
+          onChange={(e) => updateUrlFilter('type', e.target.value)}
         >
           <option value="">{t('inventory.filter.type.all')}</option>
           <option value="collector">{t('inventory.filter.type.collector')}</option>
@@ -88,7 +95,7 @@ export default function Inventory() {
         <select
           className="filter-select"
           value={filterControl}
-          onChange={(e) => setFilterControl(e.target.value as ControlFilter)}
+          onChange={(e) => updateUrlFilter('control', e.target.value)}
         >
           <option value="">{t('inventory.filter.control.all')}</option>
           <option value="supervised">{t('inventory.filter.control.supervised')}</option>

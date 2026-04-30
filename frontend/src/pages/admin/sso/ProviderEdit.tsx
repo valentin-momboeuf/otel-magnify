@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Navigate, useNavigate, useParams } from 'react-router-dom'
 import { useTranslation } from 'react-i18next'
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
@@ -47,21 +47,26 @@ export default function ProviderEdit() {
     enabled: isEdit && Boolean(me) && hasPerm(me?.groups, 'settings:manage') && ssoEnabled,
   })
 
-  useEffect(() => {
-    if (detail.data) {
-      setForm({
-        id: detail.data.id,
-        type: detail.data.type,
-        display_name: detail.data.display_name,
-        idp_metadata_url: detail.data.idp_metadata_url,
-        idp_metadata_xml: detail.data.idp_metadata_xml,
-        sp_entity_id: detail.data.sp_entity_id,
-        allow_idp_initiated: detail.data.allow_idp_initiated,
-        default_groups: detail.data.default_groups ?? [],
-        active: detail.data.active,
-      })
-    }
-  }, [detail.data])
+  // Hydrate the form from the fetched provider once per loaded payload.
+  // Tracking the synced reference in state (instead of a syncing effect) lets
+  // React reconcile the new local state during the same render that produced
+  // it, which is the recommended pattern for adjusting state from props.
+  // See https://react.dev/reference/react/useState#storing-information-from-previous-renders
+  const [syncedFromData, setSyncedFromData] = useState<typeof detail.data | null>(null)
+  if (detail.data && detail.data !== syncedFromData) {
+    setSyncedFromData(detail.data)
+    setForm({
+      id: detail.data.id,
+      type: detail.data.type,
+      display_name: detail.data.display_name,
+      idp_metadata_url: detail.data.idp_metadata_url,
+      idp_metadata_xml: detail.data.idp_metadata_xml,
+      sp_entity_id: detail.data.sp_entity_id,
+      allow_idp_initiated: detail.data.allow_idp_initiated,
+      default_groups: detail.data.default_groups ?? [],
+      active: detail.data.active,
+    })
+  }
 
   const create = useMutation({
     mutationFn: (p: SSOProviderInput) => adminSSOAPI.createProvider(p),
