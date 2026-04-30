@@ -10,6 +10,8 @@ import Configs from './pages/Configs'
 import Alerts from './pages/Alerts'
 import Profile from './pages/Profile'
 import Admin from './pages/Admin'
+import SSOProviders from './pages/admin/sso/Providers'
+import ProviderEdit from './pages/admin/sso/ProviderEdit'
 import Login from './pages/Login'
 import { connectWS, disconnectWS } from './api/websocket'
 import { queryClient } from './api/queryClient'
@@ -51,6 +53,9 @@ function AppShell() {
         <Route path="/alerts" element={<Alerts />} />
         <Route path="/profile" element={<Profile />} />
         <Route path="/admin" element={<Admin />} />
+        <Route path="/admin/sso/providers" element={<SSOProviders />} />
+        <Route path="/admin/sso/providers/new" element={<ProviderEdit />} />
+        <Route path="/admin/sso/providers/:id" element={<ProviderEdit />} />
       </Route>
       <Route path="/login" element={<Login />} />
       <Route path="*" element={<Navigate to="/" />} />

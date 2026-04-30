@@ -90,3 +90,21 @@ func WithAuthMethodProvider(fn func() []ext.AuthMethod) Option {
 		s.authMethodProvider = fn
 	}
 }
+
+// WithFeatures registers a static map of feature flags exposed on
+// GET /api/features. Edition binaries use it to advertise capabilities
+// (e.g. "sso.admin") that the frontend uses to conditionally render
+// pages and menu items.
+//
+// The map is fixed at construction; there is no dynamic provider.
+// Features are build-time decisions, not runtime mutable state — to
+// toggle a feature, restart the binary with a different option.
+//
+// Default (no option set): an empty map. The endpoint always returns
+// 200 with {"features": {}} rather than 404, so the frontend can
+// distinguish "feature off" from "endpoint missing".
+func WithFeatures(features map[string]bool) Option {
+	return func(s *Server) {
+		s.features = features
+	}
+}

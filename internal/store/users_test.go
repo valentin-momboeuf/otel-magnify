@@ -5,9 +5,10 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/magnify-labs/otel-magnify/pkg/models"
-
 	"golang.org/x/crypto/bcrypt"
+
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
+	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
 func TestCreateUser(t *testing.T) {
@@ -33,12 +34,15 @@ func TestCreateUser(t *testing.T) {
 	}
 }
 
-func TestGetUserByEmail_NotFound(t *testing.T) {
+func TestGetUserByEmail_NotFound_ReturnsErrUserNotFound(t *testing.T) {
 	db := newTestDB(t)
 
-	_, err := db.GetUserByEmail("nobody@test.com")
+	_, err := db.GetUserByEmail("nobody@example.com")
 	if err == nil {
-		t.Error("expected error for non-existent user")
+		t.Fatalf("expected error, got nil")
+	}
+	if !errors.Is(err, ext.ErrUserNotFound) {
+		t.Fatalf("expected errors.Is(err, ext.ErrUserNotFound) to be true; got err=%v", err)
 	}
 }
 

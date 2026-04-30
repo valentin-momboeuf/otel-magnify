@@ -263,3 +263,67 @@ func TestAuthMethodProvider_NilProvider_FallbacksToStatic(t *testing.T) {
 		t.Fatalf("expected [password] only, got %+v", body.Methods)
 	}
 }
+
+func TestWithFeatures_PopulatesServerField(t *testing.T) {
+	db, err := store.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	srv := server.New(server.Config{ListenAddr: ":0", OpAMPAddr: ":0"}, db, a,
+		server.WithFeatures(map[string]bool{"sso.admin": true}))
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/features", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200; body=%s", rec.Code, rec.Body.String())
+	}
+	var body struct {
+		Features map[string]bool `json:"features"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body unmarshal: %v", err)
+	}
+	if got := body.Features["sso.admin"]; got != true {
+		t.Fatalf("sso.admin: got %v, want true", got)
+	}
+}
+
+func TestWithFeatures_NotSet_ReturnsEmptyMap(t *testing.T) {
+	db, err := store.Open("sqlite", ":memory:")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	srv := server.New(server.Config{ListenAddr: ":0", OpAMPAddr: ":0"}, db, a)
+
+	rec := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/features", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want 200", rec.Code)
+	}
+	var body struct {
+		Features map[string]bool `json:"features"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatalf("body unmarshal: %v", err)
+	}
+	if body.Features == nil {
+		t.Fatalf("features should be empty map (non-nil), got nil")
+	}
+	if len(body.Features) != 0 {
+		t.Fatalf("features: got %v, want empty map", body.Features)
+	}
+}

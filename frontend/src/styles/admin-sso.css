@@ -1,0 +1,83 @@
+.page-admin-sso .page-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 1.5rem;
+}
+
+.admin-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.admin-table th,
+.admin-table td {
+  padding: 0.75rem 1rem;
+  text-align: left;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.admin-table .muted {
+  color: var(--text-muted);
+  font-size: 0.85em;
+  font-family: 'Fira Code', monospace;
+}
+
+.admin-table .btn-danger {
+  margin-left: 0.5rem;
+}
+
+.banner {
+  padding: 0.75rem 1rem;
+  border-radius: 6px;
+  margin-bottom: 1rem;
+}
+
+.banner-error {
+  background: var(--error-bg, #fee);
+  color: var(--error-text, #900);
+}
+
+.empty-state {
+  color: var(--text-muted);
+  padding: 2rem;
+  text-align: center;
+}
+
+.metadata-input-toggle {
+  display: flex;
+  gap: 1rem;
+  border: 0;
+  padding: 0;
+  margin-bottom: 0.5rem;
+}
+
+.metadata-xml-preview {
+  font-family: 'Fira Code', monospace;
+  font-size: 0.85em;
+  margin-top: 0.5rem;
+}
+
+.metadata-xml-actions {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+}
+
+.muted {
+  color: var(--text-muted);
+}
+
+.form-actions {
+  display: flex;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.admin-index {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}

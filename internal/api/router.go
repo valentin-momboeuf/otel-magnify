@@ -31,10 +31,18 @@ type API struct {
 	opamp             OpAMPPusher
 	authMethods       func() []ext.AuthMethod
 	workloadRetention time.Duration
+	features          map[string]bool
 }
 
-func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods func() []ext.AuthMethod, workloadRetention time.Duration) http.Handler {
-	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv, authMethods: authMethods, workloadRetention: workloadRetention}
+// NewRouter constructs the chi-based HTTP handler that wires together public
+// routes (health, auth, features), protected REST endpoints, the WebSocket hub,
+// and the embedded SPA catch-all. It is the single composition root shared by
+// the production listener and httptest-based assertions.
+func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher, corsOrigins string, staticFS fs.FS, authMethods func() []ext.AuthMethod, workloadRetention time.Duration, features map[string]bool) http.Handler {
+	api := &API{db: db, auth: a, hub: hub, opamp: opampSrv, authMethods: authMethods, workloadRetention: workloadRetention, features: features}
+	if api.features == nil {
+		api.features = map[string]bool{}
+	}
 
 	r := chi.NewRouter()
 	r.Use(middleware.Logger)
@@ -63,6 +71,7 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 	// Public routes
 	r.Post("/api/auth/login", api.handleLogin)
 	r.Get("/api/auth/methods", api.handleListAuthMethods)
+	r.Get("/api/features", api.handleListFeatures)
 
 	// WebSocket validates its own token via ?token= query param
 	// (browsers cannot set Authorization headers on WS handshakes, so it
