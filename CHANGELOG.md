@@ -1,10 +1,46 @@
 # Changelog
 
 All notable changes to this project are documented here.
+## v0.3.0 — 2026-04-30
+
+### Bug Fixes
+- Add btn base class, role=alert, missing CSS, mutation guard
+
+
+### CI/CD
+- Foundations — lefthook, golangci, gitleaks, dependabot, security-pr, codeql (#19)
+- Public posture — Scorecard, CODEOWNERS, scheduled scan, badges, markdownlint+lychee (#40)
+- Supply chain — multi-arch ghcr.io, cosign keyless, SBOM, license check (#41)
+- Add actions-security workflow (zizmor + actionlint + pinact) (#44)
+
+
+### Features
+- Apply a saved config from dropdown in collector detail (#45)
+- Export ErrUserNotFound sentinel for typed lookup errors
+- Add WithFeatures option and GET /api/features handler
+- Add admin SSO API client and query keys
+- Add useFeature hook backed by /api/features
+- Add MetadataInput component for SAML metadata source
+- Add SSO admin UI pages, Admin index, i18n
+
+
+### Refactoring
+- Classify agents by attributes instead of service.name alone (#46)
+
+
+### Testing
+- Drop redundant TestGetUserByEmail_NotFound; tidy imports
+- Playwright mocked coverage for SSO admin UI
+
+
 ## v0.2.1 — 2026-04-24
 
 ### Bug Fixes
 - Request full state on unknown-instance heartbeat (#17)
+
+
+### Documentation
+- Update changelog for v0.2.1
 
 
 ### Features
