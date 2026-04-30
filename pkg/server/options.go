@@ -51,9 +51,31 @@ func WithStaticFS(fsys fs.FS) Option {
 
 // WithRouterHook adds a function that can modify the chi router before
 // the server starts. Use this to add middleware (RBAC, audit) or extra routes.
+//
+// Routes added by this hook are attached to the outer router and DO NOT
+// pass through the Bearer-token auth middleware — use it only for
+// genuinely public endpoints (SSO ACS callbacks, login, public metadata).
+// For routes that must run with an authenticated UserInfo in context,
+// use WithProtectedRouterHook instead.
 func WithRouterHook(fn func(chi.Router)) Option {
 	return func(s *Server) {
 		s.routerHooks = append(s.routerHooks, fn)
+	}
+}
+
+// WithProtectedRouterHook adds a function that registers routes inside
+// the community auth-middleware-protected group. Routes mounted this
+// way require a valid Bearer token: the request is rejected with 401
+// before the hook's handlers run, and downstream RBAC middleware
+// (perm.RequireGroup, custom checks) can rely on ext.UserInfoFromContext
+// returning a non-nil value.
+//
+// This is the correct option for enterprise admin endpoints
+// (e.g. /api/admin/sso/*), which need the community auth boundary applied
+// before any feature-level permission check.
+func WithProtectedRouterHook(fn func(chi.Router)) Option {
+	return func(s *Server) {
+		s.protectedRouterHooks = append(s.protectedRouterHooks, fn)
 	}
 }
 
