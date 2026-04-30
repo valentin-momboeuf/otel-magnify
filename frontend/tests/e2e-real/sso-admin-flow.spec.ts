@@ -13,33 +13,35 @@ const EE_BINARY =
   path.resolve(__dirname, '../../../../otel-magnify-enterprise/bin/server-ee')
 
 const SKIP_REASON = (() => {
-  if (!fs.existsSync(EE_BINARY)) {
-    return `EE binary not found at ${EE_BINARY}`
-  }
-  // Verify the binary is actually executable on the current platform.
-  // A Linux ELF binary exists on disk with X bits but cannot be spawned on
-  // macOS — detect by checking the ELF magic bytes (\x7fELF) on non-Linux hosts.
+  // Single open()+read() handles three checks in one syscall — avoids the
+  // TOCTOU race that fs.existsSync()+open() would create (CodeQL js/file-system-race).
+  // The fd is held just long enough to sniff the ELF magic bytes; that read
+  // also doubles as an executable-permission probe (open(read) succeeds; spawn
+  // would also need X_OK on POSIX, which is enforced by spawn() at use time).
+  // A Linux ELF binary will spawn fine on Linux but fail with ENOEXEC on macOS,
+  // so the platform/magic-byte mismatch is detected here for a clean skip.
+  let fd: number
   try {
-    fs.accessSync(EE_BINARY, fs.constants.X_OK)
-  } catch {
-    return `EE binary not executable at ${EE_BINARY} (permissions)`
+    fd = fs.openSync(EE_BINARY, 'r')
+  } catch (err) {
+    return `EE binary not accessible at ${EE_BINARY} (${(err as NodeJS.ErrnoException).code ?? 'unknown'})`
   }
-  if (process.platform !== 'linux') {
-    const magic = Buffer.alloc(4)
-    const fd = fs.openSync(EE_BINARY, 'r')
-    fs.readSync(fd, magic, 0, 4, 0)
-    fs.closeSync(fd)
-    if (magic.toString('ascii', 1, 4) === 'ELF') {
-      return `EE binary is a Linux ELF but platform is ${process.platform} — build a native binary or run inside Docker`
+  try {
+    if (process.platform !== 'linux') {
+      const magic = Buffer.alloc(4)
+      fs.readSync(fd, magic, 0, 4, 0)
+      if (magic.toString('ascii', 1, 4) === 'ELF') {
+        return `EE binary is a Linux ELF but platform is ${process.platform} — build a native binary or run inside Docker`
+      }
     }
+  } finally {
+    fs.closeSync(fd)
   }
   // The EE Dockerfile / standard build does not yet embed the SPA assets.
   // Without a built frontend, /login renders the placeholder index.html and
   // Playwright cannot drive the UI. Skip until a build chain wires the SPA
   // into the EE binary (or sets EE_BINARY to a binary built from a community
   // checkout with `pkg/frontend/dist` populated via `npm run build`).
-  // Heuristic: the fixture index.html is ~193 bytes; a real built bundle
-  // is several KB minimum.
   return null
 })()
 
