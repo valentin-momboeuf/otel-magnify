@@ -8,7 +8,6 @@ on:
 
 permissions:
   contents: read
-  security-events: write
   pull-requests: read
 
 jobs:
@@ -108,6 +107,9 @@ jobs:
     name: hadolint (Dockerfile)
     runs-on: ubuntu-latest
     continue-on-error: true # warning, pas bloquant
+    permissions:
+      contents: read
+      security-events: write   # upload SARIF
     strategy:
       matrix:
         dockerfile: ['Dockerfile', 'cmd/sdkagent/Dockerfile']

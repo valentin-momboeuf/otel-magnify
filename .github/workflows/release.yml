@@ -5,15 +5,17 @@ on:
     tags: ['v*.*.*']
 
 permissions:
-  contents: write          # create the GitHub Release
-  packages: write          # push to ghcr.io
-  id-token: write          # cosign keyless OIDC
-  attestations: write      # build provenance attestation
+  contents: read
 
 jobs:
   build-image:
     name: Build + push multi-arch image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write          # push to ghcr.io
+      id-token: write          # provenance via OIDC
+      attestations: write      # build provenance attestation
     outputs:
       digest: ${{ steps.build.outputs.digest }}
       tags: ${{ steps.meta.outputs.tags }}
@@ -60,6 +62,9 @@ jobs:
     name: Trivy CRITICAL gate on built image
     needs: build-image
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: read           # pull image from ghcr.io
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -77,6 +82,11 @@ jobs:
     name: SBOM + cosign sign
     needs: build-image
     runs-on: ubuntu-latest
+    permissions:
+      contents: write          # upload SBOMs to the GitHub Release
+      packages: write          # cosign sign the image in ghcr.io
+      id-token: write          # cosign keyless OIDC
+      attestations: write      # cosign attest
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
@@ -89,25 +99,31 @@ jobs:
         uses: anchore/sbom-action/download-syft@e22c389904149dbc22b58101806040fa8d37a610 # v0.24.0
 
       - name: Generate SBOM (SPDX)
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}
         run: |
-          syft "ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}" \
-            -o spdx-json=otel-magnify.spdx.json
+          syft "$IMAGE_REF" -o spdx-json=otel-magnify.spdx.json
 
       - name: Generate SBOM (CycloneDX)
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}
         run: |
-          syft "ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}" \
-            -o cyclonedx-json=otel-magnify.cyclonedx.json
+          syft "$IMAGE_REF" -o cyclonedx-json=otel-magnify.cyclonedx.json
 
       - name: Sign image (cosign keyless)
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}
         run: |
-          cosign sign --yes "ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}"
+          cosign sign --yes "$IMAGE_REF"
 
       - name: Attest SBOM (SPDX)
+        env:
+          IMAGE_REF: ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}
         run: |
           cosign attest --yes \
             --predicate otel-magnify.spdx.json \
             --type spdx \
-            "ghcr.io/${{ github.repository_owner }}/otel-magnify@${{ needs.build-image.outputs.digest }}"
+            "$IMAGE_REF"
 
       - name: Attach SBOMs to GitHub Release
         uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
