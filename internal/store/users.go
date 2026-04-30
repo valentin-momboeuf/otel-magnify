@@ -2,8 +2,10 @@ package store
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
@@ -23,6 +25,9 @@ func (d *DB) GetUserByEmail(email string) (models.User, error) {
 		FROM users WHERE email = ?`, email,
 	).Scan(&u.ID, &u.Email, &u.PasswordHash, &u.TenantID)
 	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return u, fmt.Errorf("get user by email %s: %w", email, ext.ErrUserNotFound)
+		}
 		return u, fmt.Errorf("get user by email %s: %w", email, err)
 	}
 	return u, nil
