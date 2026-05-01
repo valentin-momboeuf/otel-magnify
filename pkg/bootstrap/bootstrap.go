@@ -146,6 +146,7 @@ func seedAdmin(db ext.Store) {
 	}
 
 	if _, err := db.GetUserByEmail(email); err == nil {
+		//nolint:gosec // SEED_ADMIN_EMAIL is operator-supplied at deploy time, not user input
 		log.Printf("Seed admin: user %s already exists, skipping", email)
 		return
 	}
@@ -169,5 +170,6 @@ func seedAdmin(db ext.Store) {
 		log.Printf("Seed admin: failed to attach admin group: %v", err)
 		return
 	}
+	//nolint:gosec // SEED_ADMIN_EMAIL is operator-supplied at deploy time, not user input
 	log.Printf("Seed admin: created user %s in group administrator", email)
 }

@@ -189,7 +189,7 @@ func (c *wsClient) writePump() {
 func (c *wsClient) readPump(h *Hub) {
 	defer func() {
 		h.unregister <- c
-		//nolint:errcheck // deferred cleanup; connection is being torn down regardless
+		//nolint:errcheck,gosec // deferred cleanup; connection is being torn down regardless
 		c.conn.Close()
 	}()
 	for {

@@ -353,6 +353,7 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 						continue
 					}
 					if i.EffectiveConfigHash != "" && i.EffectiveConfigHash != wl.ActiveConfigHash {
+						//nolint:gosec // auto-push is server-initiated and must outlive the OpAMP message context
 						go s.triggerAutoPush(context.Background(), *wl.ActiveConfigID, workloadID, uid)
 					}
 				}

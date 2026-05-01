@@ -71,7 +71,7 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 	// Health check (public, no auth)
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		//nolint:errcheck // status already committed; a Write failure here only signals a closed client connection
+		//nolint:errcheck,gosec // status already committed; a Write failure here only signals a closed client connection
 		w.Write([]byte("ok"))
 	})
 
