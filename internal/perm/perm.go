@@ -6,8 +6,10 @@ package perm
 
 import "github.com/magnify-labs/otel-magnify/pkg/ext"
 
+// Permission identifies an authorization-checked action; values are the canonical strings stored in the role matrix.
 type Permission string
 
+// Permissions enumerated below are the granular actions that handlers gate via api.RequirePerm.
 const (
 	PushConfig      Permission = "workload:push_config"
 	ValidateConfig  Permission = "workload:validate_config"

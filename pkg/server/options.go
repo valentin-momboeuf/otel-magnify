@@ -1,3 +1,4 @@
+// Package server composes the API router, OpAMP server, alert engine, and janitor into a single runnable Server, with functional options for EE overlays.
 package server
 
 import (

@@ -13,7 +13,7 @@ import (
 
 var upgrader = websocket.Upgrader{
 	// Allow all origins — restrict in production via a proper CheckOrigin
-	CheckOrigin: func(r *http.Request) bool { return true },
+	CheckOrigin: func(_ *http.Request) bool { return true },
 }
 
 type wsClient struct {
@@ -31,6 +31,7 @@ type Hub struct {
 	done       chan struct{}
 }
 
+// NewHub returns a Hub with initialized channels and client registry; call Run in a goroutine to start fan-out.
 func NewHub() *Hub {
 	return &Hub{
 		clients:    make(map[*wsClient]bool),

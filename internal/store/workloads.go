@@ -8,6 +8,7 @@ import (
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
+// UpsertWorkload inserts or updates a workload row, preserving previous remote_config_status / available_components when the new value is null.
 func (d *DB) UpsertWorkload(w models.Workload) error {
 	labelsJSON, err := w.Labels.Value()
 	if err != nil {
@@ -69,6 +70,7 @@ func (d *DB) UpsertWorkload(w models.Workload) error {
 	return err
 }
 
+// GetWorkload fetches a workload by id, decoding the JSON-stored labels, fingerprint keys, remote config status, and available components.
 func (d *DB) GetWorkload(id string) (models.Workload, error) {
 	var w models.Workload
 	var labelsJSON, keysJSON string
@@ -118,6 +120,7 @@ func (d *DB) GetWorkload(id string) (models.Workload, error) {
 	return w, nil
 }
 
+// ListWorkloads returns all workloads ordered by display_name; archived rows are excluded unless includeArchived is true.
 func (d *DB) ListWorkloads(includeArchived bool) ([]models.Workload, error) {
 	q := `SELECT id, fingerprint_source, fingerprint_keys, display_name, type, version, status,
 	             last_seen_at, labels, active_config_id, active_config_hash,
@@ -181,6 +184,7 @@ func (d *DB) ListWorkloads(includeArchived bool) ([]models.Workload, error) {
 	return out, rows.Err()
 }
 
+// MarkWorkloadDisconnected flips a workload to "disconnected" and stamps its retention deadline; returns sql.ErrNoRows when no row matches.
 func (d *DB) MarkWorkloadDisconnected(id string, retentionUntil time.Time) error {
 	res, err := d.Exec(`UPDATE workloads SET status = 'disconnected', retention_until = ? WHERE id = ?`,
 		retentionUntil.UTC(), id)
@@ -194,11 +198,13 @@ func (d *DB) MarkWorkloadDisconnected(id string, retentionUntil time.Time) error
 	return nil
 }
 
+// ClearWorkloadRetention nulls retention_until for the given workload, called when the workload reconnects.
 func (d *DB) ClearWorkloadRetention(id string) error {
 	_, err := d.Exec(`UPDATE workloads SET retention_until = NULL WHERE id = ?`, id)
 	return err
 }
 
+// ArchiveExpiredWorkloads stamps archived_at on workloads whose retention deadline has passed, returning the row count.
 func (d *DB) ArchiveExpiredWorkloads(now time.Time) (int64, error) {
 	res, err := d.Exec(`UPDATE workloads
 	                    SET archived_at = ?
@@ -212,6 +218,7 @@ func (d *DB) ArchiveExpiredWorkloads(now time.Time) (int64, error) {
 	return res.RowsAffected()
 }
 
+// DeleteWorkload permanently removes a workload row.
 func (d *DB) DeleteWorkload(id string) error {
 	_, err := d.Exec(`DELETE FROM workloads WHERE id = ?`, id)
 	return err

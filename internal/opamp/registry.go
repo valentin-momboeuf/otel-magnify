@@ -25,6 +25,7 @@ type InstanceRegistry struct {
 	uidToWL    map[string]string               // instanceUID -> workloadID (heartbeat cache)
 }
 
+// NewInstanceRegistry returns an empty in-memory instance registry.
 func NewInstanceRegistry() *InstanceRegistry {
 	return &InstanceRegistry{
 		byWorkload: make(map[string]map[string]*Instance),

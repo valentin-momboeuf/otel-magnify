@@ -8,9 +8,9 @@ import (
 	"io/fs"
 	"log"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" driver with database/sql for Postgres
 	"github.com/pressly/goose/v3"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // registers the pure-Go "sqlite" driver with database/sql
 )
 
 //go:embed migrations/*.sql

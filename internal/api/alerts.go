@@ -1,3 +1,4 @@
+// Package api wires the chi-based REST router, WebSocket hub, and HTTP handlers exposed to the SPA.
 package api
 
 import (

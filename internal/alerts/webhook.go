@@ -10,11 +10,13 @@ import (
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
+// WebhookNotifier POSTs alert payloads to a configured HTTP endpoint.
 type WebhookNotifier struct {
 	url    string
 	client *http.Client
 }
 
+// NewWebhookNotifier returns a notifier that posts to url, or nil when url is empty.
 func NewWebhookNotifier(url string) *WebhookNotifier {
 	if url == "" {
 		return nil
@@ -25,6 +27,7 @@ func NewWebhookNotifier(url string) *WebhookNotifier {
 	}
 }
 
+// Send marshals the alert as JSON and POSTs it to the configured webhook URL.
 func (w *WebhookNotifier) Send(alert models.Alert) {
 	payload, err := json.Marshal(map[string]any{
 		"alert":    alert,

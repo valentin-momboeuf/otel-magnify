@@ -25,6 +25,7 @@ type OpAMPPusher interface {
 	Instances(workloadID string) []opamp.Instance
 }
 
+// API holds the HTTP handler dependencies (store, auth, WS hub, OpAMP pusher, feature flags) shared across all routes.
 type API struct {
 	db                ext.Store
 	auth              ext.AuthProvider

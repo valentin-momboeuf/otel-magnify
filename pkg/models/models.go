@@ -1,3 +1,4 @@
+// Package models defines the shared domain structs persisted by the store and serialized over the API.
 package models
 
 import (
@@ -9,11 +10,13 @@ import (
 // Labels is a map[string]string stored as JSON TEXT in the DB.
 type Labels map[string]string
 
+// Value JSON-encodes the labels for storage as TEXT.
 func (l Labels) Value() (string, error) {
 	b, err := json.Marshal(l)
 	return string(b), err
 }
 
+// Scan decodes the JSON-encoded labels from a string, []byte, or NULL DB value.
 func (l *Labels) Scan(src any) error {
 	switch v := src.(type) {
 	case string:
@@ -38,11 +41,13 @@ type AvailableComponents struct {
 	Hash string `json:"hash,omitempty"`
 }
 
+// Value JSON-encodes the available components for storage as TEXT.
 func (a AvailableComponents) Value() (string, error) {
 	b, err := json.Marshal(a)
 	return string(b), err
 }
 
+// Scan decodes the JSON-encoded available components from a string, []byte, or NULL DB value.
 func (a *AvailableComponents) Scan(src any) error {
 	switch v := src.(type) {
 	case string:
@@ -62,6 +67,7 @@ func (a *AvailableComponents) Scan(src any) error {
 	}
 }
 
+// RemoteConfigStatus mirrors the agent-reported state of the last config push (applying/applied/failed plus hash).
 type RemoteConfigStatus struct {
 	Status       string    `json:"status"` // "applying" | "applied" | "failed"
 	ConfigHash   string    `json:"config_hash"`
@@ -69,11 +75,13 @@ type RemoteConfigStatus struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 }
 
+// Value JSON-encodes the remote config status for storage as TEXT.
 func (r RemoteConfigStatus) Value() (string, error) {
 	b, err := json.Marshal(r)
 	return string(b), err
 }
 
+// Scan decodes the JSON-encoded remote config status from a string, []byte, or NULL DB value.
 func (r *RemoteConfigStatus) Scan(src any) error {
 	switch v := src.(type) {
 	case string:
@@ -93,6 +101,7 @@ func (r *RemoteConfigStatus) Scan(src any) error {
 	}
 }
 
+// Config is a named, versionable YAML template that operators push to one or more workloads.
 type Config struct {
 	ID        string    `json:"id"`
 	Name      string    `json:"name"`
@@ -101,6 +110,7 @@ type Config struct {
 	CreatedBy string    `json:"created_by"`
 }
 
+// WorkloadConfig records a single push of a Config to a Workload, including its current apply status.
 type WorkloadConfig struct {
 	WorkloadID   string    `json:"workload_id"`
 	ConfigID     string    `json:"config_id"`
@@ -119,6 +129,7 @@ type PushActivityPoint struct {
 	Count int    `json:"count"`
 }
 
+// Alert is one open or resolved alert raised by the alert engine.
 type Alert struct {
 	ID         string     `json:"id"`
 	WorkloadID string     `json:"workload_id"`
@@ -129,6 +140,7 @@ type Alert struct {
 	ResolvedAt *time.Time `json:"resolved_at,omitempty"`
 }
 
+// User is an authenticated principal of the platform; PasswordHash is bcrypt-encoded and never serialized.
 type User struct {
 	ID           string  `json:"id"`
 	Email        string  `json:"email"`
@@ -167,11 +179,13 @@ type UserPreferences struct {
 // record which resource attributes contributed to its identity.
 type FingerprintKeys map[string]string
 
+// Value JSON-encodes the fingerprint keys for storage as TEXT.
 func (f FingerprintKeys) Value() (string, error) {
 	b, err := json.Marshal(f)
 	return string(b), err
 }
 
+// Scan decodes the JSON-encoded fingerprint keys from a string, []byte, or NULL DB value.
 func (f *FingerprintKeys) Scan(src any) error {
 	switch v := src.(type) {
 	case string:

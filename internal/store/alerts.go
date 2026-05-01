@@ -1,3 +1,4 @@
+// Package store implements the SQLite/Postgres-backed persistence layer behind ext.Store.
 package store
 
 import (
@@ -7,6 +8,7 @@ import (
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
+// CreateAlert inserts a new alert row.
 func (d *DB) CreateAlert(a models.Alert) error {
 	_, err := d.Exec(`
 		INSERT INTO alerts (id, workload_id, rule, severity, message, fired_at)
@@ -16,6 +18,7 @@ func (d *DB) CreateAlert(a models.Alert) error {
 	return err
 }
 
+// ResolveAlert stamps resolved_at on the alert with the given id, returning sql.ErrNoRows if no row matched.
 func (d *DB) ResolveAlert(id string) error {
 	res, err := d.Exec(`UPDATE alerts SET resolved_at = ? WHERE id = ?`, time.Now().UTC(), id)
 	if err != nil {
@@ -28,6 +31,7 @@ func (d *DB) ResolveAlert(id string) error {
 	return nil
 }
 
+// ListAlerts returns alerts ordered by fired_at desc; resolved alerts are excluded unless includeResolved is true.
 func (d *DB) ListAlerts(includeResolved bool) ([]models.Alert, error) {
 	query := `SELECT id, workload_id, rule, severity, message, fired_at, resolved_at FROM alerts`
 	if !includeResolved {
@@ -53,6 +57,7 @@ func (d *DB) ListAlerts(includeResolved bool) ([]models.Alert, error) {
 	return alerts, rows.Err()
 }
 
+// GetUnresolvedAlertByWorkloadAndRule returns the open alert for a (workload, rule) pair, or (nil, nil) if none exists.
 func (d *DB) GetUnresolvedAlertByWorkloadAndRule(workloadID, rule string) (*models.Alert, error) {
 	var a models.Alert
 	err := d.QueryRow(`

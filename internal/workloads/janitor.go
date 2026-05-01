@@ -1,3 +1,4 @@
+// Package workloads runs background maintenance over workload state (archival, event purge).
 package workloads
 
 import (
@@ -6,16 +7,19 @@ import (
 	"time"
 )
 
+// Store is the narrow subset of ext.Store the janitor needs.
 type Store interface {
 	ArchiveExpiredWorkloads(now time.Time) (int64, error)
 	PurgeOldWorkloadEvents(cutoff time.Time) (int64, error)
 }
 
+// Options tunes the janitor loop period and the event retention horizon.
 type Options struct {
 	Interval       time.Duration
 	EventRetention time.Duration
 }
 
+// Janitor archives expired workloads and purges old workload events on a periodic tick.
 type Janitor struct {
 	store Store
 	opts  Options

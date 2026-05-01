@@ -7,6 +7,7 @@ import (
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
+// RecordWorkloadConfig appends an entry to the per-workload config history, defaulting AppliedAt to now.
 func (d *DB) RecordWorkloadConfig(wc models.WorkloadConfig) error {
 	t := wc.AppliedAt
 	if t.IsZero() {
@@ -20,6 +21,7 @@ func (d *DB) RecordWorkloadConfig(wc models.WorkloadConfig) error {
 	return err
 }
 
+// UpdateWorkloadConfigStatus updates status and error_message on the latest workload_configs row for the given (workload, config) pair.
 func (d *DB) UpdateWorkloadConfigStatus(workloadID, configID, status, errorMessage string) error {
 	_, err := d.Exec(`
 		UPDATE workload_configs SET status = ?, error_message = ?
@@ -32,6 +34,7 @@ func (d *DB) UpdateWorkloadConfigStatus(workloadID, configID, status, errorMessa
 	return err
 }
 
+// GetLatestPendingWorkloadConfig returns the most recent still-pending push for the workload, or (nil, nil) if there is none.
 func (d *DB) GetLatestPendingWorkloadConfig(workloadID string) (*models.WorkloadConfig, error) {
 	var wc models.WorkloadConfig
 	err := d.QueryRow(`
@@ -49,6 +52,7 @@ func (d *DB) GetLatestPendingWorkloadConfig(workloadID string) (*models.Workload
 	return &wc, nil
 }
 
+// GetWorkloadConfigHistory returns the full push history for a workload, joined with the config content, ordered newest first.
 func (d *DB) GetWorkloadConfigHistory(workloadID string) ([]models.WorkloadConfig, error) {
 	rows, err := d.Query(`
 		SELECT wc.workload_id, wc.config_id, wc.applied_at, wc.status,
@@ -114,6 +118,7 @@ func (d *DB) GetPushActivity(days int) ([]models.PushActivityPoint, error) {
 	return out, nil
 }
 
+// GetLastAppliedWorkloadConfig returns the most recent successfully-applied config for a workload, or (nil, nil) if none has applied yet.
 func (d *DB) GetLastAppliedWorkloadConfig(workloadID string) (*models.WorkloadConfig, error) {
 	var wc models.WorkloadConfig
 	err := d.QueryRow(`

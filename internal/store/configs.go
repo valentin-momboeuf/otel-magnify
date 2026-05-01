@@ -6,6 +6,7 @@ import (
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
+// CreateConfig inserts a new config template row.
 func (d *DB) CreateConfig(c models.Config) error {
 	_, err := d.Exec(`
 		INSERT INTO configs (id, name, content, created_at, created_by)
@@ -15,6 +16,7 @@ func (d *DB) CreateConfig(c models.Config) error {
 	return err
 }
 
+// GetConfig fetches a config template by id, wrapping sql.ErrNoRows on miss.
 func (d *DB) GetConfig(id string) (models.Config, error) {
 	var c models.Config
 	err := d.QueryRow(`SELECT id, name, content, created_at, created_by FROM configs WHERE id = ?`, id).
@@ -25,6 +27,7 @@ func (d *DB) GetConfig(id string) (models.Config, error) {
 	return c, nil
 }
 
+// ListConfigs returns all config templates ordered by created_at desc.
 func (d *DB) ListConfigs() ([]models.Config, error) {
 	rows, err := d.Query(`SELECT id, name, content, created_at, created_by FROM configs ORDER BY created_at DESC`)
 	if err != nil {
