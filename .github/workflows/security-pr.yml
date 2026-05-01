@@ -45,10 +45,6 @@ jobs:
         with:
           version: v2.11.4
           args: --timeout=5m
-          # Enforce on new diffs only — existing errcheck/etc. findings are
-          # tracked for cleanup (see TODO 09 in Obsidian) and don't block
-          # this PR.
-          only-new-issues: true
 
   lint-fe:
     name: ESLint + Prettier (frontend)
