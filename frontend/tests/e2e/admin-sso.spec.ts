@@ -101,6 +101,7 @@ test.describe('SSO admin — feature flag gating', () => {
     await page.goto('/admin/sso/providers')
     // Providers gates on settings:manage; editor lacks it → redirect /admin.
     // Admin gates on users:manage; editor lacks it → redirect "/".
+    // eslint-disable-next-line security/detect-unsafe-regex -- bounded literal pattern over Playwright-supplied page.url(), no user input; anchors and greedy \d+ make backtracking polynomial
     await expect(page).toHaveURL(/^http:\/\/localhost:\d+\/?(?:#.*)?$/)
   })
 })

@@ -22,6 +22,7 @@ const SKIP_REASON = (() => {
   // so the platform/magic-byte mismatch is detected here for a clean skip.
   let fd: number
   try {
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- EE_BINARY is a test-controlled path (env override or fixed sibling-repo location), no untrusted input
     fd = fs.openSync(EE_BINARY, 'r')
   } catch (err) {
     return `EE binary not accessible at ${EE_BINARY} (${(err as NodeJS.ErrnoException).code ?? 'unknown'})`
