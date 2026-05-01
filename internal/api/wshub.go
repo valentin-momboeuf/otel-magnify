@@ -175,6 +175,7 @@ func (h *Hub) HandleWS(w http.ResponseWriter, r *http.Request) {
 
 // writePump drains the send channel and writes messages to the WebSocket.
 func (c *wsClient) writePump() {
+	//nolint:errcheck // deferred cleanup; connection is being torn down regardless
 	defer c.conn.Close()
 	for msg := range c.send {
 		if err := c.conn.WriteMessage(websocket.TextMessage, msg); err != nil {
@@ -188,6 +189,7 @@ func (c *wsClient) writePump() {
 func (c *wsClient) readPump(h *Hub) {
 	defer func() {
 		h.unregister <- c
+		//nolint:errcheck // deferred cleanup; connection is being torn down regardless
 		c.conn.Close()
 	}()
 	for {

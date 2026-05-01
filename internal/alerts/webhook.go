@@ -41,6 +41,7 @@ func (w *WebhookNotifier) Send(alert models.Alert) {
 		log.Printf("webhook: send error: %v", err)
 		return
 	}
+	//nolint:errcheck // deferred cleanup of HTTP response body; close error is not actionable
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 400 {

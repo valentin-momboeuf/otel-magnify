@@ -30,6 +30,7 @@ func (d *DB) ListConfigs() ([]models.Config, error) {
 	if err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // deferred cleanup; rows fully iterated below
 	defer rows.Close()
 
 	var configs []models.Config

@@ -133,6 +133,7 @@ func (d *DB) ListWorkloads(includeArchived bool) ([]models.Workload, error) {
 	if err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // deferred cleanup; rows fully iterated below
 	defer rows.Close()
 
 	var out []models.Workload

@@ -39,6 +39,7 @@ func (d *DB) ListAlerts(includeResolved bool) ([]models.Alert, error) {
 	if err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // deferred cleanup; rows fully iterated below
 	defer rows.Close()
 
 	var alerts []models.Alert

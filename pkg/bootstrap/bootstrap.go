@@ -71,6 +71,7 @@ func Run(ctx context.Context, opts Options) error {
 	if err != nil {
 		return err
 	}
+	//nolint:errcheck // deferred until process exit; close error not actionable here
 	defer db.Close()
 
 	if err := db.Migrate(); err != nil {

@@ -61,6 +61,7 @@ func (d *DB) GetWorkloadConfigHistory(workloadID string) ([]models.WorkloadConfi
 	if err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // deferred cleanup; rows fully iterated below
 	defer rows.Close()
 
 	var history []models.WorkloadConfig
@@ -90,6 +91,7 @@ func (d *DB) GetPushActivity(days int) ([]models.PushActivityPoint, error) {
 	if err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // deferred cleanup; rows fully iterated below
 	defer rows.Close()
 
 	counts := make(map[string]int, days)

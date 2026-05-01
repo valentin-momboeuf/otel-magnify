@@ -37,6 +37,7 @@ func (d *DB) ListWorkloadEvents(workloadID string, limit int, since time.Time) (
 	if err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // deferred cleanup; rows fully iterated below
 	defer rows.Close()
 
 	var out []models.WorkloadEvent
