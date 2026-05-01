@@ -74,6 +74,8 @@ func (s *Server) attemptAutoRollback(workloadID, failedHash, reason string) {
 
 func remoteConfigStatusString(s protobufs.RemoteConfigStatuses) string {
 	switch s {
+	case protobufs.RemoteConfigStatuses_RemoteConfigStatuses_UNSET:
+		return ""
 	case protobufs.RemoteConfigStatuses_RemoteConfigStatuses_APPLYING:
 		return "applying"
 	case protobufs.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED:
