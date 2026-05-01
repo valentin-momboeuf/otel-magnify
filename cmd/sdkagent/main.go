@@ -40,7 +40,9 @@ func main() {
 	}
 
 	capabilities := protobufs.AgentCapabilities_AgentCapabilities_ReportsStatus
-	opampClient.SetCapabilities(&capabilities)
+	if err := opampClient.SetCapabilities(&capabilities); err != nil {
+		logger.Fatalf("SetCapabilities: %v", err)
+	}
 
 	var uid types.InstanceUid
 	if _, err := rand.Read(uid[:]); err != nil {
@@ -72,7 +74,9 @@ func main() {
 	<-sigCh
 
 	logger.Println("shutting down...")
-	opampClient.Stop(context.Background())
+	if err := opampClient.Stop(context.Background()); err != nil {
+		logger.Printf("Stop: %v", err)
+	}
 }
 
 func kv(key, val string) *protobufs.KeyValue {
