@@ -1,6 +1,7 @@
 package opamp
 
 import (
+	"context"
 	"encoding/hex"
 	"fmt"
 	"sync"
@@ -187,7 +188,7 @@ func TestOnMessageUpsertsWorkloadWithFingerprint(t *testing.T) {
 			},
 		},
 	}
-	srv.onMessage(nil, nil, msg)
+	srv.onMessage(context.TODO(), nil, msg)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -224,7 +225,7 @@ func TestConnectedEventEmittedOnFreshBind(t *testing.T) {
 	uid := make([]byte, 16)
 	uid[0] = 0x43
 
-	srv.onMessage(nil, nil, &protobufs.AgentToServer{
+	srv.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -270,7 +271,7 @@ func TestDisconnectedEventEmittedOnClose(t *testing.T) {
 	uidHex := hex.EncodeToString(uid)
 
 	// Bind first via AgentDescription.
-	srv.onMessage(nil, nil, &protobufs.AgentToServer{
+	srv.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -322,7 +323,7 @@ func TestRollingRestartDoesNotMarkDisconnected(t *testing.T) {
 	uidA := make([]byte, 16)
 	uidA[0] = 0xA1
 	uidAHex := hex.EncodeToString(uidA)
-	srv.onMessage(nil, nil, &protobufs.AgentToServer{
+	srv.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uidA,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -349,7 +350,7 @@ func TestRollingRestartDoesNotMarkDisconnected(t *testing.T) {
 	time.Sleep(5 * time.Millisecond)
 	uidB := make([]byte, 16)
 	uidB[0] = 0xB1
-	srv.onMessage(nil, nil, &protobufs.AgentToServer{
+	srv.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uidB,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -412,7 +413,7 @@ func TestAutoPushWhenConfigHashDiverges(t *testing.T) {
 
 	// Agent reports a DIFFERENT effective hash → auto-push triggers.
 	divergent, _ := hex.DecodeString("deadbeef")
-	srv.onMessage(nil, nil, &protobufs.AgentToServer{
+	srv.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
