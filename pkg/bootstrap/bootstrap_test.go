@@ -118,7 +118,7 @@ func TestPreRun_Error_PropagatesAsRunError(t *testing.T) {
 
 	want := errors.New("prerun boom")
 	opts := bootstrap.Options{
-		PreRun: func(store ext.Store, auth ext.AuthProvider) ([]server.Option, error) {
+		PreRun: func(_ ext.Store, _ ext.AuthProvider) ([]server.Option, error) {
 			return nil, want
 		},
 	}

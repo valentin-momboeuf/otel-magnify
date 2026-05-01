@@ -127,7 +127,7 @@ func (f *fakeStore) UpdateWorkloadConfigStatus(workloadID, configID, status, err
 	return nil
 }
 
-func (f *fakeStore) GetLastAppliedWorkloadConfig(workloadID string) (*models.WorkloadConfig, error) {
+func (f *fakeStore) GetLastAppliedWorkloadConfig(_ string) (*models.WorkloadConfig, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.lastApplied, nil

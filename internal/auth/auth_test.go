@@ -48,7 +48,7 @@ func TestValidateToken_Invalid(t *testing.T) {
 func TestMiddleware_NoToken(t *testing.T) {
 	a := New("test-secret-key-at-least-32-bytes!")
 
-	handler := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := a.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 	}))
 

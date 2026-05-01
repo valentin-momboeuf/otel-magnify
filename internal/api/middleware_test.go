@@ -11,7 +11,7 @@ import (
 func TestRequirePerm_DeniesWhenMissing(t *testing.T) {
 	db, auth := newMeTestAPI(t)
 	api := &API{db: db, auth: auth}
-	h := api.RequirePerm(perm.PushConfig)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := api.RequirePerm(perm.PushConfig)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 
@@ -29,7 +29,7 @@ func TestRequirePerm_DeniesWhenMissing(t *testing.T) {
 func TestRequirePerm_AllowsWhenPresent(t *testing.T) {
 	db, auth := newMeTestAPI(t)
 	api := &API{db: db, auth: auth}
-	h := api.RequirePerm(perm.PushConfig)(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	h := api.RequirePerm(perm.PushConfig)(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 	}))
 

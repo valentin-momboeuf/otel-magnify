@@ -38,7 +38,7 @@ func TestGraceRescheduleReplacesExisting(t *testing.T) {
 	}
 }
 
-func TestGraceCancelOfUnknownIDIsNoop(t *testing.T) {
+func TestGraceCancelOfUnknownIDIsNoop(_ *testing.T) {
 	gc := NewGraceController(10 * time.Millisecond)
 	gc.Cancel("wl-never-scheduled") // should not panic
 }
