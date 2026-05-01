@@ -29,8 +29,8 @@ const reportsAvailableComponentsCap = uint64(protobufs.AgentCapabilities_AgentCa
 // so the UI can gate config editing affordances.
 const acceptsRemoteConfigCap = uint64(protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig)
 
-// OpAMPStore is the narrow subset of store.DB the OpAMP server needs.
-type OpAMPStore interface {
+// Store is the narrow subset of store.DB the OpAMP server needs.
+type Store interface {
 	GetWorkload(id string) (models.Workload, error)
 	UpsertWorkload(w models.Workload) error
 	MarkWorkloadDisconnected(id string, retentionUntil time.Time) error
@@ -71,7 +71,7 @@ type Options struct {
 // Server wraps the opamp-go server and manages workload state.
 type Server struct {
 	opamp    opampServer.OpAMPServer
-	store    OpAMPStore
+	store    Store
 	notifier Notifier
 
 	registry  *InstanceRegistry
@@ -90,7 +90,7 @@ type Server struct {
 
 // New creates a new OpAMP server. db and notifier can be nil (useful for
 // testing).
-func New(db OpAMPStore, notifier Notifier, opts Options) *Server {
+func New(db Store, notifier Notifier, opts Options) *Server {
 	if opts.DisconnectGrace <= 0 {
 		opts.DisconnectGrace = 2 * time.Minute
 	}
@@ -189,7 +189,7 @@ func (s *Server) Attach() (opampServer.HTTPHandlerFunc, opampServer.ConnContext,
 
 	settings := opampServer.Settings{
 		Callbacks: types.Callbacks{
-			OnConnecting: func(request *http.Request) types.ConnectionResponse {
+			OnConnecting: func(_ *http.Request) types.ConnectionResponse {
 				return types.ConnectionResponse{
 					Accept:              true,
 					ConnectionCallbacks: connCallbacks,
@@ -206,7 +206,7 @@ func (s *Server) Stop(ctx context.Context) error {
 	return s.opamp.Stop(ctx)
 }
 
-func (s *Server) onConnected(ctx context.Context, conn types.Connection) {
+func (s *Server) onConnected(_ context.Context, conn types.Connection) {
 	log.Printf("OpAMP agent connected: %v", conn)
 }
 
@@ -233,7 +233,7 @@ func flattenAttrs(identifying, nonIdentifying []*protobufs.KeyValue) map[string]
 	return out
 }
 
-func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+func (s *Server) onMessage(_ context.Context, conn types.Connection, msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
 	uid := hex.EncodeToString(msg.InstanceUid)
 
 	// Track connection in both directions for O(1) lookup on close. A nil
@@ -374,7 +374,7 @@ func (s *Server) onMessage(ctx context.Context, conn types.Connection, msg *prot
 	return reply
 }
 
-// getWorkload is a nil-safe wrapper around OpAMPStore.GetWorkload.
+// getWorkload is a nil-safe wrapper around Store.GetWorkload.
 func (s *Server) getWorkload(id string) (models.Workload, error) {
 	if s.store == nil {
 		return models.Workload{}, fmt.Errorf("no store")
@@ -385,7 +385,7 @@ func (s *Server) getWorkload(id string) (models.Workload, error) {
 // upsertWorkloadFromDescription materializes the workload row from the live
 // attributes, merging with DB state so we don't clobber fields managed
 // elsewhere (active_config_id, retention_until, remote_config_status snap).
-func (s *Server) upsertWorkloadFromDescription(uid, workloadID string, fp FingerprintResult, attrs map[string]string, msg *protobufs.AgentToServer) {
+func (s *Server) upsertWorkloadFromDescription(_, workloadID string, fp FingerprintResult, attrs map[string]string, msg *protobufs.AgentToServer) {
 	if s.store == nil {
 		return
 	}
@@ -462,7 +462,7 @@ func (s *Server) countDrift(workloadID, activeHash string) int {
 // triggerAutoPush re-pushes the workload's pinned config to a single instance
 // that has reported a divergent effective hash. Runs as a goroutine launched
 // from onMessage, so all errors are logged (no channel to propagate them).
-func (s *Server) triggerAutoPush(ctx context.Context, configID, workloadID, instanceUID string) {
+func (s *Server) triggerAutoPush(_ context.Context, configID, workloadID, instanceUID string) {
 	if s.store == nil {
 		return
 	}
