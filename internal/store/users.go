@@ -9,6 +9,7 @@ import (
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
+// CreateUser inserts a new user row.
 func (d *DB) CreateUser(u models.User) error {
 	_, err := d.Exec(`
 		INSERT INTO users (id, email, password_hash, tenant_id)
@@ -18,6 +19,7 @@ func (d *DB) CreateUser(u models.User) error {
 	return err
 }
 
+// GetUserByEmail returns the user with the given email, wrapping ext.ErrUserNotFound on miss.
 func (d *DB) GetUserByEmail(email string) (models.User, error) {
 	var u models.User
 	err := d.QueryRow(`
@@ -33,6 +35,7 @@ func (d *DB) GetUserByEmail(email string) (models.User, error) {
 	return u, nil
 }
 
+// UpdateUser overwrites email, password_hash, and tenant_id of the row matching u.ID; returns sql.ErrNoRows when no row matches.
 func (d *DB) UpdateUser(u models.User) error {
 	res, err := d.Exec(`
 		UPDATE users

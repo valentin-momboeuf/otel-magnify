@@ -167,9 +167,15 @@ func (s *Server) Run(ctx context.Context) error {
 	shutdownCtx, shutdownCancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer shutdownCancel()
 
-	apiHTTP.Shutdown(shutdownCtx)
-	opampHTTP.Shutdown(shutdownCtx)
-	opampSrv.Stop(shutdownCtx)
+	if err := apiHTTP.Shutdown(shutdownCtx); err != nil {
+		log.Printf("API server shutdown: %v", err)
+	}
+	if err := opampHTTP.Shutdown(shutdownCtx); err != nil {
+		log.Printf("OpAMP HTTP shutdown: %v", err)
+	}
+	if err := opampSrv.Stop(shutdownCtx); err != nil {
+		log.Printf("OpAMP server stop: %v", err)
+	}
 	hub.Stop()
 	log.Println("Shutdown complete")
 

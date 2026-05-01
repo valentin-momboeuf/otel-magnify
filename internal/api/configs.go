@@ -20,7 +20,7 @@ type createConfigRequest struct {
 	Content string `json:"content"`
 }
 
-func (a *API) handleListConfigs(w http.ResponseWriter, r *http.Request) {
+func (a *API) handleListConfigs(w http.ResponseWriter, _ *http.Request) {
 	configs, err := a.db.ListConfigs()
 	if err != nil {
 		respondError(w, 500, "failed to list configs")

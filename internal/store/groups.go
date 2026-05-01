@@ -16,6 +16,7 @@ func (d *DB) ListSystemGroups() ([]models.Group, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list system groups: %w", err)
 	}
+	//nolint:errcheck // deferred cleanup; rows fully iterated below
 	defer rows.Close()
 
 	var out []models.Group

@@ -1,3 +1,4 @@
+// Package opamp implements the OpAMP server, agent registry, fingerprinting, and remote config push.
 package opamp
 
 import (

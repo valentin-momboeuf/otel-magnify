@@ -6,6 +6,7 @@ import (
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
+// InsertWorkloadEvent appends a workload event row, defaulting OccurredAt to now, and returns the assigned auto-increment id.
 func (d *DB) InsertWorkloadEvent(e models.WorkloadEvent) (int64, error) {
 	if e.OccurredAt.IsZero() {
 		e.OccurredAt = time.Now().UTC()
@@ -21,6 +22,7 @@ func (d *DB) InsertWorkloadEvent(e models.WorkloadEvent) (int64, error) {
 	return res.LastInsertId()
 }
 
+// ListWorkloadEvents returns the latest events for a workload (capped by limit), optionally filtered to events after the since timestamp.
 func (d *DB) ListWorkloadEvents(workloadID string, limit int, since time.Time) ([]models.WorkloadEvent, error) {
 	q := `SELECT id, workload_id, instance_uid, pod_name, event_type, version, prev_version, occurred_at
 	      FROM workload_events
@@ -37,6 +39,7 @@ func (d *DB) ListWorkloadEvents(workloadID string, limit int, since time.Time) (
 	if err != nil {
 		return nil, err
 	}
+	//nolint:errcheck // deferred cleanup; rows fully iterated below
 	defer rows.Close()
 
 	var out []models.WorkloadEvent
@@ -50,6 +53,7 @@ func (d *DB) ListWorkloadEvents(workloadID string, limit int, since time.Time) (
 	return out, rows.Err()
 }
 
+// PurgeOldWorkloadEvents deletes all events older than cutoff and returns the number of rows removed.
 func (d *DB) PurgeOldWorkloadEvents(cutoff time.Time) (int64, error) {
 	res, err := d.Exec(`DELETE FROM workload_events WHERE occurred_at < ?`, cutoff.UTC())
 	if err != nil {

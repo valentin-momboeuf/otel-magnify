@@ -1,3 +1,4 @@
+// Package alerts evaluates rules against workload state and dispatches alert notifications.
 package alerts
 
 import (
@@ -26,6 +27,7 @@ type AlertStore interface {
 	GetLatestPendingWorkloadConfig(workloadID string) (*models.WorkloadConfig, error)
 }
 
+// Engine periodically evaluates alert rules (workload_down, config_drift, version_outdated) and emits notifications via the configured AlertNotifiers.
 type Engine struct {
 	db          AlertStore
 	hub         Broadcaster
@@ -34,6 +36,7 @@ type Engine struct {
 	notifiers   []ext.AlertNotifier
 }
 
+// New constructs an Engine with the given store, broadcaster, down-timeout, minimum version threshold, and zero or more notifiers.
 func New(db AlertStore, hub Broadcaster, downTimeout time.Duration, minVersion string, notifiers ...ext.AlertNotifier) *Engine {
 	return &Engine{
 		db:          db,
@@ -44,6 +47,7 @@ func New(db AlertStore, hub Broadcaster, downTimeout time.Duration, minVersion s
 	}
 }
 
+// Start runs the evaluation loop on the given interval until ctx is cancelled.
 func (e *Engine) Start(ctx context.Context, interval time.Duration) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
@@ -57,6 +61,7 @@ func (e *Engine) Start(ctx context.Context, interval time.Duration) {
 	}
 }
 
+// Evaluate runs all alert rules once across every non-archived workload.
 func (e *Engine) Evaluate() {
 	workloads, err := e.db.ListWorkloads(false)
 	if err != nil {

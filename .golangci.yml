@@ -22,6 +22,9 @@ linters:
     - copyloopvar
     - exhaustive
   exclusions:
+    paths:
+      # Vendored Go file shipped by the npm "flatted" package — not our code.
+      - frontend/node_modules
     rules:
       - path: _test\.go
         linters:

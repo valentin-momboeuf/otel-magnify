@@ -33,15 +33,17 @@ func TestMigrate(t *testing.T) {
 
 func TestMigrate_WorkloadConfigPushFields(t *testing.T) {
 	db := newTestDB(t)
-	rows, err := db.Query("SELECT error_message, pushed_by FROM workload_configs LIMIT 0")
-	if err != nil {
-		t.Fatalf("workload_configs missing push fields: %v", err)
-	}
-	rows.Close()
+	assertColumns(t, db, "SELECT error_message, pushed_by FROM workload_configs LIMIT 0",
+		"workload_configs missing push fields")
+	assertColumns(t, db, "SELECT remote_config_status FROM workloads LIMIT 0",
+		"workloads missing remote_config_status")
+}
 
-	rows, err = db.Query("SELECT remote_config_status FROM workloads LIMIT 0")
+func assertColumns(t *testing.T, db *DB, query, msg string) {
+	t.Helper()
+	rows, err := db.Query(query)
 	if err != nil {
-		t.Fatalf("workloads missing remote_config_status: %v", err)
+		t.Fatalf("%s: %v", msg, err)
 	}
-	rows.Close()
+	defer rows.Close()
 }

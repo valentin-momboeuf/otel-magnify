@@ -67,7 +67,7 @@ func TestRegistryUpdateInstance(t *testing.T) {
 	if len(snap) != 1 || snap[0].Healthy {
 		t.Fatalf("expected unhealthy, got %+v", snap)
 	}
-	if ok := r.UpdateInstance("uid-missing", func(i *Instance) {}); ok {
+	if ok := r.UpdateInstance("uid-missing", func(_ *Instance) {}); ok {
 		t.Fatal("UpdateInstance should return false for unknown uid")
 	}
 }
@@ -100,7 +100,7 @@ func TestRegistryPreviousVersion(t *testing.T) {
 	}
 }
 
-func TestRegistryConcurrentBindUnbind(t *testing.T) {
+func TestRegistryConcurrentBindUnbind(_ *testing.T) {
 	r := NewInstanceRegistry()
 	var wg sync.WaitGroup
 	for i := 0; i < 100; i++ {

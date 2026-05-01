@@ -28,7 +28,7 @@ func (f *fakeStore) ArchiveExpiredWorkloads(now time.Time) (int64, error) {
 	return n, nil
 }
 
-func (f *fakeStore) PurgeOldWorkloadEvents(cutoff time.Time) (int64, error) {
+func (f *fakeStore) PurgeOldWorkloadEvents(_ time.Time) (int64, error) {
 	f.purged = 1
 	return 1, nil
 }

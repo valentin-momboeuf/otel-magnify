@@ -1,3 +1,4 @@
+// Package config loads the server's runtime settings from environment variables.
 package config
 
 import (
@@ -6,6 +7,7 @@ import (
 	"time"
 )
 
+// Config groups the server's runtime settings: DB, listen addresses, JWT secret, CORS, and workload lifecycle tuning.
 type Config struct {
 	DBDriver        string // "sqlite" or "pgx"
 	DBDSN           string // file path for sqlite, connection string for postgres
@@ -23,6 +25,7 @@ type Config struct {
 	WorkloadEventRetention  time.Duration // how long workload events are kept before purge
 }
 
+// Load reads the configuration from environment variables, applying default values for missing or invalid entries.
 func Load() Config {
 	return Config{
 		DBDriver:                getenv("DB_DRIVER", "sqlite"),

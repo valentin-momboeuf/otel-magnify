@@ -8,9 +8,9 @@ import (
 	"io/fs"
 	"log"
 
-	_ "github.com/jackc/pgx/v5/stdlib"
+	_ "github.com/jackc/pgx/v5/stdlib" // registers the "pgx" driver with database/sql for Postgres
 	"github.com/pressly/goose/v3"
-	_ "modernc.org/sqlite"
+	_ "modernc.org/sqlite" // registers the pure-Go "sqlite" driver with database/sql
 )
 
 //go:embed migrations/*.sql
@@ -69,11 +69,11 @@ func (d *DB) Migrate() error {
 	}
 
 	if d.driver == "sqlite" {
-		if _, err := d.DB.Exec("PRAGMA foreign_keys = OFF;"); err != nil {
+		if _, err := d.Exec("PRAGMA foreign_keys = OFF;"); err != nil {
 			return fmt.Errorf("disable foreign_keys for migration: %w", err)
 		}
 		defer func() {
-			if _, err := d.DB.Exec("PRAGMA foreign_keys = ON;"); err != nil {
+			if _, err := d.Exec("PRAGMA foreign_keys = ON;"); err != nil {
 				log.Printf("re-enable foreign_keys after migration: %v", err)
 			}
 		}()

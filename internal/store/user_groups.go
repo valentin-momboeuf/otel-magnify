@@ -124,6 +124,7 @@ func (d *DB) GetUserGroups(userID string) ([]models.Group, error) {
 	if err != nil {
 		return nil, fmt.Errorf("list groups for %s: %w", userID, err)
 	}
+	//nolint:errcheck // deferred cleanup; rows fully iterated below
 	defer rows.Close()
 
 	var out []models.Group

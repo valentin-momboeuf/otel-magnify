@@ -131,6 +131,7 @@ func (a *API) handlePushWorkloadConfig(w http.ResponseWriter, r *http.Request) {
 		respondError(w, 400, "failed to read body")
 		return
 	}
+	//nolint:errcheck // deferred cleanup of fully-read request body; net/http server also closes it
 	defer r.Body.Close()
 
 	if len(body) == 0 {
@@ -228,6 +229,7 @@ func (a *API) handleValidateWorkloadConfig(w http.ResponseWriter, r *http.Reques
 		respondError(w, 400, "failed to read body")
 		return
 	}
+	//nolint:errcheck // deferred cleanup of fully-read request body; net/http server also closes it
 	defer r.Body.Close()
 	if len(body) == 0 {
 		respondError(w, 400, "empty config body")

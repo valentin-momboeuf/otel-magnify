@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"io/fs"
+	"log"
 	"net/http"
 	"strings"
 	"time"
@@ -24,6 +25,7 @@ type OpAMPPusher interface {
 	Instances(workloadID string) []opamp.Instance
 }
 
+// API holds the HTTP handler dependencies (store, auth, WS hub, OpAMP pusher, feature flags) shared across all routes.
 type API struct {
 	db                ext.Store
 	auth              ext.AuthProvider
@@ -70,6 +72,7 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 	// Health check (public, no auth)
 	r.Get("/healthz", func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
+		//nolint:errcheck,gosec // status already committed; a Write failure here only signals a closed client connection
 		w.Write([]byte("ok"))
 	})
 
@@ -149,7 +152,9 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 func respondJSON(w http.ResponseWriter, status int, data any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	json.NewEncoder(w).Encode(data)
+	if err := json.NewEncoder(w).Encode(data); err != nil {
+		log.Printf("respondJSON: encode error: %v", err)
+	}
 }
 
 func respondError(w http.ResponseWriter, status int, msg string) {

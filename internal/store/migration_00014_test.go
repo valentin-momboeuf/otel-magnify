@@ -20,7 +20,7 @@ func TestMigration00014_DataMigration(t *testing.T) {
 
 	// Vérifie que les 3 groupes système sont seedés.
 	var n int
-	row := db.DB.QueryRow(`SELECT COUNT(*) FROM groups WHERE is_system = 1`)
+	row := db.QueryRow(`SELECT COUNT(*) FROM groups WHERE is_system = 1`)
 	if err := row.Scan(&n); err != nil {
 		t.Fatalf("scan: %v", err)
 	}
@@ -29,7 +29,7 @@ func TestMigration00014_DataMigration(t *testing.T) {
 	}
 
 	// Vérifie que users.role n'existe plus.
-	rows, err := db.DB.Query(`PRAGMA table_info(users)`)
+	rows, err := db.Query(`PRAGMA table_info(users)`)
 	if err != nil {
 		t.Fatalf("pragma: %v", err)
 	}

@@ -103,7 +103,7 @@ func TestOnMessage_RemoteConfigStatusApplied(t *testing.T) {
 
 	// Bind the instance first via an AgentDescription so subsequent
 	// heartbeats know which workload to resolve to.
-	s.onMessage(nil, nil, &protobufs.AgentToServer{
+	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -113,7 +113,7 @@ func TestOnMessage_RemoteConfigStatusApplied(t *testing.T) {
 	})
 
 	hashBytes, _ := hex.DecodeString("deadbeef")
-	s.onMessage(nil, nil, &protobufs.AgentToServer{
+	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hashBytes,
@@ -162,7 +162,7 @@ func TestOnMessage_RemoteConfigStatusFailed_AutoRollback(t *testing.T) {
 	_ = db.RecordWorkloadConfig(models.WorkloadConfig{WorkloadID: wlID, ConfigID: "bbbbbbbb", Status: "pending"})
 
 	// Bind the instance so heartbeats resolve.
-	s.onMessage(nil, nil, &protobufs.AgentToServer{
+	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -182,7 +182,7 @@ func TestOnMessage_RemoteConfigStatusFailed_AutoRollback(t *testing.T) {
 	}
 
 	hashB, _ := hex.DecodeString("bbbbbbbb")
-	s.onMessage(nil, nil, &protobufs.AgentToServer{
+	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hashB,
@@ -227,7 +227,7 @@ func TestOnMessage_RemoteConfigStatusFailed_NoRollbackTarget(t *testing.T) {
 	_ = db.RecordWorkloadConfig(models.WorkloadConfig{WorkloadID: wlID, ConfigID: "cccccccc", Status: "pending"})
 
 	// Bind first.
-	s.onMessage(nil, nil, &protobufs.AgentToServer{
+	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -240,7 +240,7 @@ func TestOnMessage_RemoteConfigStatusFailed_NoRollbackTarget(t *testing.T) {
 	s.pushFn = func(_ string, y []byte, _ string) error { pushes = append(pushes, y); return nil }
 
 	hash, _ := hex.DecodeString("cccccccc")
-	s.onMessage(nil, nil, &protobufs.AgentToServer{
+	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hash,
@@ -277,7 +277,7 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 		},
 		Capabilities: uint64(protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig),
 	}
-	s.onMessage(nil, nil, full)
+	s.onMessage(context.TODO(), nil, full)
 
 	wl, err := db.GetWorkload(wlID)
 	if err != nil {
@@ -289,7 +289,7 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 
 	// Heartbeat (no AgentDescription): must preserve the previous value.
 	hb := &protobufs.AgentToServer{InstanceUid: uid}
-	s.onMessage(nil, nil, hb)
+	s.onMessage(context.TODO(), nil, hb)
 	wl, _ = db.GetWorkload(wlID)
 	if !wl.AcceptsRemoteConfig {
 		t.Fatalf("after heartbeat: accepts_remote_config flipped to false — should be preserved")
@@ -301,7 +301,7 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 		AgentDescription: full.AgentDescription,
 		Capabilities:     0,
 	}
-	s.onMessage(nil, nil, fullOff)
+	s.onMessage(context.TODO(), nil, fullOff)
 	wl, _ = db.GetWorkload(wlID)
 	if wl.AcceptsRemoteConfig {
 		t.Fatalf("after full-status with caps=0: accepts_remote_config stayed true")
