@@ -31,6 +31,8 @@ type fakeStore struct {
 	}
 	clearRetentionCalls []string
 	events              []models.WorkloadEvent
+	insertEventStarted  chan struct{}
+	insertEventRelease  chan struct{}
 	workloadConfigs     []models.WorkloadConfig
 	statusUpdates       []struct {
 		workloadID, configID, status, errorMessage string
@@ -184,6 +186,19 @@ func (f *fakeStore) GetRollbackTarget(_ string, excludeHash string) (*models.Rol
 }
 
 func (f *fakeStore) InsertWorkloadEvent(e models.WorkloadEvent) (int64, error) {
+	f.mu.Lock()
+	started := f.insertEventStarted
+	release := f.insertEventRelease
+	f.mu.Unlock()
+	if e.EventType == "disconnected" && started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if e.EventType == "disconnected" && release != nil {
+		<-release
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	e.ID = int64(len(f.events) + 1)

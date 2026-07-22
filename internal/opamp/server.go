@@ -244,6 +244,19 @@ func (s *Server) sendToInstance(ctx context.Context, uid string, msg *protobufs.
 }
 
 func (session *tokenSession) send(ctx context.Context, msg *protobufs.ServerToAgent, timeout time.Duration) error {
+	return session.sendWithDeadline(ctx, msg, timeout, false)
+}
+
+func (session *tokenSession) sendHTTPResponse(ctx context.Context, msg *protobufs.ServerToAgent, timeout time.Duration) error {
+	return session.sendWithDeadline(ctx, msg, timeout, true)
+}
+
+func (session *tokenSession) sendWithDeadline(
+	ctx context.Context,
+	msg *protobufs.ServerToAgent,
+	timeout time.Duration,
+	retainHTTPDeadline bool,
+) error {
 	session.sendGate.Lock()
 	defer session.sendGate.Unlock()
 
@@ -259,13 +272,16 @@ func (session *tokenSession) send(ctx context.Context, msg *protobufs.ServerToAg
 		}
 	}
 	err := session.conn.Send(ctx, msg)
-	if errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
+	if retainHTTPDeadline && errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
 		return err
 	}
 	if conn != nil {
 		clearErr := conn.SetWriteDeadline(time.Time{})
-		if err == nil && clearErr != nil {
-			return fmt.Errorf("clear OpAMP write deadline: %w", clearErr)
+		if clearErr != nil {
+			_ = conn.Close()
+			if err == nil {
+				return fmt.Errorf("clear OpAMP write deadline: %w", clearErr)
+			}
 		}
 	}
 	return err
@@ -279,7 +295,32 @@ func (s *Server) Attach() (opampServer.HTTPHandlerFunc, opampServer.ConnContext,
 		},
 	}
 
-	return s.opamp.Attach(settings)
+	handler, connContext, err := s.opamp.Attach(settings)
+	if err != nil {
+		return nil, nil, err
+	}
+	return func(w http.ResponseWriter, req *http.Request) {
+		if req.Header.Get("Content-Type") == "application/x-protobuf" {
+			handler(&flushResponseWriter{ResponseWriter: w}, req)
+			return
+		}
+		handler(w, req)
+	}, connContext, nil
+}
+
+type flushResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (w *flushResponseWriter) Write(body []byte) (int, error) {
+	written, err := w.ResponseWriter.Write(body)
+	if err != nil {
+		return written, err
+	}
+	if err := http.NewResponseController(w.ResponseWriter).Flush(); err != nil {
+		return written, fmt.Errorf("flush OpAMP HTTP response: %w", err)
+	}
+	return written, nil
 }
 
 func (s *Server) authenticateRequest(req *http.Request) types.ConnectionResponse {
@@ -336,7 +377,7 @@ func serviceUnavailableConnectionResponse() types.ConnectionResponse {
 // Stop gracefully shuts down the OpAMP server.
 func (s *Server) Stop(ctx context.Context) error {
 	s.grace.Stop()
-	s.disconnectSessions(s.tokens.Stop())
+	s.tokens.Stop()
 	return s.opamp.Stop(ctx)
 }
 
@@ -456,7 +497,7 @@ func (s *Server) onSessionMessage(
 	// instead send it here so the token lease covers the complete operation.
 	// Plain HTTP cannot use Connection.Send; returning the reply is its only
 	// supported response path.
-	err := session.send(ctx, reply, s.writeTimeout)
+	err := session.sendHTTPResponse(ctx, reply, s.writeTimeout)
 	if errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
 		if session.holdHTTPLease(lease) {
 			return reply
@@ -465,6 +506,7 @@ func (s *Server) onSessionMessage(
 		session.clearWriteDeadline()
 		lease.Release()
 		s.disconnectSessions([]*tokenSession{session})
+		s.tokens.CompleteRemove(session)
 		return nil
 	}
 	lease.Release()
@@ -528,6 +570,7 @@ func (s *Server) onSessionConnectionClose(session *tokenSession, _ types.Connect
 	s.tokens.Remove(session)
 	session.finishHTTPResponse()
 	s.releaseSession(session)
+	s.tokens.CompleteRemove(session)
 }
 
 func (s *Server) handleAgentDescription(uid string, msg *protobufs.AgentToServer) (string, bool) {
@@ -869,12 +912,19 @@ func (s *Server) disconnectSessions(sessions []*tokenSession) {
 func (s *Server) disconnectSession(session *tokenSession) {
 	s.tokens.Remove(session)
 	s.disconnectSessions([]*tokenSession{session})
+	s.tokens.CompleteRemove(session)
 }
 
 func (s *Server) releaseSession(session *tokenSession) {
 	if session == nil {
 		return
 	}
+	session.releaseOnce.Do(func() {
+		s.releaseSessionOnce(session)
+	})
+}
+
+func (s *Server) releaseSessionOnce(session *tokenSession) {
 
 	// Keep the exact owner check and registry unbind in one critical section.
 	// A late close from an older connection can therefore never unbind a newer

@@ -27,6 +27,7 @@ type tokenSession struct {
 	httpMu         sync.Mutex
 	httpLease      *tokenLease
 	disconnectOnce sync.Once
+	releaseOnce    sync.Once
 	uid            string
 	admitted       bool
 	terminal       bool
@@ -84,8 +85,17 @@ type tokenExpiryTimer struct {
 }
 
 type tokenDisableState struct {
-	done     chan struct{}
-	sessions []*tokenSession
+	done          chan struct{}
+	sessions      []*tokenSession
+	removals      []*tokenRemoveState
+	ownedRemovals []*tokenRemoveState
+}
+
+type tokenRemoveState struct {
+	session     *tokenSession
+	cleanupDone chan struct{}
+	done        chan struct{}
+	complete    sync.Once
 }
 
 type tokenConnections struct {
@@ -96,14 +106,15 @@ type tokenConnections struct {
 
 	sessions      map[*tokenSession]struct{}
 	sessionsByID  map[string]map[*tokenSession]struct{}
-	drainingByID  map[string]map[*tokenSession]struct{}
+	removals      map[*tokenSession]*tokenRemoveState
+	removalsByID  map[string]map[*tokenSession]*tokenRemoveState
 	disableStates map[string]*tokenDisableState
 	expiryTimers  map[string]tokenExpiryTimer
 	nextTimerID   uint64
 	stopped       bool
 	stopDone      chan struct{}
 	expiryWG      sync.WaitGroup
-	drainWG       sync.WaitGroup
+	removeWG      sync.WaitGroup
 }
 
 func newTokenConnections(
@@ -125,7 +136,8 @@ func newTokenConnections(
 		onDisabled:    onDisabled,
 		sessions:      make(map[*tokenSession]struct{}),
 		sessionsByID:  make(map[string]map[*tokenSession]struct{}),
-		drainingByID:  make(map[string]map[*tokenSession]struct{}),
+		removals:      make(map[*tokenSession]*tokenRemoveState),
+		removalsByID:  make(map[string]map[*tokenSession]*tokenRemoveState),
 		disableStates: make(map[string]*tokenDisableState),
 		expiryTimers:  make(map[string]tokenExpiryTimer),
 		stopDone:      make(chan struct{}),
@@ -211,27 +223,32 @@ func (m *tokenConnections) Remove(session *tokenSession) {
 		return
 	}
 	m.mu.Lock()
+	if m.removals[session] != nil {
+		m.mu.Unlock()
+		return
+	}
+	if m.stopped {
+		m.mu.Unlock()
+		return
+	}
 	if _, tracked := m.sessions[session]; !tracked {
 		m.mu.Unlock()
 		return
 	}
 	m.detachSessionLocked(session)
-	needsDrain := session.leases.Load() > 0
-	if needsDrain {
-		m.drainWG.Add(1)
-		draining := m.drainingByID[session.principal.ID]
-		if draining == nil {
-			draining = make(map[*tokenSession]struct{})
-			m.drainingByID[session.principal.ID] = draining
-		}
-		draining[session] = struct{}{}
-	}
+	m.registerRemoveLocked(session)
 	m.scheduleExpiryLocked(session.principal.ID, m.now())
 	m.mu.Unlock()
+}
 
-	if needsDrain {
-		go m.finishDrain(session)
+func (m *tokenConnections) CompleteRemove(session *tokenSession) {
+	if session == nil {
+		return
 	}
+	m.mu.Lock()
+	state := m.removals[session]
+	m.mu.Unlock()
+	completeTokenRemove(state)
 }
 
 func (m *tokenConnections) Disable(tokenID string) []*tokenSession {
@@ -261,13 +278,13 @@ func (m *tokenConnections) Stop() []*tokenSession {
 		return nil
 	}
 	m.stopped = true
-	unique := make(map[*tokenSession]struct{}, len(m.sessions))
+	active := make([]*tokenSession, 0, len(m.sessions))
+	ownedRemovals := make([]*tokenRemoveState, 0, len(m.sessions))
 	for session := range m.sessions {
-		unique[session] = struct{}{}
-	}
-	for _, draining := range m.drainingByID {
-		for session := range draining {
-			unique[session] = struct{}{}
+		active = append(active, session)
+		state, created := m.registerRemoveLocked(session)
+		if created {
+			ownedRemovals = append(ownedRemovals, state)
 		}
 	}
 	disableDone := make([]<-chan struct{}, 0, len(m.disableStates))
@@ -281,22 +298,32 @@ func (m *tokenConnections) Stop() []*tokenSession {
 	for _, expiry := range m.expiryTimers {
 		expiry.timer.Stop()
 	}
-	sessions := make([]*tokenSession, 0, len(unique))
-	for session := range unique {
+	sessions := make([]*tokenSession, 0, len(m.removals))
+	removals := make([]*tokenRemoveState, 0, len(m.removals))
+	for session, state := range m.removals {
 		sessions = append(sessions, session)
+		removals = append(removals, state)
 	}
 	m.sessions = make(map[*tokenSession]struct{})
 	m.sessionsByID = make(map[string]map[*tokenSession]struct{})
-	m.drainingByID = make(map[string]map[*tokenSession]struct{})
 	m.expiryTimers = make(map[string]tokenExpiryTimer)
 	m.mu.Unlock()
 
-	waitForTokenSessions(sessions)
+	waitForTokenSessions(active)
+	if len(active) > 0 && m.onDisabled != nil {
+		m.onDisabled(active)
+	}
+	for _, state := range ownedRemovals {
+		completeTokenRemove(state)
+	}
+	for _, state := range removals {
+		<-state.done
+	}
 	for _, done := range disableDone {
 		<-done
 	}
 	m.expiryWG.Wait()
-	m.drainWG.Wait()
+	m.removeWG.Wait()
 	close(m.stopDone)
 	return sessions
 }
@@ -313,17 +340,28 @@ func (m *tokenConnections) beginDisableLocked(tokenID string) (*tokenDisableStat
 	}
 
 	byID := m.sessionsByID[tokenID]
-	draining := m.drainingByID[tokenID]
-	state.sessions = make([]*tokenSession, 0, len(byID)+len(draining))
-	for session := range byID {
+	removing := m.removalsByID[tokenID]
+	unique := make(map[*tokenSession]struct{}, len(byID)+len(removing))
+	state.sessions = make([]*tokenSession, 0, len(byID)+len(removing))
+	state.removals = make([]*tokenRemoveState, 0, len(byID)+len(removing))
+	for session, removal := range removing {
+		unique[session] = struct{}{}
 		state.sessions = append(state.sessions, session)
-		delete(m.sessions, session)
+		state.removals = append(state.removals, removal)
 	}
-	for session := range draining {
-		state.sessions = append(state.sessions, session)
+	for session := range byID {
+		if _, exists := unique[session]; !exists {
+			unique[session] = struct{}{}
+			state.sessions = append(state.sessions, session)
+		}
+		delete(m.sessions, session)
+		removal, created := m.registerRemoveLocked(session)
+		state.removals = append(state.removals, removal)
+		if created {
+			state.ownedRemovals = append(state.ownedRemovals, removal)
+		}
 	}
 	delete(m.sessionsByID, tokenID)
-	delete(m.drainingByID, tokenID)
 	return state, true
 }
 
@@ -333,23 +371,66 @@ func (m *tokenConnections) completeDisable(state *tokenDisableState) []*tokenSes
 	if len(sessions) > 0 && m.onDisabled != nil {
 		m.onDisabled(sessions)
 	}
+	for _, removal := range state.ownedRemovals {
+		completeTokenRemove(removal)
+	}
+	for _, removal := range state.removals {
+		<-removal.done
+	}
 	m.mu.Lock()
 	state.sessions = nil
+	state.removals = nil
+	state.ownedRemovals = nil
 	m.mu.Unlock()
 	close(state.done)
 	return sessions
 }
 
-func (m *tokenConnections) finishDrain(session *tokenSession) {
-	defer m.drainWG.Done()
-	waitForTokenSessions([]*tokenSession{session})
+func (m *tokenConnections) registerRemoveLocked(session *tokenSession) (*tokenRemoveState, bool) {
+	if state := m.removals[session]; state != nil {
+		return state, false
+	}
+	state := &tokenRemoveState{
+		session:     session,
+		cleanupDone: make(chan struct{}),
+		done:        make(chan struct{}),
+	}
+	m.removals[session] = state
+	byID := m.removalsByID[session.principal.ID]
+	if byID == nil {
+		byID = make(map[*tokenSession]*tokenRemoveState)
+		m.removalsByID[session.principal.ID] = byID
+	}
+	byID[session] = state
+	m.removeWG.Add(1)
+	go m.finishRemove(state)
+	return state, true
+}
+
+func (m *tokenConnections) finishRemove(state *tokenRemoveState) {
+	defer m.removeWG.Done()
+	waitForTokenSessions([]*tokenSession{state.session})
+	<-state.cleanupDone
 	m.mu.Lock()
-	draining := m.drainingByID[session.principal.ID]
-	delete(draining, session)
-	if len(draining) == 0 {
-		delete(m.drainingByID, session.principal.ID)
+	if m.removals[state.session] == state {
+		delete(m.removals, state.session)
+		byID := m.removalsByID[state.session.principal.ID]
+		delete(byID, state.session)
+		if len(byID) == 0 {
+			delete(m.removalsByID, state.session.principal.ID)
+		}
 	}
 	m.mu.Unlock()
+	close(state.done)
+}
+
+func completeTokenRemove(state *tokenRemoveState) {
+	if state == nil {
+		return
+	}
+	state.complete.Do(func() {
+		close(state.cleanupDone)
+	})
 }
 
 func (m *tokenConnections) detachSessionLocked(session *tokenSession) {
@@ -403,14 +484,21 @@ func (m *tokenConnections) scheduleExpiryLocked(tokenID string, now time.Time) {
 }
 
 func (m *tokenConnections) expireToken(tokenID string, generation uint64) {
-	now := m.now()
 	m.mu.Lock()
 	if m.stopped {
 		m.mu.Unlock()
 		return
 	}
 	m.expiryWG.Add(1)
+	m.mu.Unlock()
 	defer m.expiryWG.Done()
+
+	now := m.now()
+	m.mu.Lock()
+	if m.stopped {
+		m.mu.Unlock()
+		return
+	}
 	expiry, scheduled := m.expiryTimers[tokenID]
 	if !scheduled || expiry.generation != generation {
 		m.mu.Unlock()

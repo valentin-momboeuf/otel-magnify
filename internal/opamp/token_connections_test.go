@@ -112,6 +112,43 @@ func waitForTokenDisableState(t *testing.T, manager *tokenConnections, tokenID s
 	}
 }
 
+func waitForTokenStopState(t *testing.T, manager *tokenConnections) {
+	t.Helper()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		manager.mu.Lock()
+		stopped := manager.stopped
+		manager.mu.Unlock()
+		if stopped {
+			return
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatal("connection manager did not enter the stopped state")
+		}
+	}
+}
+
+func completeTokenRemoveAndWait(t *testing.T, manager *tokenConnections, session *tokenSession) {
+	t.Helper()
+	manager.mu.Lock()
+	state := manager.removals[session]
+	manager.mu.Unlock()
+	if state == nil {
+		t.Fatal("session has no registered removal")
+	}
+	manager.CompleteRemove(session)
+	select {
+	case <-state.done:
+	case <-time.After(time.Second):
+		t.Fatal("session removal did not complete")
+	}
+}
+
 func TestTokenConnectionsTracksMultipleSessionsAndIsolatesTokens(t *testing.T) {
 	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
 	clock := &tokenConnectionTestClock{now: now}
@@ -176,6 +213,7 @@ func TestTokenConnectionsDisableWaitsForAdmittedLease(t *testing.T) {
 
 	disabled := make(chan []*tokenSession, 1)
 	go func() { disabled <- manager.Disable("token-a") }()
+	waitForTokenDisableState(t, manager, session.principal.ID)
 
 	select {
 	case <-disabled:
@@ -260,6 +298,9 @@ func TestTokenConnectionsDisableLoserWaitsForCleanupCompletion(t *testing.T) {
 	secondDone := make(chan []*tokenSession, 1)
 	go func() { secondDone <- manager.Disable("token-a") }()
 	select {
+	case <-firstDone:
+		close(cleanupRelease)
+		t.Fatal("Disable winner returned before cleanup completed")
 	case <-secondDone:
 		close(cleanupRelease)
 		t.Fatal("Disable loser returned before cleanup completed")
@@ -422,6 +463,7 @@ func TestTokenConnectionsRemoveDuringLeaseKeepsDisableBarrierVisible(t *testing.
 	removeDone := make(chan struct{})
 	go func() {
 		manager.Remove(session)
+		manager.CompleteRemove(session)
 		close(removeDone)
 	}()
 	select {
@@ -432,6 +474,7 @@ func TestTokenConnectionsRemoveDuringLeaseKeepsDisableBarrierVisible(t *testing.
 
 	disableDone := make(chan []*tokenSession, 1)
 	go func() { disableDone <- manager.Disable("token-a") }()
+	waitForTokenDisableState(t, manager, session.principal.ID)
 	select {
 	case <-disableDone:
 		t.Fatal("Disable lost visibility of a draining leased session")
@@ -445,6 +488,86 @@ func TestTokenConnectionsRemoveDuringLeaseKeepsDisableBarrierVisible(t *testing.
 		}
 	case <-time.After(time.Second):
 		t.Fatal("Disable did not complete after the draining lease")
+	}
+}
+
+func TestTokenConnectionsStopWaitsForRemoveCleanupWithoutLease(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	session := newTokenConnectionTestSession("token-a", nil)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	manager.Remove(session)
+
+	stopDone := make(chan []*tokenSession, 1)
+	go func() { stopDone <- manager.Stop() }()
+	waitForTokenStopState(t, manager)
+	select {
+	case <-stopDone:
+		t.Fatal("Stop returned before removal cleanup completed")
+	case <-time.After(30 * time.Millisecond):
+	}
+	manager.CompleteRemove(session)
+	select {
+	case sessions := <-stopDone:
+		if len(sessions) != 1 || sessions[0] != session {
+			t.Fatalf("Stop returned %#v, want the removed session", sessions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not finish after removal cleanup")
+	}
+}
+
+func TestTokenConnectionsDisableJoinsPreexistingRemoveCleanup(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	session := newTokenConnectionTestSession("token-a", nil)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	manager.Remove(session)
+
+	disableDone := make(chan []*tokenSession, 1)
+	go func() { disableDone <- manager.Disable("token-a") }()
+	waitForTokenDisableState(t, manager, session.principal.ID)
+	select {
+	case <-disableDone:
+		t.Fatal("Disable returned before preexisting removal cleanup completed")
+	case <-time.After(30 * time.Millisecond):
+	}
+	manager.CompleteRemove(session)
+	select {
+	case sessions := <-disableDone:
+		if len(sessions) != 1 || sessions[0] != session {
+			t.Fatalf("Disable returned %#v, want the removed session", sessions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Disable did not finish after preexisting removal cleanup")
+	}
+}
+
+func TestTokenConnectionsRemoveAndCompleteAreIdempotent(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	session := newTokenConnectionTestSession("token-a", nil)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	manager.Remove(session)
+	manager.Remove(session)
+	manager.CompleteRemove(session)
+	manager.CompleteRemove(session)
+
+	done := make(chan []*tokenSession, 1)
+	go func() { done <- manager.Stop() }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("idempotent removal left Stop blocked")
 	}
 }
 
@@ -518,6 +641,7 @@ func TestTokenConnectionsIgnoresStaleTimerGeneration(t *testing.T) {
 		t.Fatal("first Track = false, want true")
 	}
 	manager.Remove(first)
+	completeTokenRemoveAndWait(t, manager, first)
 	second := newTokenConnectionTestSession("token-a", &secondExpiry)
 	if !manager.Track(second, &tokenConnectionTestConn{}) {
 		t.Fatal("second Track = false, want true")
@@ -588,6 +712,7 @@ func TestTokenConnectionsRemoveBeforeFirstMessage(t *testing.T) {
 	}
 	// Remove is intentionally idempotent for late close callbacks.
 	manager.Remove(session)
+	manager.CompleteRemove(session)
 }
 
 func TestTokenConnectionsTrackDisableRaceNeverLeavesActiveSession(t *testing.T) {
@@ -669,6 +794,7 @@ func TestTokenConnectionsStopWaitsForActiveLease(t *testing.T) {
 
 	stopDone := make(chan []*tokenSession, 1)
 	go func() { stopDone <- manager.Stop() }()
+	waitForTokenStopState(t, manager)
 	select {
 	case <-stopDone:
 		t.Fatal("Stop returned before the active lease was released")
@@ -685,6 +811,56 @@ func TestTokenConnectionsStopWaitsForActiveLease(t *testing.T) {
 	}
 }
 
+func TestTokenConnectionsConcurrentStopJoinsWinner(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	session := newTokenConnectionTestSession("token-a", nil)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	lease, ok := manager.Acquire(session, now)
+	if !ok {
+		t.Fatal("Acquire = false, want true")
+	}
+
+	firstDone := make(chan []*tokenSession, 1)
+	go func() { firstDone <- manager.Stop() }()
+	waitForTokenStopState(t, manager)
+
+	secondStarted := make(chan struct{})
+	secondDone := make(chan []*tokenSession, 1)
+	go func() {
+		close(secondStarted)
+		secondDone <- manager.Stop()
+	}()
+	<-secondStarted
+	select {
+	case <-secondDone:
+		lease.Release()
+		t.Fatal("concurrent Stop follower returned before the winner completed")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	lease.Release()
+	select {
+	case sessions := <-firstDone:
+		if len(sessions) != 1 || sessions[0] != session {
+			t.Fatalf("winning Stop returned %#v, want the active session", sessions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("winning Stop did not finish after the active lease")
+	}
+	select {
+	case sessions := <-secondDone:
+		if len(sessions) != 0 {
+			t.Fatalf("joining Stop returned %d sessions, want 0", len(sessions))
+		}
+	case <-time.After(time.Second):
+		t.Fatal("concurrent Stop follower did not join the winner")
+	}
+}
+
 func TestTokenConnectionsStopIncludesRemovedDrainingSession(t *testing.T) {
 	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
 	clock := &tokenConnectionTestClock{now: now}
@@ -698,9 +874,11 @@ func TestTokenConnectionsStopIncludesRemovedDrainingSession(t *testing.T) {
 		t.Fatal("Acquire = false, want true")
 	}
 	manager.Remove(session)
+	manager.CompleteRemove(session)
 
 	stopDone := make(chan []*tokenSession, 1)
 	go func() { stopDone <- manager.Stop() }()
+	waitForTokenStopState(t, manager)
 	select {
 	case <-stopDone:
 		t.Fatal("Stop returned while a removed session was still draining")
@@ -747,6 +925,7 @@ func TestTokenConnectionsStopWaitsForInFlightExpiryCallback(t *testing.T) {
 
 	stopDone := make(chan []*tokenSession, 1)
 	go func() { stopDone <- manager.Stop() }()
+	waitForTokenStopState(t, manager)
 	select {
 	case <-stopDone:
 		t.Fatal("Stop returned while an expiry cleanup callback was in flight")
@@ -757,6 +936,61 @@ func TestTokenConnectionsStopWaitsForInFlightExpiryCallback(t *testing.T) {
 	case <-timerDone:
 	case <-time.After(time.Second):
 		t.Fatal("expiry callback did not finish")
+	}
+	select {
+	case <-stopDone:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not finish after the expiry callback")
+	}
+}
+
+func TestTokenConnectionsStopWaitsForExpiryCallbackBlockedInClock(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(time.Minute)
+	clock := &tokenConnectionTestClock{now: now}
+	timers := &tokenConnectionTestTimers{}
+	manager := newTokenConnectionTestManager(clock, timers, nil)
+	session := newTokenConnectionTestSession("token-a", &expiresAt)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	_, scheduled := timers.Snapshot()
+	clock.Set(expiresAt)
+	nowStarted := make(chan struct{})
+	nowRelease := make(chan struct{})
+	var nowOnce sync.Once
+	manager.now = func() time.Time {
+		nowOnce.Do(func() { close(nowStarted) })
+		<-nowRelease
+		return clock.Now()
+	}
+
+	timerDone := make(chan struct{})
+	go func() {
+		scheduled[0].Fire()
+		close(timerDone)
+	}()
+	select {
+	case <-nowStarted:
+	case <-time.After(time.Second):
+		t.Fatal("expiry callback did not enter the injected clock")
+	}
+
+	stopDone := make(chan []*tokenSession, 1)
+	go func() { stopDone <- manager.Stop() }()
+	waitForTokenStopState(t, manager)
+	select {
+	case <-stopDone:
+		close(nowRelease)
+		t.Fatal("Stop returned while an admitted expiry callback was blocked in now")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	close(nowRelease)
+	select {
+	case <-timerDone:
+	case <-time.After(time.Second):
+		t.Fatal("expiry callback did not finish after releasing the clock")
 	}
 	select {
 	case <-stopDone:
@@ -798,13 +1032,21 @@ func TestTokenConnectionsTimerStartRaceWithStopCleansSessionExactlyOnce(t *testi
 		close(start)
 		wg.Wait()
 		stopped := <-stopResult
-		var timedOut []*tokenSession
-		select {
-		case timedOut = <-expired:
-		default:
+		if len(stopped) > 1 || len(stopped) == 1 && stopped[0] != session {
+			t.Fatalf("iteration %d: Stop returned %#v, want zero sessions or the tracked session", iteration, stopped)
 		}
-		if len(stopped)+len(timedOut) != 1 {
-			t.Fatalf("iteration %d: Stop + expiry cleaned %d sessions, want 1", iteration, len(stopped)+len(timedOut))
+		select {
+		case cleaned := <-expired:
+			if len(cleaned) != 1 || cleaned[0] != session {
+				t.Fatalf("iteration %d: cleanup callback returned %#v, want the tracked session", iteration, cleaned)
+			}
+		case <-time.After(time.Second):
+			t.Fatalf("iteration %d: timer/Stop winner did not clean the session", iteration)
+		}
+		select {
+		case duplicate := <-expired:
+			t.Fatalf("iteration %d: timer/Stop race ran duplicate cleanup for %#v", iteration, duplicate)
+		default:
 		}
 		if lease, ok := manager.Acquire(session, expiresAt); ok || lease != nil {
 			t.Fatalf("iteration %d: timer/Stop race left session active", iteration)

@@ -159,6 +159,35 @@ func (w *blockingResponseWriter) Write(body []byte) (int, error) {
 	return len(body), nil
 }
 
+type blockingFlushResponseWriter struct {
+	header       http.Header
+	writeStarted chan struct{}
+	flushStarted chan struct{}
+	flushRelease chan struct{}
+	writeOnce    sync.Once
+	flushOnce    sync.Once
+}
+
+func newBlockingFlushResponseWriter() *blockingFlushResponseWriter {
+	return &blockingFlushResponseWriter{
+		header:       make(http.Header),
+		writeStarted: make(chan struct{}),
+		flushStarted: make(chan struct{}),
+		flushRelease: make(chan struct{}),
+	}
+}
+
+func (w *blockingFlushResponseWriter) Header() http.Header { return w.header }
+func (*blockingFlushResponseWriter) WriteHeader(_ int)     {}
+func (w *blockingFlushResponseWriter) Write(body []byte) (int, error) {
+	w.writeOnce.Do(func() { close(w.writeStarted) })
+	return len(body), nil
+}
+func (w *blockingFlushResponseWriter) Flush() {
+	w.flushOnce.Do(func() { close(w.flushStarted) })
+	<-w.flushRelease
+}
+
 type pipeWritingConn struct {
 	conn           net.Conn
 	sendStarted    chan struct{}
@@ -874,6 +903,7 @@ func TestDisconnectTokenConnectionsWaitsForAdmittedMessageAndIsolatesToken(t *te
 
 	disconnected := make(chan int, 1)
 	go func() { disconnected <- server.DisconnectTokenConnections(generated.ID) }()
+	waitForTokenDisableState(t, server.tokens, generated.ID)
 	select {
 	case <-disconnected:
 		t.Fatal("DisconnectTokenConnections returned before admitted message completed")
@@ -915,6 +945,7 @@ func TestDisconnectTokenConnectionsWaitsForWebSocketReplySend(t *testing.T) {
 
 	disconnected := make(chan int, 1)
 	go func() { disconnected <- server.DisconnectTokenConnections(generated.ID) }()
+	waitForTokenDisableState(t, server.tokens, generated.ID)
 	select {
 	case <-disconnected:
 		t.Fatal("DisconnectTokenConnections returned before the WebSocket reply send completed")
@@ -1038,6 +1069,7 @@ func TestPlainHTTPDisconnectWaitsForResponseWriteAndClearsDeadlineOnClose(t *tes
 
 	disabled := make(chan int, 1)
 	go func() { disabled <- server.DisconnectTokenConnections(generated.ID) }()
+	waitForTokenDisableState(t, server.tokens, generated.ID)
 	select {
 	case <-disabled:
 		close(response.writeRelease)
@@ -1062,6 +1094,87 @@ func TestPlainHTTPDisconnectWaitsForResponseWriteAndClearsDeadlineOnClose(t *tes
 	deadlines = deadlineConn.deadlineSnapshot()
 	if len(deadlines) < 2 || !deadlines[len(deadlines)-1].IsZero() {
 		t.Fatalf("plain HTTP write deadline was not cleared on close: %v", deadlines)
+	}
+}
+
+func TestPlainHTTPResponseLeaseCoversBufferedFlush(t *testing.T) {
+	server, _, generated := newManagedTokenServer(t, nil, Options{writeTimeout: time.Second})
+	handler, connContext, err := server.Attach()
+	if err != nil {
+		t.Fatalf("Attach: %v", err)
+	}
+	requestBody, err := proto.Marshal(managedTokenTestMessage([]byte{
+		0x01, 0x12, 0x23, 0x34, 0x45, 0x56, 0x67, 0x78,
+		0x89, 0x9a, 0xab, 0xbc, 0xcd, 0xde, 0xef, 0xf0,
+	}, 1))
+	if err != nil {
+		t.Fatalf("marshal plain HTTP request: %v", err)
+	}
+	serverConn, peerConn := net.Pipe()
+	defer peerConn.Close()
+	deadlineConn := &writeDeadlineConn{Conn: serverConn}
+	defer deadlineConn.Close()
+	req := httptest.NewRequest(http.MethodPost, "/v1/opamp", bytes.NewReader(requestBody))
+	req.Header.Set("Authorization", "Bearer "+generated.Value)
+	req.Header.Set("Content-Type", "application/x-protobuf")
+	req = req.WithContext(connContext(req.Context(), deadlineConn))
+	response := newBlockingFlushResponseWriter()
+
+	handlerDone := make(chan struct{})
+	go func() {
+		handler(response, req)
+		close(handlerDone)
+	}()
+	select {
+	case <-response.writeStarted:
+	case <-time.After(time.Second):
+		t.Fatal("plain HTTP handler did not buffer its response")
+	}
+	select {
+	case <-response.flushStarted:
+	case <-time.After(time.Second):
+		close(response.flushRelease)
+		t.Fatal("plain HTTP response was not flushed before OnConnectionClose")
+	}
+	deadlines := deadlineConn.deadlineSnapshot()
+	if len(deadlines) == 0 || deadlines[len(deadlines)-1].IsZero() {
+		close(response.flushRelease)
+		t.Fatal("plain HTTP flush had no active socket deadline")
+	}
+
+	disabled := make(chan int, 1)
+	go func() { disabled <- server.DisconnectTokenConnections(generated.ID) }()
+	waitForTokenDisableState(t, server.tokens, generated.ID)
+	select {
+	case <-disabled:
+		close(response.flushRelease)
+		t.Fatal("DisconnectTokenConnections returned before the buffered response flush")
+	case <-time.After(30 * time.Millisecond):
+	}
+	select {
+	case <-handlerDone:
+		close(response.flushRelease)
+		t.Fatal("plain HTTP handler returned before the buffered response flush")
+	default:
+	}
+
+	close(response.flushRelease)
+	select {
+	case <-handlerDone:
+	case <-time.After(time.Second):
+		t.Fatal("plain HTTP handler did not finish after the response flush")
+	}
+	select {
+	case count := <-disabled:
+		if count != 1 {
+			t.Fatalf("DisconnectTokenConnections returned %d, want 1", count)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("DisconnectTokenConnections did not finish after the response flush")
+	}
+	deadlines = deadlineConn.deadlineSnapshot()
+	if len(deadlines) < 2 || !deadlines[len(deadlines)-1].IsZero() {
+		t.Fatalf("plain HTTP write deadline was not cleared after flush: %v", deadlines)
 	}
 }
 
@@ -1098,6 +1211,129 @@ func TestWebSocketSendUsesEarlierContextDeadlineAndClearsIt(t *testing.T) {
 	}
 	if !deadlines[1].IsZero() {
 		t.Fatalf("WebSocket write deadline was not cleared: %s", deadlines[1])
+	}
+}
+
+func TestSessionSendContextDeadlineBoundsBlockedSocketWrite(t *testing.T) {
+	serverConn, peerConn := net.Pipe()
+	defer peerConn.Close()
+	deadlineConn := &writeDeadlineConn{Conn: serverConn}
+	conn := newPipeWritingConn(deadlineConn)
+	defer conn.Disconnect()
+	session := &tokenSession{conn: conn}
+	ctx, cancel := context.WithTimeout(context.Background(), 50*time.Millisecond)
+	defer cancel()
+
+	startedAt := time.Now()
+	err := session.send(ctx, &protobufs.ServerToAgent{}, 2*time.Second)
+	elapsed := time.Since(startedAt)
+	if err == nil {
+		t.Fatal("blocked socket write succeeded")
+	}
+	if elapsed < 20*time.Millisecond {
+		t.Fatalf("blocked socket write returned too early after %s", elapsed)
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Fatalf("blocked socket write ignored the earlier context deadline: %s", elapsed)
+	}
+	deadlines := deadlineConn.deadlineSnapshot()
+	if len(deadlines) < 2 || !deadlines[len(deadlines)-1].IsZero() {
+		t.Fatalf("blocked socket write deadline was not cleared: %v", deadlines)
+	}
+}
+
+func TestPlainHTTPConcurrentPushClearsDeadlineAfterConnectionClose(t *testing.T) {
+	server, _, generated := newManagedTokenServer(t, nil, Options{writeTimeout: time.Second})
+	callbacks := authenticateManagedToken(t, server, generated.Value)
+	serverConn, peerConn := net.Pipe()
+	defer peerConn.Close()
+	deadlineConn := &writeDeadlineConn{Conn: serverConn}
+	defer deadlineConn.Close()
+	conn := &recordingConn{
+		netConn: deadlineConn,
+		sendErr: opampServer.ErrInvalidHTTPConnection,
+	}
+	callbacks.OnConnected(context.Background(), conn)
+	uid := []byte{0x10, 0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87,
+		0x98, 0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f}
+	uidHex := hex.EncodeToString(uid)
+	if reply := callbacks.OnMessage(context.Background(), conn, managedTokenTestMessage(uid, 1)); reply == nil {
+		t.Fatal("plain HTTP message did not retain its handler-written response")
+	}
+	workloadID, ok := server.registry.LookupWorkload(uidHex)
+	if !ok {
+		t.Fatal("plain HTTP session has no workload binding")
+	}
+	server.mu.RLock()
+	session := server.conns[uidHex]
+	server.mu.RUnlock()
+	if session == nil {
+		t.Fatal("plain HTTP session was not registered")
+	}
+
+	session.sendGate.Lock()
+	gateLocked := true
+	defer func() {
+		if gateLocked {
+			session.sendGate.Unlock()
+		}
+	}()
+	pushDone := make(chan error, 1)
+	go func() {
+		pushDone <- server.PushConfig(context.Background(), workloadID, []byte("receivers: {}"), uidHex)
+	}()
+	leaseDeadline := time.NewTimer(time.Second)
+	defer leaseDeadline.Stop()
+	leaseTicker := time.NewTicker(time.Millisecond)
+	defer leaseTicker.Stop()
+	for session.leases.Load() != 2 {
+		select {
+		case <-leaseTicker.C:
+		case <-leaseDeadline.C:
+			t.Fatal("concurrent push did not acquire its session lease")
+		}
+	}
+
+	callbacks.OnConnectionClose(conn)
+	deadlines := deadlineConn.deadlineSnapshot()
+	if len(deadlines) < 2 || !deadlines[len(deadlines)-1].IsZero() {
+		t.Fatalf("OnConnectionClose did not clear the response deadline: %v", deadlines)
+	}
+	session.sendGate.Unlock()
+	gateLocked = false
+	select {
+	case err := <-pushDone:
+		if !errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
+			t.Fatalf("concurrent plain HTTP push error = %v, want ErrInvalidHTTPConnection", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("concurrent plain HTTP push did not finish")
+	}
+	deadlines = deadlineConn.deadlineSnapshot()
+	if !deadlines[len(deadlines)-1].IsZero() {
+		t.Fatalf("concurrent push left a stale write deadline after close: %v", deadlines)
+	}
+}
+
+func TestSessionSendClosesTransportWhenDeadlineClearFailsAfterSendError(t *testing.T) {
+	serverConn, peerConn := net.Pipe()
+	defer peerConn.Close()
+	deadlineConn := &writeDeadlineConn{Conn: serverConn, closed: make(chan struct{})}
+	deadlineConn.injectDeadlineErrors(nil, errors.New("clear deadline failed"))
+	conn := &recordingConn{
+		netConn: deadlineConn,
+		sendErr: opampServer.ErrInvalidHTTPConnection,
+	}
+	session := &tokenSession{conn: conn}
+
+	err := session.send(context.Background(), &protobufs.ServerToAgent{}, time.Second)
+	if !errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
+		t.Fatalf("Send error = %v, want ErrInvalidHTTPConnection", err)
+	}
+	select {
+	case <-deadlineConn.closed:
+	case <-time.After(time.Second):
+		t.Fatal("deadline clear failure after Send error did not close the transport")
 	}
 }
 
@@ -1342,6 +1578,7 @@ func TestDisconnectTokenConnectionsWaitsForAdmittedPush(t *testing.T) {
 	}
 	disconnected := make(chan int, 1)
 	go func() { disconnected <- server.DisconnectTokenConnections(generated.ID) }()
+	waitForTokenDisableState(t, server.tokens, generated.ID)
 	select {
 	case <-disconnected:
 		t.Fatal("DisconnectTokenConnections returned before admitted push completed")
@@ -1397,6 +1634,7 @@ func TestDisconnectTokenWaitsForPushRemovedByConcurrentClose(t *testing.T) {
 
 	disabled := make(chan int, 1)
 	go func() { disabled <- server.DisconnectTokenConnections(generated.ID) }()
+	waitForTokenDisableState(t, server.tokens, generated.ID)
 	select {
 	case <-disabled:
 		t.Fatal("Disable returned while the removed session still held a Send lease")
@@ -1484,6 +1722,7 @@ func TestServerStopWaitsForActiveMessageBeforeDisconnectingAllSessions(t *testin
 
 	stopDone := make(chan error, 1)
 	go func() { stopDone <- server.Stop(context.Background()) }()
+	waitForTokenStopState(t, server.tokens)
 	select {
 	case <-stopDone:
 		close(conn.sendRelease)
@@ -1514,6 +1753,110 @@ func TestServerStopWaitsForActiveMessageBeforeDisconnectingAllSessions(t *testin
 	}
 	if got := server.GetConnection(hex.EncodeToString(uid)); got != nil {
 		t.Fatal("Server.Stop left the session active")
+	}
+}
+
+func TestServerStopWaitsForOnConnectionCloseCleanup(t *testing.T) {
+	server, store, generated := newManagedTokenServer(t, nil, Options{})
+	store.fakeStore.insertEventStarted = make(chan struct{}, 1)
+	store.fakeStore.insertEventRelease = make(chan struct{})
+	callbacks := authenticateManagedToken(t, server, generated.Value)
+	conn := &recordingConn{}
+	callbacks.OnConnected(context.Background(), conn)
+	uid := []byte{0x61, 0x62, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68,
+		0x69, 0x6a, 0x6b, 0x6c, 0x6d, 0x6e, 0x6f, 0x70}
+	callbacks.OnMessage(context.Background(), conn, managedTokenTestMessage(uid, 1))
+
+	closeDone := make(chan struct{})
+	go func() {
+		callbacks.OnConnectionClose(conn)
+		close(closeDone)
+	}()
+	select {
+	case <-store.fakeStore.insertEventStarted:
+	case <-time.After(time.Second):
+		t.Fatal("OnConnectionClose did not reach the disconnected event store call")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- server.Stop(context.Background()) }()
+	waitForTokenStopState(t, server.tokens)
+	select {
+	case <-stopDone:
+		close(store.fakeStore.insertEventRelease)
+		t.Fatal("Server.Stop returned while OnConnectionClose cleanup was blocked")
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(store.fakeStore.insertEventRelease)
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("OnConnectionClose did not finish after store cleanup was released")
+	}
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("Server.Stop: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Server.Stop did not finish after OnConnectionClose cleanup")
+	}
+}
+
+func TestDisconnectSessionJoinsConcurrentOnConnectionCloseCleanup(t *testing.T) {
+	server, store, generated := newManagedTokenServer(t, nil, Options{})
+	store.fakeStore.insertEventStarted = make(chan struct{}, 1)
+	store.fakeStore.insertEventRelease = make(chan struct{})
+	callbacks := authenticateManagedToken(t, server, generated.Value)
+	conn := &recordingConn{}
+	callbacks.OnConnected(context.Background(), conn)
+	uid := []byte{0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88,
+		0x89, 0x8a, 0x8b, 0x8c, 0x8d, 0x8e, 0x8f, 0x90}
+	callbacks.OnMessage(context.Background(), conn, managedTokenTestMessage(uid, 1))
+
+	server.mu.RLock()
+	session := server.conns[hex.EncodeToString(uid)]
+	server.mu.RUnlock()
+	if session == nil {
+		t.Fatal("managed session was not registered")
+	}
+
+	closeDone := make(chan struct{})
+	go func() {
+		callbacks.OnConnectionClose(conn)
+		close(closeDone)
+	}()
+	select {
+	case <-store.fakeStore.insertEventStarted:
+	case <-time.After(time.Second):
+		t.Fatal("OnConnectionClose did not reach the disconnected event store call")
+	}
+
+	disconnectDone := make(chan struct{})
+	go func() {
+		server.disconnectSession(session)
+		close(disconnectDone)
+	}()
+	select {
+	case <-disconnectDone:
+		close(store.fakeStore.insertEventRelease)
+		t.Fatal("disconnectSession returned before concurrent OnConnectionClose cleanup")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	close(store.fakeStore.insertEventRelease)
+	select {
+	case <-closeDone:
+	case <-time.After(time.Second):
+		t.Fatal("OnConnectionClose did not finish after store cleanup was released")
+	}
+	select {
+	case <-disconnectDone:
+	case <-time.After(time.Second):
+		t.Fatal("disconnectSession did not join completed OnConnectionClose cleanup")
+	}
+	if conn.disconnects() != 1 {
+		t.Fatalf("disconnect count = %d, want 1", conn.disconnects())
 	}
 }
 
