@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"io/fs"
 	"log"
 	"net"
@@ -18,6 +19,24 @@ import (
 	"github.com/magnify-labs/otel-magnify/pkg/capabilities"
 	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
+
+type opampServerStopper interface {
+	Stop(context.Context) error
+}
+
+func stopOpAMPServer(ctx context.Context, server opampServerStopper) {
+	err := server.Stop(ctx)
+	if err == nil {
+		return
+	}
+	log.Printf("OpAMP server stop: %v", err)
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		return
+	}
+	if err := server.Stop(context.Background()); err != nil {
+		log.Printf("OpAMP server cleanup join: %v", err)
+	}
+}
 
 // Server composes the otel-magnify subsystems.
 type Server struct {
@@ -197,9 +216,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := opampHTTP.Shutdown(shutdownCtx); err != nil {
 		log.Printf("OpAMP HTTP shutdown: %v", err)
 	}
-	if err := opampSrv.Stop(shutdownCtx); err != nil {
-		log.Printf("OpAMP server stop: %v", err)
-	}
+	stopOpAMPServer(shutdownCtx, opampSrv)
 	hub.Stop()
 	log.Println("Shutdown complete")
 

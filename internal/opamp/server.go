@@ -102,10 +102,18 @@ type Server struct {
 	mu    sync.RWMutex
 	conns map[string]*tokenSession // instanceUID hex -> exact owning session
 
+	stopMu    sync.Mutex
+	stopState *serverStopState
+
 	// pushFn sends a config YAML to a workload. Defaults to PushConfig;
 	// overridable in tests so they can observe auto-push behavior without
 	// wiring a real OpAMP connection.
 	pushFn func(workloadID string, yaml []byte, targetInstanceUID string) error
+}
+
+type serverStopState struct {
+	done chan struct{}
+	err  error
 }
 
 // New creates a new OpAMP server. db and notifier can be nil (useful for
@@ -244,22 +252,35 @@ func (s *Server) sendToInstance(ctx context.Context, uid string, msg *protobufs.
 }
 
 func (session *tokenSession) send(ctx context.Context, msg *protobufs.ServerToAgent, timeout time.Duration) error {
-	return session.sendWithDeadline(ctx, msg, timeout, false)
+	session.sendGate.Lock()
+	defer session.sendGate.Unlock()
+	_, err := session.sendWithDeadlineLocked(ctx, msg, timeout, nil)
+	return err
 }
 
-func (session *tokenSession) sendHTTPResponse(ctx context.Context, msg *protobufs.ServerToAgent, timeout time.Duration) error {
-	return session.sendWithDeadline(ctx, msg, timeout, true)
-}
-
-func (session *tokenSession) sendWithDeadline(
+func (session *tokenSession) sendHTTPResponse(
 	ctx context.Context,
 	msg *protobufs.ServerToAgent,
 	timeout time.Duration,
-	retainHTTPDeadline bool,
-) error {
+	lease *tokenLease,
+) (bool, error) {
 	session.sendGate.Lock()
-	defer session.sendGate.Unlock()
+	retained, err := session.sendWithDeadlineLocked(ctx, msg, timeout, lease)
+	if !retained {
+		session.sendGate.Unlock()
+	}
+	return retained, err
+}
 
+// sendWithDeadlineLocked requires sendGate to be held. When it retains an HTTP
+// response, ownership of both the lease and sendGate moves to httpLease and is
+// released by finishHTTPResponse after the handler flushes the response.
+func (session *tokenSession) sendWithDeadlineLocked(
+	ctx context.Context,
+	msg *protobufs.ServerToAgent,
+	timeout time.Duration,
+	httpLease *tokenLease,
+) (bool, error) {
 	conn := session.conn.Connection()
 	if conn != nil {
 		deadline := time.Now().Add(timeout)
@@ -268,23 +289,23 @@ func (session *tokenSession) sendWithDeadline(
 		}
 		if err := conn.SetWriteDeadline(deadline); err != nil {
 			_ = conn.Close()
-			return fmt.Errorf("set OpAMP write deadline: %w", err)
+			return false, fmt.Errorf("set OpAMP write deadline: %w", err)
 		}
 	}
 	err := session.conn.Send(ctx, msg)
-	if retainHTTPDeadline && errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
-		return err
+	if errors.Is(err, opampServer.ErrInvalidHTTPConnection) && session.holdHTTPResponse(httpLease) {
+		return true, err
 	}
 	if conn != nil {
 		clearErr := conn.SetWriteDeadline(time.Time{})
 		if clearErr != nil {
 			_ = conn.Close()
 			if err == nil {
-				return fmt.Errorf("clear OpAMP write deadline: %w", clearErr)
+				return false, fmt.Errorf("clear OpAMP write deadline: %w", clearErr)
 			}
 		}
 	}
-	return err
+	return false, err
 }
 
 // Attach mounts the OpAMP handler on an existing HTTP mux.
@@ -374,11 +395,39 @@ func serviceUnavailableConnectionResponse() types.ConnectionResponse {
 	}
 }
 
-// Stop gracefully shuts down the OpAMP server.
+// Stop gracefully shuts down the OpAMP server. A nil result means all cleanup
+// completed. If ctx expires, cleanup continues and a later Stop call can join
+// the same shutdown to completion.
 func (s *Server) Stop(ctx context.Context) error {
-	s.grace.Stop()
-	s.tokens.Stop()
-	return s.opamp.Stop(ctx)
+	state := s.beginStop()
+	select {
+	case <-state.done:
+		return state.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Server) beginStop() *serverStopState {
+	s.stopMu.Lock()
+	if s.stopState != nil {
+		state := s.stopState
+		s.stopMu.Unlock()
+		return state
+	}
+	graceState := s.grace.beginStop()
+	tokenState, _ := s.tokens.beginStop()
+	state := &serverStopState{done: make(chan struct{})}
+	s.stopState = state
+	s.stopMu.Unlock()
+
+	go func() {
+		<-graceState.done
+		<-tokenState.done
+		state.err = s.opamp.Stop(context.Background())
+		close(state.done)
+	}()
+	return state
 }
 
 // flattenAttrs merges identifying and non-identifying OpAMP attributes into a
@@ -497,19 +546,18 @@ func (s *Server) onSessionMessage(
 	// instead send it here so the token lease covers the complete operation.
 	// Plain HTTP cannot use Connection.Send; returning the reply is its only
 	// supported response path.
-	err := session.sendHTTPResponse(ctx, reply, s.writeTimeout)
+	retained, err := session.sendHTTPResponse(ctx, reply, s.writeTimeout, lease)
+	if retained {
+		return reply
+	}
+	lease.Release()
 	if errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
-		if session.holdHTTPLease(lease) {
-			return reply
-		}
 		s.tokens.Remove(session)
-		session.clearWriteDeadline()
-		lease.Release()
+		s.tokens.waitRemoveDrain(session)
 		s.disconnectSessions([]*tokenSession{session})
 		s.tokens.CompleteRemove(session)
 		return nil
 	}
-	lease.Release()
 	if err != nil {
 		s.disconnectSession(session)
 	}
@@ -549,7 +597,6 @@ func (s *Server) processSessionMessage(
 	s.mu.Unlock()
 
 	if s.store == nil || s.store.MarkOpAMPTokenUsed(ctx, session.principal.ID, s.now().UTC()) != nil {
-		s.releaseSession(session)
 		return nil, true
 	}
 
@@ -569,6 +616,7 @@ func (s *Server) onSessionConnectionClose(session *tokenSession, _ types.Connect
 	// is being unblocked by transport shutdown.
 	s.tokens.Remove(session)
 	session.finishHTTPResponse()
+	s.tokens.waitRemoveDrain(session)
 	s.releaseSession(session)
 	s.tokens.CompleteRemove(session)
 }
@@ -911,6 +959,7 @@ func (s *Server) disconnectSessions(sessions []*tokenSession) {
 
 func (s *Server) disconnectSession(session *tokenSession) {
 	s.tokens.Remove(session)
+	s.tokens.waitRemoveDrain(session)
 	s.disconnectSessions([]*tokenSession{session})
 	s.tokens.CompleteRemove(session)
 }

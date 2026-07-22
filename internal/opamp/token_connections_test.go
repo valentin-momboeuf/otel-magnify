@@ -133,6 +133,27 @@ func waitForTokenStopState(t *testing.T, manager *tokenConnections) {
 	}
 }
 
+func waitForTokenRemoveState(t *testing.T, manager *tokenConnections, session *tokenSession) *tokenRemoveState {
+	t.Helper()
+	deadline := time.NewTimer(time.Second)
+	defer deadline.Stop()
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		manager.mu.Lock()
+		state := manager.removals[session]
+		manager.mu.Unlock()
+		if state != nil {
+			return state
+		}
+		select {
+		case <-ticker.C:
+		case <-deadline.C:
+			t.Fatal("session did not register a removal state")
+		}
+	}
+}
+
 func completeTokenRemoveAndWait(t *testing.T, manager *tokenConnections, session *tokenSession) {
 	t.Helper()
 	manager.mu.Lock()

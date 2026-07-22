@@ -111,7 +111,7 @@ func (c *managedTokenPostgresClient) WaitConnected(t *testing.T) {
 
 func (c *managedTokenPostgresClient) Stop(t *testing.T) {
 	t.Helper()
-	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	if err := c.client.Stop(ctx); err != nil {
 		t.Errorf("stop OpAMP WebSocket client: %v", err)

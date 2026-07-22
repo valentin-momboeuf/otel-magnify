@@ -8,12 +8,17 @@ import (
 // GraceController arms one delayed callback per key. Scheduling a new callback
 // for a key cancels the previous one. Cancel removes a pending callback.
 type GraceController struct {
-	delay   time.Duration
-	mu      sync.Mutex
-	timers  map[string]*graceTimer
-	stopped bool
-	nextID  uint64
-	wg      sync.WaitGroup
+	delay     time.Duration
+	mu        sync.Mutex
+	timers    map[string]*graceTimer
+	stopped   bool
+	stopState *graceStopState
+	nextID    uint64
+	wg        sync.WaitGroup
+}
+
+type graceStopState struct {
+	done chan struct{}
 }
 
 type graceTimer struct {
@@ -84,16 +89,30 @@ func (g *GraceController) Cancel(key string) {
 // Stop prevents future schedules, cancels pending callbacks, and waits for any
 // callback that already entered before shutdown.
 func (g *GraceController) Stop() {
+	state := g.beginStop()
+	<-state.done
+}
+
+func (g *GraceController) beginStop() *graceStopState {
 	g.mu.Lock()
-	if !g.stopped {
-		g.stopped = true
-		for key, entry := range g.timers {
-			delete(g.timers, key)
-			if entry.timer.Stop() {
-				entry.finish(&g.wg)
-			}
+	if g.stopState != nil {
+		state := g.stopState
+		g.mu.Unlock()
+		return state
+	}
+	g.stopped = true
+	state := &graceStopState{done: make(chan struct{})}
+	g.stopState = state
+	for key, entry := range g.timers {
+		delete(g.timers, key)
+		if entry.timer.Stop() {
+			entry.finish(&g.wg)
 		}
 	}
 	g.mu.Unlock()
-	g.wg.Wait()
+	go func() {
+		g.wg.Wait()
+		close(state.done)
+	}()
+	return state
 }
