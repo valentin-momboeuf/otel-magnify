@@ -25,6 +25,7 @@ func TestMigration00026SanitizesLegacyRemoteConfigStatusesOnce(t *testing.T) {
 		db.DB,
 		sqlMigrations,
 		goose.WithDisableGlobalRegistry(true),
+		goose.WithGoMigrations(migration00026),
 	)
 	if err != nil {
 		t.Fatalf("goose provider: %v", err)
@@ -50,8 +51,8 @@ func TestMigration00026SanitizesLegacyRemoteConfigStatusesOnce(t *testing.T) {
 		t.Fatalf("seed legacy remote_config_status: %v", err)
 	}
 
-	if err := db.MigrateContext(ctx); err != nil {
-		t.Fatalf("MigrateContext: %v", err)
+	if _, err := provider.UpTo(ctx, 26); err != nil {
+		t.Fatalf("migrate schema to version 26: %v", err)
 	}
 	assertGooseVersion(t, db, 26)
 
@@ -75,8 +76,8 @@ func TestMigration00026SanitizesLegacyRemoteConfigStatusesOnce(t *testing.T) {
 		t.Fatalf("error_message = %q, want redacted summary", got.ErrorMessage)
 	}
 
-	if err := db.MigrateContext(ctx); err != nil {
-		t.Fatalf("second MigrateContext: %v", err)
+	if _, err := provider.UpTo(ctx, 26); err != nil {
+		t.Fatalf("second migration through version 26: %v", err)
 	}
 	assertGooseVersion(t, db, 26)
 
