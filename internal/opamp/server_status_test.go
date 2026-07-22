@@ -109,7 +109,7 @@ func TestOnMessage_RemoteConfigStatusApplied(t *testing.T) {
 
 	// Bind the instance first via an AgentDescription so subsequent
 	// heartbeats know which workload to resolve to.
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -119,7 +119,7 @@ func TestOnMessage_RemoteConfigStatusApplied(t *testing.T) {
 	})
 
 	hashBytes, _ := hex.DecodeString("deadbeef")
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hashBytes,
@@ -163,7 +163,7 @@ func TestOnMessage_RemoteConfigStatusIsStoredOnInstance(t *testing.T) {
 		t.Fatalf("seed workload: %v", err)
 	}
 
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -173,7 +173,7 @@ func TestOnMessage_RemoteConfigStatusIsStoredOnInstance(t *testing.T) {
 	})
 
 	hashBytes, _ := hex.DecodeString("deadbeef")
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hashBytes,
@@ -207,7 +207,7 @@ func TestOnMessage_RemoteConfigStatusApplyingIsStoredOnInstance(t *testing.T) {
 		t.Fatalf("seed workload: %v", err)
 	}
 
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -217,7 +217,7 @@ func TestOnMessage_RemoteConfigStatusApplyingIsStoredOnInstance(t *testing.T) {
 	})
 
 	hashBytes, _ := hex.DecodeString("cafebabe")
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hashBytes,
@@ -258,7 +258,7 @@ func TestOnMessage_RemoteConfigStatusFailed_AutoRollback(t *testing.T) {
 	_ = db.RecordWorkloadConfig(models.WorkloadConfig{WorkloadID: wlID, ConfigID: "bbbbbbbb", Status: "pending"})
 
 	// Bind the instance so heartbeats resolve.
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -278,7 +278,7 @@ func TestOnMessage_RemoteConfigStatusFailed_AutoRollback(t *testing.T) {
 	}
 
 	hashB, _ := hex.DecodeString("bbbbbbbb")
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hashB,
@@ -324,7 +324,7 @@ func TestOnMessage_RemoteConfigStatusFailed_RedactsSensitiveHistoryAndBroadcasts
 	_ = db.CreateConfig(models.Config{ID: "bbbbbbbb", Name: "B", Content: "bad-yaml", CreatedAt: time.Now().UTC(), CreatedBy: "u"})
 	_ = db.RecordWorkloadConfig(models.WorkloadConfig{WorkloadID: wlID, ConfigID: "bbbbbbbb", Status: "pending"})
 
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -336,7 +336,7 @@ func TestOnMessage_RemoteConfigStatusFailed_RedactsSensitiveHistoryAndBroadcasts
 	s.pushFn = func(_ string, _ []byte, _ string) error { return nil }
 	rawError := "collector failed: SECRET_TOKEN=abc123 authorization=Bearer super-secret endpoint=https://tenant-a.internal:4318/v1/traces"
 	hashB, _ := hex.DecodeString("bbbbbbbb")
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hashB,
@@ -396,7 +396,7 @@ func TestOnMessage_RemoteConfigStatusFailed_NoRollbackTarget(t *testing.T) {
 	_ = db.RecordWorkloadConfig(models.WorkloadConfig{WorkloadID: wlID, ConfigID: "cccccccc", Status: "pending"})
 
 	// Bind first.
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -409,7 +409,7 @@ func TestOnMessage_RemoteConfigStatusFailed_NoRollbackTarget(t *testing.T) {
 	s.pushFn = func(_ string, y []byte, _ string) error { pushes = append(pushes, y); return nil }
 
 	hash, _ := hex.DecodeString("cccccccc")
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hash,
@@ -446,7 +446,7 @@ func TestOnMessage_RemoteConfigStatusFailed_RedactsErrorBeforePersistBroadcastAn
 	_ = db.CreateConfig(models.Config{ID: "dddddddd", Name: "D", Content: "bad-yaml", CreatedAt: time.Now().UTC(), CreatedBy: "u"})
 	_ = db.RecordWorkloadConfig(models.WorkloadConfig{WorkloadID: wlID, ConfigID: "dddddddd", Status: "pending"})
 
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -457,7 +457,7 @@ func TestOnMessage_RemoteConfigStatusFailed_RedactsErrorBeforePersistBroadcastAn
 	s.pushFn = func(string, []byte, string) error { return nil }
 
 	hash, _ := hex.DecodeString("dddddddd")
-	s.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	s.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
 			LastRemoteConfigHash: hash,
@@ -534,7 +534,7 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 		},
 		Capabilities: uint64(protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig),
 	}
-	s.onMessage(context.TODO(), nil, full)
+	s.handleAcceptedMessage(full)
 
 	wl, err := db.GetWorkload(wlID)
 	if err != nil {
@@ -550,7 +550,7 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 
 	// Heartbeat (no AgentDescription): must preserve the previous value.
 	hb := &protobufs.AgentToServer{InstanceUid: uid}
-	s.onMessage(context.TODO(), nil, hb)
+	s.handleAcceptedMessage(hb)
 	wl, _ = db.GetWorkload(wlID)
 	if !wl.AcceptsRemoteConfig {
 		t.Fatalf("after heartbeat: accepts_remote_config flipped to false — should be preserved")
@@ -562,14 +562,14 @@ func TestOnMessage_AcceptsRemoteConfigCapabilityPersisted(t *testing.T) {
 		AgentDescription: full.AgentDescription,
 		Capabilities:     0,
 	}
-	s.onMessage(context.TODO(), nil, fullOff)
+	s.handleAcceptedMessage(fullOff)
 	wl, _ = db.GetWorkload(wlID)
 	if wl.AcceptsRemoteConfig {
 		t.Fatalf("after full-status with caps=0: accepts_remote_config stayed true")
 	}
 }
 
-// fakeConn is a no-op types.Connection for exercising onConnectionClose.
+// fakeConn is a no-op types.Connection for exercising connection cleanup.
 type fakeConn struct{}
 
 func (fakeConn) Connection() net.Conn                                     { return nil }
@@ -580,11 +580,12 @@ func TestOnConnectionClose_UnknownConnection_NoLockLeak(t *testing.T) {
 	s, _, _ := newTestServer(t)
 
 	var conn types.Connection = fakeConn{}
+	unknown := &tokenSession{principal: models.OpAMPTokenPrincipal{ID: "unknown"}, conn: conn}
 
-	// First call: conn is NOT registered in s.conns / s.connToUID.
+	// First call: session is not registered in the manager or UID map.
 	// Triggers the early-return branch. A missing Unlock on that branch
 	// would leak the mutex.
-	s.onConnectionClose(conn)
+	s.onSessionConnectionClose(unknown, conn)
 
 	// Register the conn so the second call exercises the past-early-return
 	// path. No registry binding is needed for the deadlock check — what we
@@ -593,15 +594,18 @@ func TestOnConnectionClose_UnknownConnection_NoLockLeak(t *testing.T) {
 	uid := make([]byte, 16)
 	uid[0] = 0x11
 	uidHex := hex.EncodeToString(uid)
+	session := &tokenSession{principal: models.OpAMPTokenPrincipal{ID: "known"}, conn: conn, uid: uidHex, admitted: true}
+	if !s.tokens.Track(session, conn) {
+		t.Fatal("failed to track cleanup test session")
+	}
 	s.mu.Lock()
-	s.conns[uidHex] = conn
-	s.connToUID[conn] = uidHex
+	s.conns[uidHex] = session
 	s.mu.Unlock()
 
 	// Second call: must complete without deadlocking on s.mu.
 	done := make(chan struct{})
 	go func() {
-		s.onConnectionClose(conn)
+		s.onSessionConnectionClose(session, conn)
 		close(done)
 	}()
 	select {

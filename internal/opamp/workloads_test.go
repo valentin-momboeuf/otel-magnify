@@ -9,7 +9,9 @@ import (
 	"time"
 
 	"github.com/open-telemetry/opamp-go/protobufs"
+	"github.com/open-telemetry/opamp-go/server/types"
 
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
@@ -189,6 +191,14 @@ func (f *fakeStore) InsertWorkloadEvent(e models.WorkloadEvent) (int64, error) {
 	return e.ID, nil
 }
 
+func (f *fakeStore) ValidateOpAMPToken(context.Context, string, [32]byte, time.Time) (models.OpAMPTokenPrincipal, error) {
+	return models.OpAMPTokenPrincipal{}, ext.ErrInvalidOpAMPToken
+}
+
+func (f *fakeStore) MarkOpAMPTokenUsed(context.Context, string, time.Time) error {
+	return nil
+}
+
 // waitFor polls cond every ~2ms up to timeout, failing the test if cond
 // never returns true. Used by tests that depend on the grace-timer
 // goroutine firing (or, crucially, NOT firing within the grace window).
@@ -236,7 +246,7 @@ func TestOnMessageUpsertsWorkloadWithFingerprint(t *testing.T) {
 			},
 		},
 	}
-	srv.onMessage(context.TODO(), nil, msg)
+	srv.handleAcceptedMessage(msg)
 
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -306,7 +316,7 @@ func TestConnectedEventEmittedOnFreshBind(t *testing.T) {
 	uid := make([]byte, 16)
 	uid[0] = 0x43
 
-	srv.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	srv.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -352,7 +362,7 @@ func TestDisconnectedEventEmittedOnClose(t *testing.T) {
 	uidHex := hex.EncodeToString(uid)
 
 	// Bind first via AgentDescription.
-	srv.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	srv.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -364,15 +374,18 @@ func TestDisconnectedEventEmittedOnClose(t *testing.T) {
 		},
 	})
 
-	// onMessage was called with a nil conn, so the connToUID map is empty.
-	// Simulate the close flow by manually registering a fake conn first.
-	var conn = fakeConn{}
+	// The pure message helper does not register transport ownership. Simulate
+	// the admitted session before exercising the exact-owner close path.
+	var conn types.Connection = fakeConn{}
+	session := &tokenSession{principal: models.OpAMPTokenPrincipal{ID: "token-close"}, conn: conn, uid: uidHex, admitted: true}
+	if !srv.tokens.Track(session, conn) {
+		t.Fatal("failed to track close test session")
+	}
 	srv.mu.Lock()
-	srv.conns[uidHex] = conn
-	srv.connToUID[conn] = uidHex
+	srv.conns[uidHex] = session
 	srv.mu.Unlock()
 
-	srv.onConnectionClose(conn)
+	srv.onSessionConnectionClose(session, conn)
 
 	// A disconnected event should be recorded.
 	store.mu.Lock()
@@ -404,7 +417,7 @@ func TestRollingRestartDoesNotMarkDisconnected(t *testing.T) {
 	uidA := make([]byte, 16)
 	uidA[0] = 0xA1
 	uidAHex := hex.EncodeToString(uidA)
-	srv.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	srv.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uidA,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -418,20 +431,23 @@ func TestRollingRestartDoesNotMarkDisconnected(t *testing.T) {
 		},
 	})
 
-	connA := fakeConn{}
+	var connA types.Connection = fakeConn{}
+	sessionA := &tokenSession{principal: models.OpAMPTokenPrincipal{ID: "token-rolling"}, conn: connA, uid: uidAHex, admitted: true}
+	if !srv.tokens.Track(sessionA, connA) {
+		t.Fatal("failed to track rolling restart session")
+	}
 	srv.mu.Lock()
-	srv.conns[uidAHex] = connA
-	srv.connToUID[connA] = uidAHex
+	srv.conns[uidAHex] = sessionA
 	srv.mu.Unlock()
 
 	// Pod A disconnects. Count goes to 0 → grace timer is scheduled.
-	srv.onConnectionClose(connA)
+	srv.onSessionConnectionClose(sessionA, connA)
 
 	// Well within the 20ms grace, pod B comes up on the same workload.
 	time.Sleep(5 * time.Millisecond)
 	uidB := make([]byte, 16)
 	uidB[0] = 0xB1
-	srv.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	srv.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uidB,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{
@@ -494,7 +510,7 @@ func TestAutoPushWhenConfigHashDiverges(t *testing.T) {
 
 	// Agent reports a DIFFERENT effective hash → auto-push triggers.
 	divergent, _ := hex.DecodeString("deadbeef")
-	srv.onMessage(context.TODO(), nil, &protobufs.AgentToServer{
+	srv.handleAcceptedMessage(&protobufs.AgentToServer{
 		InstanceUid: uid,
 		AgentDescription: &protobufs.AgentDescription{
 			IdentifyingAttributes: []*protobufs.KeyValue{

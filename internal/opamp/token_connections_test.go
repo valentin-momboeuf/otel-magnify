@@ -1,0 +1,496 @@
+package opamp
+
+import (
+	"context"
+	"net"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/open-telemetry/opamp-go/protobufs"
+	"github.com/open-telemetry/opamp-go/server/types"
+
+	"github.com/magnify-labs/otel-magnify/pkg/models"
+)
+
+type tokenConnectionTestClock struct {
+	mu  sync.Mutex
+	now time.Time
+}
+
+func (c *tokenConnectionTestClock) Now() time.Time {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.now
+}
+
+func (c *tokenConnectionTestClock) Set(now time.Time) {
+	c.mu.Lock()
+	c.now = now
+	c.mu.Unlock()
+}
+
+type tokenConnectionTestTimer struct {
+	mu      sync.Mutex
+	stopped bool
+	fn      func()
+}
+
+func (t *tokenConnectionTestTimer) Stop() bool {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	wasActive := !t.stopped
+	t.stopped = true
+	return wasActive
+}
+
+// Fire intentionally invokes callbacks even after Stop. This models a timer
+// callback that was already queued when Stop raced with it.
+func (t *tokenConnectionTestTimer) Fire() {
+	t.fn()
+}
+
+type tokenConnectionTestTimers struct {
+	mu        sync.Mutex
+	durations []time.Duration
+	timers    []*tokenConnectionTestTimer
+}
+
+func (t *tokenConnectionTestTimers) AfterFunc(delay time.Duration, fn func()) connectionTimer {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	timer := &tokenConnectionTestTimer{fn: fn}
+	t.durations = append(t.durations, delay)
+	t.timers = append(t.timers, timer)
+	return timer
+}
+
+func (t *tokenConnectionTestTimers) Snapshot() ([]time.Duration, []*tokenConnectionTestTimer) {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return append([]time.Duration(nil), t.durations...), append([]*tokenConnectionTestTimer(nil), t.timers...)
+}
+
+type tokenConnectionTestConn struct{}
+
+func (*tokenConnectionTestConn) Connection() net.Conn { return nil }
+func (*tokenConnectionTestConn) Disconnect() error    { return nil }
+func (*tokenConnectionTestConn) Send(context.Context, *protobufs.ServerToAgent) error {
+	return nil
+}
+
+func newTokenConnectionTestSession(tokenID string, expiresAt *time.Time) *tokenSession {
+	return &tokenSession{principal: models.OpAMPTokenPrincipal{ID: tokenID, ExpiresAt: expiresAt}}
+}
+
+func newTokenConnectionTestManager(
+	clock *tokenConnectionTestClock,
+	timers *tokenConnectionTestTimers,
+	onExpired func([]*tokenSession),
+) *tokenConnections {
+	return newTokenConnections(clock.Now, timers.AfterFunc, onExpired)
+}
+
+func TestTokenConnectionsTracksMultipleSessionsAndIsolatesTokens(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	timers := &tokenConnectionTestTimers{}
+	manager := newTokenConnectionTestManager(clock, timers, nil)
+
+	a1 := newTokenConnectionTestSession("token-a", nil)
+	a2 := newTokenConnectionTestSession("token-a", nil)
+	b1 := newTokenConnectionTestSession("token-b", nil)
+	for _, session := range []*tokenSession{a1, a2, b1} {
+		if !manager.Track(session, &tokenConnectionTestConn{}) {
+			t.Fatalf("Track(%s) = false, want true", session.principal.ID)
+		}
+	}
+
+	disabled := manager.Disable("token-a")
+	if len(disabled) != 2 {
+		t.Fatalf("Disable(token-a) returned %d sessions, want 2", len(disabled))
+	}
+	if lease, ok := manager.Acquire(a1, now); ok || lease != nil {
+		t.Fatal("disabled token-a session acquired a lease")
+	}
+	lease, ok := manager.Acquire(b1, now)
+	if !ok || lease == nil {
+		t.Fatal("disabling token-a prevented a token-b lease")
+	}
+	lease.Release()
+}
+
+func TestTokenConnectionsDisableIsIdempotentAndTombstonesFutureTracks(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	session := newTokenConnectionTestSession("token-a", nil)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("initial Track = false, want true")
+	}
+
+	if got := len(manager.Disable("token-a")); got != 1 {
+		t.Fatalf("first Disable returned %d sessions, want 1", got)
+	}
+	if got := len(manager.Disable("token-a")); got != 0 {
+		t.Fatalf("second Disable returned %d sessions, want 0", got)
+	}
+	if manager.Track(newTokenConnectionTestSession("token-a", nil), &tokenConnectionTestConn{}) {
+		t.Fatal("Track accepted a session after the token tombstone")
+	}
+}
+
+func TestTokenConnectionsDisableWaitsForAdmittedLease(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	session := newTokenConnectionTestSession("token-a", nil)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	lease, ok := manager.Acquire(session, now)
+	if !ok {
+		t.Fatal("Acquire = false, want true")
+	}
+
+	disabled := make(chan []*tokenSession, 1)
+	go func() { disabled <- manager.Disable("token-a") }()
+
+	select {
+	case <-disabled:
+		t.Fatal("Disable returned before the admitted lease was released")
+	case <-time.After(30 * time.Millisecond):
+	}
+	if second, acquired := manager.Acquire(session, now); acquired || second != nil {
+		t.Fatal("a new lease started after Disable installed its tombstone")
+	}
+
+	lease.Release()
+	select {
+	case sessions := <-disabled:
+		if len(sessions) != 1 || sessions[0] != session {
+			t.Fatalf("Disable returned %#v, want the tracked session", sessions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Disable did not return after the lease was released")
+	}
+
+	// Release must be idempotent; a second call must not panic or corrupt the gate.
+	lease.Release()
+}
+
+func TestTokenConnectionsRejectsExactExpiryWithoutTimerCallback(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(time.Minute)
+	clock := &tokenConnectionTestClock{now: now}
+	timers := &tokenConnectionTestTimers{}
+	expired := make(chan []*tokenSession, 1)
+	manager := newTokenConnectionTestManager(clock, timers, func(sessions []*tokenSession) {
+		expired <- sessions
+	})
+	session := newTokenConnectionTestSession("token-a", &expiresAt)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+
+	clock.Set(expiresAt)
+	if lease, ok := manager.Acquire(session, expiresAt); ok || lease != nil {
+		t.Fatal("Acquire accepted now == expires_at")
+	}
+	select {
+	case sessions := <-expired:
+		if len(sessions) != 1 || sessions[0] != session {
+			t.Fatalf("expiry callback returned %#v, want the tracked session", sessions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("synchronous expiry did not invoke the cleanup callback")
+	}
+}
+
+func TestTokenConnectionsTrackRejectsExactExpiry(t *testing.T) {
+	expiresAt := time.Date(2026, 7, 22, 10, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: expiresAt}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+
+	if manager.Track(newTokenConnectionTestSession("token-a", &expiresAt), &tokenConnectionTestConn{}) {
+		t.Fatal("Track accepted now == expires_at")
+	}
+}
+
+func TestTokenConnectionsEarlyTimerCallbackRearmsUntilDeadline(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(time.Minute)
+	clock := &tokenConnectionTestClock{now: now}
+	timers := &tokenConnectionTestTimers{}
+	expired := make(chan []*tokenSession, 1)
+	manager := newTokenConnectionTestManager(clock, timers, func(sessions []*tokenSession) {
+		expired <- sessions
+	})
+	session := newTokenConnectionTestSession("token-a", &expiresAt)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	_, scheduled := timers.Snapshot()
+
+	clock.Set(now.Add(20 * time.Second))
+	scheduled[0].Fire()
+	select {
+	case <-expired:
+		t.Fatal("early timer callback expired the token")
+	default:
+	}
+	durations, rearmed := timers.Snapshot()
+	if len(rearmed) != 2 {
+		t.Fatalf("scheduled timers = %d, want an early rearm", len(rearmed))
+	}
+	if durations[1] != 40*time.Second {
+		t.Fatalf("rearm delay = %s, want 40s", durations[1])
+	}
+	lease, ok := manager.Acquire(session, clock.Now())
+	if !ok {
+		t.Fatal("session inactive after early timer callback")
+	}
+	lease.Release()
+}
+
+func TestTokenConnectionsRemoveDuringLeaseKeepsDisableBarrierVisible(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	session := newTokenConnectionTestSession("token-a", nil)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	lease, ok := manager.Acquire(session, now)
+	if !ok {
+		t.Fatal("Acquire = false, want true")
+	}
+
+	removeDone := make(chan struct{})
+	go func() {
+		manager.Remove(session)
+		close(removeDone)
+	}()
+	select {
+	case <-removeDone:
+	case <-time.After(time.Second):
+		t.Fatal("Remove blocked behind an active lease")
+	}
+
+	disableDone := make(chan []*tokenSession, 1)
+	go func() { disableDone <- manager.Disable("token-a") }()
+	select {
+	case <-disableDone:
+		t.Fatal("Disable lost visibility of a draining leased session")
+	case <-time.After(30 * time.Millisecond):
+	}
+	lease.Release()
+	select {
+	case sessions := <-disableDone:
+		if len(sessions) != 1 || sessions[0] != session {
+			t.Fatalf("Disable returned %#v, want the draining session", sessions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Disable did not complete after the draining lease")
+	}
+}
+
+func TestTokenConnectionsTimerDisableRaceCleansSessionOnce(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(time.Minute)
+	clock := &tokenConnectionTestClock{now: now}
+	timers := &tokenConnectionTestTimers{}
+	expired := make(chan []*tokenSession, 1)
+	manager := newTokenConnectionTestManager(clock, timers, func(sessions []*tokenSession) {
+		expired <- sessions
+	})
+	session := newTokenConnectionTestSession("token-a", &expiresAt)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	_, scheduled := timers.Snapshot()
+	clock.Set(expiresAt)
+
+	start := make(chan struct{})
+	manualResult := make(chan []*tokenSession, 1)
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		<-start
+		scheduled[0].Fire()
+	}()
+	go func() {
+		defer wg.Done()
+		<-start
+		manualResult <- manager.Disable("token-a")
+	}()
+	close(start)
+	wg.Wait()
+	manual := <-manualResult
+	var automatic []*tokenSession
+	select {
+	case automatic = <-expired:
+	default:
+	}
+	if len(manual)+len(automatic) != 1 {
+		t.Fatalf("manual + timer cleanup sessions = %d, want exactly 1", len(manual)+len(automatic))
+	}
+	if lease, ok := manager.Acquire(session, expiresAt); ok || lease != nil {
+		t.Fatal("timer/Disable race left the session active")
+	}
+}
+
+func TestTokenConnectionsIgnoresStaleTimerGeneration(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	firstExpiry := now.Add(time.Minute)
+	secondExpiry := now.Add(2 * time.Minute)
+	clock := &tokenConnectionTestClock{now: now}
+	timers := &tokenConnectionTestTimers{}
+	expired := make(chan []*tokenSession, 2)
+	manager := newTokenConnectionTestManager(clock, timers, func(sessions []*tokenSession) {
+		expired <- sessions
+	})
+
+	first := newTokenConnectionTestSession("token-a", &firstExpiry)
+	if !manager.Track(first, &tokenConnectionTestConn{}) {
+		t.Fatal("first Track = false, want true")
+	}
+	manager.Remove(first)
+	second := newTokenConnectionTestSession("token-a", &secondExpiry)
+	if !manager.Track(second, &tokenConnectionTestConn{}) {
+		t.Fatal("second Track = false, want true")
+	}
+	_, scheduled := timers.Snapshot()
+	if len(scheduled) != 2 {
+		t.Fatalf("scheduled timers = %d, want 2 generations", len(scheduled))
+	}
+
+	clock.Set(firstExpiry)
+	scheduled[0].Fire()
+	select {
+	case <-expired:
+		t.Fatal("stale timer generation disabled the replacement session")
+	default:
+	}
+	lease, ok := manager.Acquire(second, firstExpiry)
+	if !ok {
+		t.Fatal("replacement session became inactive after stale callback")
+	}
+	lease.Release()
+
+	clock.Set(secondExpiry)
+	scheduled[1].Fire()
+	select {
+	case sessions := <-expired:
+		if len(sessions) != 1 || sessions[0] != second {
+			t.Fatalf("current timer returned %#v, want replacement session", sessions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("current timer generation did not expire the token")
+	}
+}
+
+func TestTokenConnectionsUsesOneTimerForMultipleSessionsOfToken(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(time.Minute)
+	clock := &tokenConnectionTestClock{now: now}
+	timers := &tokenConnectionTestTimers{}
+	manager := newTokenConnectionTestManager(clock, timers, nil)
+
+	for range 2 {
+		if !manager.Track(newTokenConnectionTestSession("token-a", &expiresAt), &tokenConnectionTestConn{}) {
+			t.Fatal("Track = false, want true")
+		}
+	}
+	durations, scheduled := timers.Snapshot()
+	if len(scheduled) != 1 {
+		t.Fatalf("scheduled timers = %d, want 1", len(scheduled))
+	}
+	if durations[0] != time.Minute {
+		t.Fatalf("timer delay = %s, want 1m", durations[0])
+	}
+}
+
+func TestTokenConnectionsRemoveBeforeFirstMessage(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	session := newTokenConnectionTestSession("token-a", nil)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+
+	manager.Remove(session)
+	if lease, ok := manager.Acquire(session, now); ok || lease != nil {
+		t.Fatal("removed pre-message session acquired a lease")
+	}
+	// Remove is intentionally idempotent for late close callbacks.
+	manager.Remove(session)
+}
+
+func TestTokenConnectionsTrackDisableRaceNeverLeavesActiveSession(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	for i := 0; i < 100; i++ {
+		clock := &tokenConnectionTestClock{now: now}
+		manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+		session := newTokenConnectionTestSession("token-a", nil)
+		start := make(chan struct{})
+		var tracked bool
+		var disabled []*tokenSession
+		var wg sync.WaitGroup
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			tracked = manager.Track(session, &tokenConnectionTestConn{})
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			disabled = manager.Disable("token-a")
+		}()
+		close(start)
+		wg.Wait()
+
+		if tracked && len(disabled) != 1 {
+			t.Fatalf("iteration %d: Track won but Disable returned %d sessions", i, len(disabled))
+		}
+		if lease, ok := manager.Acquire(session, now); ok || lease != nil {
+			t.Fatalf("iteration %d: raced session remained active", i)
+		}
+	}
+}
+
+func TestTokenConnectionsStopReturnsSessionsAndRejectsFutureWork(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	sessions := []*tokenSession{
+		newTokenConnectionTestSession("token-a", nil),
+		newTokenConnectionTestSession("token-b", nil),
+	}
+	for _, session := range sessions {
+		if !manager.Track(session, &tokenConnectionTestConn{}) {
+			t.Fatal("Track = false, want true")
+		}
+	}
+
+	stopped := manager.Stop()
+	if len(stopped) != len(sessions) {
+		t.Fatalf("Stop returned %d sessions, want %d", len(stopped), len(sessions))
+	}
+	if got := len(manager.Stop()); got != 0 {
+		t.Fatalf("second Stop returned %d sessions, want 0", got)
+	}
+	for _, session := range sessions {
+		if lease, ok := manager.Acquire(session, now); ok || lease != nil {
+			t.Fatal("stopped session acquired a lease")
+		}
+	}
+	if manager.Track(newTokenConnectionTestSession("token-c", nil), &tokenConnectionTestConn{}) {
+		t.Fatal("Track accepted a session after Stop")
+	}
+}
+
+var _ types.Connection = (*tokenConnectionTestConn)(nil)
