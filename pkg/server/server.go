@@ -12,6 +12,7 @@ import (
 
 	"github.com/magnify-labs/otel-magnify/internal/alerts"
 	"github.com/magnify-labs/otel-magnify/internal/api"
+	internalaudit "github.com/magnify-labs/otel-magnify/internal/audit"
 	"github.com/magnify-labs/otel-magnify/internal/opamp"
 	"github.com/magnify-labs/otel-magnify/internal/workloads"
 	"github.com/magnify-labs/otel-magnify/pkg/capabilities"
@@ -25,6 +26,7 @@ type Server struct {
 	auth                 ext.AuthProvider
 	notifiers            []ext.AlertNotifier
 	auditLogger          ext.AuditLogger
+	auditOutboxSink      ext.AuditLogger
 	reportSigner         ext.ReportSigner
 	staticFS             fs.FS
 	routerHooks          []func(chi.Router)
@@ -153,6 +155,28 @@ func (s *Server) Run(ctx context.Context) error {
 	apiHTTP := &http.Server{
 		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	var stopAuditOutbox func()
+	if outboxStore, ok := s.store.(ext.AuditOutboxStore); ok && s.auditOutboxSink != nil {
+		dispatcherCtx, dispatcherCancel := context.WithCancel(ctx)
+		dispatcherDone := make(chan struct{})
+		dispatcher := internalaudit.NewOutboxDispatcher(outboxStore, s.auditOutboxSink)
+		go func() {
+			defer close(dispatcherDone)
+			dispatcher.Run(dispatcherCtx)
+		}()
+		stopAuditOutbox = func() {
+			dispatcherCancel()
+			waitCtx, waitCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer waitCancel()
+			select {
+			case <-dispatcherDone:
+			case <-waitCtx.Done():
+				log.Printf("audit outbox category=shutdown_timeout")
+			}
+		}
+		defer stopAuditOutbox()
 	}
 	go func() {
 		log.Printf("API server listening on %s", apiListener.Addr())

@@ -208,8 +208,8 @@ func TestMigrateSerializesAcrossDatabaseHandles(t *testing.T) {
 	`).Scan(&applied, &distinct, &maxVersion); err != nil {
 		t.Fatalf("query goose versions: %v", err)
 	}
-	if applied != 26 || distinct != 26 || maxVersion != 27 {
-		t.Fatalf("goose versions = applied %d, distinct %d, max %d; want 26, 26, 27", applied, distinct, maxVersion)
+	if applied != 27 || distinct != 27 || maxVersion != 28 {
+		t.Fatalf("goose versions = applied %d, distinct %d, max %d; want 27, 27, 28", applied, distinct, maxVersion)
 	}
 }
 

@@ -15,6 +15,136 @@ import (
 
 const opAMPTokenActivityWindow = 30 * time.Second
 
+// CreateOpAMPToken persists a managed token and its audit event atomically.
+func (d *DB) CreateOpAMPToken(ctx context.Context, credential models.OpAMPTokenCredential, event ext.AuditEvent) error {
+	token := credential.Token
+	if !isCanonicalOpAMPTokenID(token.ID) {
+		return fmt.Errorf("create OpAMP token: token ID must be a canonical UUID")
+	}
+	if err := validateUTCTime("created_at", token.CreatedAt); err != nil {
+		return fmt.Errorf("create OpAMP token: %w", err)
+	}
+	if err := validateTokenAuditEvent(event, "opamp.token.create", token.ID, token.CreatedBy, token.CreatedAt); err != nil {
+		return fmt.Errorf("create OpAMP token: invalid audit event: %w", err)
+	}
+	if token.ExpiresAt != nil {
+		if err := validateUTCTime("expires_at", *token.ExpiresAt); err != nil {
+			return fmt.Errorf("create OpAMP token: %w", err)
+		}
+	}
+	if token.LastUsedAt != nil || token.RevokedAt != nil || token.RevokedBy != "" {
+		return fmt.Errorf("create OpAMP token: new token must not contain usage or revocation state")
+	}
+
+	tx, err := d.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return fmt.Errorf("create OpAMP token: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var expiresAt any
+	if token.ExpiresAt != nil {
+		expiresAt = token.ExpiresAt.UTC()
+	}
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO opamp_tokens (
+			id, name, description, team, environment, secret_hash,
+			created_at, created_by, expires_at
+		) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+		token.ID, token.Name, token.Description, token.Team, token.Environment,
+		credential.SecretHash[:], token.CreatedAt.UTC(), token.CreatedBy, expiresAt,
+	); err != nil {
+		return fmt.Errorf("create OpAMP token: insert token: %w", err)
+	}
+	if err := insertAuditOutboxEvent(ctx, tx, event); err != nil {
+		return fmt.Errorf("create OpAMP token: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("create OpAMP token: commit: %w: %v", ext.ErrCommitOutcomeUnknown, err)
+	}
+	return nil
+}
+
+// RevokeOpAMPToken revokes an active token and enqueues its audit event atomically.
+func (d *DB) RevokeOpAMPToken(ctx context.Context, id, revokedBy string, now time.Time, event ext.AuditEvent) (models.OpAMPToken, bool, error) {
+	if !isCanonicalOpAMPTokenID(id) {
+		return models.OpAMPToken{}, false, ext.ErrOpAMPTokenNotFound
+	}
+	if err := validateUTCTime("revoked_at", now); err != nil {
+		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: %w", err)
+	}
+	if err := validateTokenAuditEvent(event, "opamp.token.revoke", id, revokedBy, now); err != nil {
+		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: invalid audit event: %w", err)
+	}
+
+	tx, err := d.DB.BeginTx(ctx, nil)
+	if err != nil {
+		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: begin: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var token models.OpAMPToken
+	var expiresAt, lastUsedAt, revokedAt sql.NullTime
+	var storedRevokedBy sql.NullString
+	err = tx.QueryRowContext(ctx, `
+		SELECT id, name, description, team, environment, created_at, created_by,
+		       expires_at, last_used_at, revoked_at, revoked_by
+		FROM opamp_tokens
+		WHERE id = $1
+		FOR UPDATE`, id,
+	).Scan(
+		&token.ID, &token.Name, &token.Description, &token.Team, &token.Environment,
+		&token.CreatedAt, &token.CreatedBy, &expiresAt, &lastUsedAt, &revokedAt, &storedRevokedBy,
+	)
+	if errors.Is(err, sql.ErrNoRows) {
+		return models.OpAMPToken{}, false, ext.ErrOpAMPTokenNotFound
+	}
+	if err != nil {
+		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: lock token: %w", err)
+	}
+	populateOpAMPTokenState(&token, expiresAt, lastUsedAt, revokedAt, storedRevokedBy, now)
+	if token.RevokedAt != nil {
+		return token, false, nil
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE opamp_tokens
+		SET revoked_at = $1, revoked_by = $2
+		WHERE id = $3`, now.UTC(), revokedBy, id,
+	); err != nil {
+		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: update token: %w", err)
+	}
+	if err := insertAuditOutboxEvent(ctx, tx, event); err != nil {
+		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: %w", err)
+	}
+	if err := tx.Commit(); err != nil {
+		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: commit: %w: %v", ext.ErrCommitOutcomeUnknown, err)
+	}
+	revokedAtUTC := now.UTC()
+	token.RevokedAt = &revokedAtUTC
+	token.RevokedBy = revokedBy
+	token.Status = models.OpAMPTokenRevoked
+	return token, true, nil
+}
+
+func populateOpAMPTokenState(token *models.OpAMPToken, expiresAt, lastUsedAt, revokedAt sql.NullTime, revokedBy sql.NullString, now time.Time) {
+	token.CreatedAt = token.CreatedAt.UTC()
+	token.ExpiresAt = nullableTimeUTC(expiresAt)
+	token.LastUsedAt = nullableTimeUTC(lastUsedAt)
+	token.RevokedAt = nullableTimeUTC(revokedAt)
+	if revokedBy.Valid {
+		token.RevokedBy = revokedBy.String
+	}
+	switch {
+	case token.RevokedAt != nil:
+		token.Status = models.OpAMPTokenRevoked
+	case token.ExpiresAt != nil && !token.ExpiresAt.After(now):
+		token.Status = models.OpAMPTokenExpired
+	default:
+		token.Status = models.OpAMPTokenActive
+	}
+}
+
 // ListOpAMPTokens returns public token metadata ordered newest first.
 func (d *DB) ListOpAMPTokens(ctx context.Context, now time.Time) ([]models.OpAMPToken, error) {
 	rows, err := d.DB.QueryContext(ctx, `

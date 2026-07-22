@@ -2,6 +2,7 @@ package server_test
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -75,6 +76,156 @@ func TestServer_StartsAndStops(t *testing.T) {
 		}
 	case <-time.After(5 * time.Second):
 		t.Fatal("Server did not stop within 5 seconds")
+	}
+}
+
+type auditOutboxChannelSink struct {
+	events chan ext.AuditEvent
+}
+
+func (s *auditOutboxChannelSink) Log(_ context.Context, event ext.AuditEvent) error {
+	s.events <- event
+	return nil
+}
+
+func TestAuditOutboxServerOptionStartsDispatcherAndStopsWithServer(t *testing.T) {
+	db, err := store.Open(testdb.New(t).DSN, testPoolConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+
+	occurredAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	event := ext.AuditEvent{
+		EventID:    "10000000-0000-4000-8000-000000000601",
+		OccurredAt: occurredAt,
+		Action:     "opamp.token.create", UserID: "user-1", Email: "user-1@example.com",
+		Resource: "opamp_token", ResourceID: "00000000-0000-4000-8000-000000000601",
+	}
+	if _, err := db.Exec(`
+		INSERT INTO audit_outbox (
+			event_id, occurred_at, action, user_id, email, resource, resource_id, detail, next_attempt_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.EventID, event.OccurredAt, event.Action, event.UserID, event.Email,
+		event.Resource, event.ResourceID, event.Detail, event.OccurredAt,
+	); err != nil {
+		t.Fatalf("seed outbox: %v", err)
+	}
+
+	sink := &auditOutboxChannelSink{events: make(chan ext.AuditEvent, 1)}
+	a := auth.New("test-secret-key-at-least-32-bytes!")
+	srv := server.New(
+		server.Config{ListenAddr: ":0", OpAMPAddr: ":0"},
+		db,
+		a,
+		server.WithAuditOutboxSink(sink),
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Run(ctx) }()
+
+	select {
+	case got := <-sink.events:
+		if got != event {
+			t.Fatalf("delivered event = %+v, want %+v", got, event)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("dispatcher did not deliver pending event")
+	}
+	deliveryDeadline := time.Now().Add(2 * time.Second)
+	for {
+		var deliveredAt sql.NullTime
+		if err := db.QueryRow(`SELECT delivered_at FROM audit_outbox WHERE event_id = ?`, event.EventID).Scan(&deliveredAt); err != nil {
+			t.Fatalf("read delivered_at: %v", err)
+		}
+		if deliveredAt.Valid {
+			break
+		}
+		if time.Now().After(deliveryDeadline) {
+			t.Fatal("outbox event remained pending after successful delivery")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	cancel()
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("server did not stop after dispatcher cancellation")
+	}
+
+}
+
+type blockingAuditOutboxSink struct {
+	started chan struct{}
+	stopped chan struct{}
+}
+
+func (s *blockingAuditOutboxSink) Log(ctx context.Context, _ ext.AuditEvent) error {
+	close(s.started)
+	<-ctx.Done()
+	close(s.stopped)
+	return ctx.Err()
+}
+
+func TestAuditOutboxServerShutdownCancelsInFlightSinkWithoutLeak(t *testing.T) {
+	db, err := store.Open(testdb.New(t).DSN, testPoolConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer db.Close()
+	if err := db.Migrate(); err != nil {
+		t.Fatal(err)
+	}
+	occurredAt := time.Now().UTC().Add(-time.Minute).Truncate(time.Microsecond)
+	event := ext.AuditEvent{
+		EventID: "10000000-0000-4000-8000-000000000602", OccurredAt: occurredAt,
+		Action: "opamp.token.revoke", UserID: "user-1", Email: "user-1@example.com",
+		Resource: "opamp_token", ResourceID: "00000000-0000-4000-8000-000000000602",
+	}
+	if _, err := db.Exec(`
+		INSERT INTO audit_outbox (
+			event_id, occurred_at, action, user_id, email, resource, resource_id, detail, next_attempt_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.EventID, event.OccurredAt, event.Action, event.UserID, event.Email,
+		event.Resource, event.ResourceID, event.Detail, event.OccurredAt,
+	); err != nil {
+		t.Fatalf("seed outbox: %v", err)
+	}
+
+	sink := &blockingAuditOutboxSink{started: make(chan struct{}), stopped: make(chan struct{})}
+	srv := server.New(
+		server.Config{ListenAddr: ":0", OpAMPAddr: ":0"},
+		db,
+		auth.New("test-secret-key-at-least-32-bytes!"),
+		server.WithAuditOutboxSink(sink),
+	)
+	ctx, cancel := context.WithCancel(context.Background())
+	errCh := make(chan error, 1)
+	go func() { errCh <- srv.Run(ctx) }()
+	select {
+	case <-sink.started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("sink delivery did not start")
+	}
+	cancel()
+	select {
+	case <-sink.stopped:
+	case <-time.After(time.Second):
+		t.Fatal("in-flight sink did not observe server cancellation")
+	}
+	select {
+	case err := <-errCh:
+		if err != nil {
+			t.Fatalf("Run() error = %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("server leaked the outbox dispatcher during shutdown")
 	}
 }
 

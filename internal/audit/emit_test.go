@@ -65,6 +65,20 @@ func TestEmit_UnauthenticatedLeavesIdentityEmpty(t *testing.T) {
 	}
 }
 
+func TestAuditOutboxEmitLegacyCallsLeaveDurableIdentityUnset(t *testing.T) {
+	spy := &spyAuditLogger{}
+	if err := audit.Emit(context.Background(), spy, "config.create", "config", "cfg-123", ""); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+	got := spy.snapshot()
+	if len(got) != 1 {
+		t.Fatalf("event count = %d, want 1", len(got))
+	}
+	if got[0].EventID != "" || !got[0].OccurredAt.IsZero() {
+		t.Fatalf("legacy Emit assigned durable identity: %+v", got[0])
+	}
+}
+
 func TestEmit_NilLoggerNoOps(t *testing.T) {
 	defer func() {
 		if r := recover(); r != nil {

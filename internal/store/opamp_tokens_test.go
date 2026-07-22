@@ -1,12 +1,14 @@
 package store
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -309,6 +311,292 @@ func TestOpAMPTokenConcurrentAdmissionsWriteOncePerWindow(t *testing.T) {
 	if got := opAMPTokenUpdateCount(t, db); got != 1 {
 		t.Fatalf("physical token updates = %d, want 1", got)
 	}
+}
+
+func TestOpAMPTokenAtomicAuditCreateCommitsTokenAndExactEventTogether(t *testing.T) {
+	db := newTestDB(t)
+	createdAt := time.Date(2026, time.July, 22, 11, 0, 0, 0, time.UTC)
+	credential := atomicAuditCredential("00000000-0000-4000-8000-000000000201", createdAt, "user-creator")
+	event := atomicAuditEvent(
+		"10000000-0000-4000-8000-000000000201",
+		createdAt,
+		"opamp.token.create",
+		credential.Token.ID,
+		"user-creator",
+	)
+
+	if err := db.CreateOpAMPToken(context.Background(), credential, event); err != nil {
+		t.Fatalf("CreateOpAMPToken() error = %v", err)
+	}
+
+	var tokenCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM opamp_tokens WHERE id = ?`, credential.Token.ID).Scan(&tokenCount); err != nil {
+		t.Fatalf("count token: %v", err)
+	}
+	if tokenCount != 1 {
+		t.Fatalf("token count = %d, want 1", tokenCount)
+	}
+	got := readAuditOutboxEvent(t, db, event.EventID)
+	if got != event {
+		t.Fatalf("outbox event = %+v, want %+v", got, event)
+	}
+	var nextAttemptAt time.Time
+	if err := db.QueryRow(`SELECT next_attempt_at FROM audit_outbox WHERE event_id = ?`, event.EventID).Scan(&nextAttemptAt); err != nil {
+		t.Fatalf("read next_attempt_at: %v", err)
+	}
+	if !nextAttemptAt.Equal(event.OccurredAt) {
+		t.Fatalf("next_attempt_at = %v, want %v", nextAttemptAt, event.OccurredAt)
+	}
+
+	var storedHash []byte
+	if err := db.QueryRow(`SELECT secret_hash FROM opamp_tokens WHERE id = ?`, credential.Token.ID).Scan(&storedHash); err != nil {
+		t.Fatalf("read secret_hash: %v", err)
+	}
+	if !bytes.Equal(storedHash, credential.SecretHash[:]) {
+		t.Fatal("stored token hash does not match credential")
+	}
+	serialized, err := json.Marshal(got)
+	if err != nil {
+		t.Fatalf("marshal event: %v", err)
+	}
+	if strings.Contains(string(serialized), hex.EncodeToString(credential.SecretHash[:])) || got.Detail != "" {
+		t.Fatalf("audit payload contains a secret/hash/detail: %s", serialized)
+	}
+}
+
+func TestOpAMPTokenAtomicAuditCreateRollsBackWhenOutboxInsertFails(t *testing.T) {
+	db := newTestDB(t)
+	createdAt := time.Date(2026, time.July, 22, 11, 0, 0, 0, time.UTC)
+	existingEvent := atomicAuditEvent(
+		"10000000-0000-4000-8000-000000000211",
+		createdAt,
+		"opamp.token.create",
+		"00000000-0000-4000-8000-000000000210",
+		"user-creator",
+	)
+	seedAuditOutboxEvent(t, db, existingEvent)
+
+	credential := atomicAuditCredential("00000000-0000-4000-8000-000000000211", createdAt, "user-creator")
+	event := atomicAuditEvent(existingEvent.EventID, createdAt, "opamp.token.create", credential.Token.ID, "user-creator")
+	if err := db.CreateOpAMPToken(context.Background(), credential, event); err == nil {
+		t.Fatal("CreateOpAMPToken() error = nil, want duplicate outbox failure")
+	}
+
+	var tokenCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM opamp_tokens WHERE id = ?`, credential.Token.ID).Scan(&tokenCount); err != nil {
+		t.Fatalf("count token: %v", err)
+	}
+	if tokenCount != 0 {
+		t.Fatalf("token count = %d, want 0 after rollback", tokenCount)
+	}
+}
+
+func TestOpAMPTokenAtomicAuditRevokeCommitsOnceAndRollsBackOnOutboxFailure(t *testing.T) {
+	t.Run("success_and_repeat", func(t *testing.T) {
+		db := newTestDB(t)
+		createdAt := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+		now := createdAt.Add(time.Hour)
+		credential := atomicAuditCredential("00000000-0000-4000-8000-000000000221", createdAt, "user-creator")
+		seedOpAMPToken(t, db, opAMPTokenFixture{
+			id: credential.Token.ID, name: credential.Token.Name, secretHash: credential.SecretHash,
+			createdAt: createdAt, createdBy: credential.Token.CreatedBy,
+		})
+		event := atomicAuditEvent("10000000-0000-4000-8000-000000000221", now, "opamp.token.revoke", credential.Token.ID, "user-revoker")
+
+		got, changed, err := db.RevokeOpAMPToken(context.Background(), credential.Token.ID, "user-revoker", now, event)
+		if err != nil {
+			t.Fatalf("RevokeOpAMPToken() error = %v", err)
+		}
+		if !changed || got.RevokedAt == nil || !got.RevokedAt.Equal(now) || got.RevokedBy != "user-revoker" {
+			t.Fatalf("RevokeOpAMPToken() = (%+v, %t), want revoked transition", got, changed)
+		}
+		if readAuditOutboxEvent(t, db, event.EventID) != event {
+			t.Fatal("stored revoke event differs from input")
+		}
+
+		repeatedEvent := atomicAuditEvent("10000000-0000-4000-8000-000000000222", now.Add(time.Minute), "opamp.token.revoke", credential.Token.ID, "user-revoker")
+		got, changed, err = db.RevokeOpAMPToken(context.Background(), credential.Token.ID, "user-revoker", now.Add(time.Minute), repeatedEvent)
+		if err != nil {
+			t.Fatalf("repeated RevokeOpAMPToken() error = %v", err)
+		}
+		if changed || got.RevokedAt == nil || !got.RevokedAt.Equal(now) {
+			t.Fatalf("repeated RevokeOpAMPToken() = (%+v, %t), want unchanged original token", got, changed)
+		}
+		var repeatedCount int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM audit_outbox WHERE event_id = ?`, repeatedEvent.EventID).Scan(&repeatedCount); err != nil {
+			t.Fatalf("count repeated event: %v", err)
+		}
+		if repeatedCount != 0 {
+			t.Fatalf("repeated event count = %d, want 0", repeatedCount)
+		}
+	})
+
+	t.Run("outbox_failure_rolls_back", func(t *testing.T) {
+		db := newTestDB(t)
+		createdAt := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+		now := createdAt.Add(time.Hour)
+		id := "00000000-0000-4000-8000-000000000223"
+		seedOpAMPToken(t, db, opAMPTokenFixture{id: id, name: "rollback", secretHash: sha256.Sum256([]byte("secret")), createdAt: createdAt, createdBy: "user-creator"})
+		event := atomicAuditEvent("10000000-0000-4000-8000-000000000223", now, "opamp.token.revoke", id, "user-revoker")
+		seedAuditOutboxEvent(t, db, event)
+
+		if _, _, err := db.RevokeOpAMPToken(context.Background(), id, "user-revoker", now, event); err == nil {
+			t.Fatal("RevokeOpAMPToken() error = nil, want duplicate outbox failure")
+		}
+		var revokedAt sql.NullTime
+		if err := db.QueryRow(`SELECT revoked_at FROM opamp_tokens WHERE id = ?`, id).Scan(&revokedAt); err != nil {
+			t.Fatalf("read revoked_at: %v", err)
+		}
+		if revokedAt.Valid {
+			t.Fatalf("revoked_at = %v, want NULL after rollback", revokedAt.Time)
+		}
+	})
+}
+
+func TestOpAMPTokenAtomicAuditConcurrentRevocationsCreateOneEvent(t *testing.T) {
+	db := newTestDBWithPoolConfig(t, PoolConfig{MaxOpenConns: 20, MaxIdleConns: 10, ConnMaxLifetime: time.Minute})
+	createdAt := time.Date(2026, time.July, 22, 10, 0, 0, 0, time.UTC)
+	now := createdAt.Add(time.Hour)
+	id := "00000000-0000-4000-8000-000000000231"
+	seedOpAMPToken(t, db, opAMPTokenFixture{id: id, name: "concurrent-revoke", secretHash: sha256.Sum256([]byte("secret")), createdAt: createdAt, createdBy: "user-creator"})
+
+	const workers = 32
+	start := make(chan struct{})
+	results := make(chan bool, workers)
+	errs := make(chan error, workers)
+	var wg sync.WaitGroup
+	wg.Add(workers)
+	for index := range workers {
+		go func() {
+			defer wg.Done()
+			<-start
+			eventID := "10000000-0000-4000-8000-" + fmt.Sprintf("%012d", 300+index)
+			event := atomicAuditEvent(eventID, now, "opamp.token.revoke", id, "user-revoker")
+			_, changed, err := db.RevokeOpAMPToken(context.Background(), id, "user-revoker", now, event)
+			results <- changed
+			errs <- err
+		}()
+	}
+	close(start)
+	wg.Wait()
+	close(results)
+	close(errs)
+
+	changedCount := 0
+	for changed := range results {
+		if changed {
+			changedCount++
+		}
+	}
+	for err := range errs {
+		if err != nil {
+			t.Fatalf("concurrent RevokeOpAMPToken() error = %v", err)
+		}
+	}
+	if changedCount != 1 {
+		t.Fatalf("changed count = %d, want 1", changedCount)
+	}
+	var eventCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM audit_outbox WHERE resource_id = ? AND action = 'opamp.token.revoke'`, id).Scan(&eventCount); err != nil {
+		t.Fatalf("count revoke events: %v", err)
+	}
+	if eventCount != 1 {
+		t.Fatalf("revoke event count = %d, want 1", eventCount)
+	}
+}
+
+func TestOpAMPTokenAtomicAuditRejectsInvalidEventBeforeSQL(t *testing.T) {
+	database, err := sql.Open("pgx", testdb.New(t).DSN)
+	if err != nil {
+		t.Fatalf("open PostgreSQL handle: %v", err)
+	}
+	if err := database.Close(); err != nil {
+		t.Fatalf("close PostgreSQL handle: %v", err)
+	}
+	db := &DB{DB: database}
+	createdAt := time.Date(2026, time.July, 22, 11, 0, 0, 0, time.UTC)
+	credential := atomicAuditCredential("00000000-0000-4000-8000-000000000241", createdAt, "user-creator")
+	valid := atomicAuditEvent("10000000-0000-4000-8000-000000000241", createdAt, "opamp.token.create", credential.Token.ID, credential.Token.CreatedBy)
+
+	tests := []struct {
+		name   string
+		mutate func(*ext.AuditEvent)
+	}{
+		{name: "event_id_absent", mutate: func(event *ext.AuditEvent) { event.EventID = "" }},
+		{name: "event_id_non_canonical", mutate: func(event *ext.AuditEvent) { event.EventID = "10000000-0000-4000-8000-000000000ABC" }},
+		{name: "occurred_at_absent", mutate: func(event *ext.AuditEvent) { event.OccurredAt = time.Time{} }},
+		{name: "occurred_at_not_utc", mutate: func(event *ext.AuditEvent) {
+			event.OccurredAt = event.OccurredAt.In(time.FixedZone("offset", 3600))
+		}},
+		{name: "occurred_at_inconsistent", mutate: func(event *ext.AuditEvent) { event.OccurredAt = event.OccurredAt.Add(time.Second) }},
+		{name: "legacy_action_spelling", mutate: func(event *ext.AuditEvent) { event.Action = "opamp_token.create" }},
+		{name: "wrong_resource", mutate: func(event *ext.AuditEvent) { event.Resource = "token" }},
+		{name: "wrong_resource_id", mutate: func(event *ext.AuditEvent) { event.ResourceID = "00000000-0000-4000-8000-000000000242" }},
+		{name: "wrong_actor", mutate: func(event *ext.AuditEvent) { event.UserID = "user-other" }},
+		{name: "detail_present", mutate: func(event *ext.AuditEvent) { event.Detail = "must stay redacted" }},
+		{name: "newline", mutate: func(event *ext.AuditEvent) { event.Email = "user@example.com\nforged" }},
+		{name: "payload_too_long", mutate: func(event *ext.AuditEvent) { event.Email = strings.Repeat("e", 321) }},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			event := valid
+			tt.mutate(&event)
+			err := db.CreateOpAMPToken(context.Background(), credential, event)
+			if err == nil {
+				t.Fatal("CreateOpAMPToken() error = nil, want validation error")
+			}
+			if strings.Contains(err.Error(), "database is closed") {
+				t.Fatalf("CreateOpAMPToken() reached SQL before validation: %v", err)
+			}
+		})
+	}
+}
+
+func atomicAuditCredential(id string, createdAt time.Time, createdBy string) models.OpAMPTokenCredential {
+	return models.OpAMPTokenCredential{
+		Token: models.OpAMPToken{
+			ID: id, Name: "automation", Description: "collector automation", Team: "platform",
+			Environment: "production", CreatedAt: createdAt, CreatedBy: createdBy,
+		},
+		SecretHash: sha256.Sum256([]byte("opaque-secret-" + id)),
+	}
+}
+
+func atomicAuditEvent(eventID string, occurredAt time.Time, action, resourceID, userID string) ext.AuditEvent {
+	return ext.AuditEvent{
+		EventID: eventID, OccurredAt: occurredAt, Action: action, UserID: userID,
+		Email: userID + "@example.com", Resource: "opamp_token", ResourceID: resourceID,
+	}
+}
+
+func seedAuditOutboxEvent(t *testing.T, db *DB, event ext.AuditEvent) {
+	t.Helper()
+	if _, err := db.Exec(`
+		INSERT INTO audit_outbox (
+			event_id, occurred_at, action, user_id, email, resource, resource_id, detail, next_attempt_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		event.EventID, event.OccurredAt, event.Action, event.UserID, event.Email,
+		event.Resource, event.ResourceID, event.Detail, event.OccurredAt,
+	); err != nil {
+		t.Fatalf("seed audit outbox event %s: %v", event.EventID, err)
+	}
+}
+
+func readAuditOutboxEvent(t *testing.T, db *DB, eventID string) ext.AuditEvent {
+	t.Helper()
+	var event ext.AuditEvent
+	if err := db.QueryRow(`
+		SELECT event_id, occurred_at, action, user_id, email, resource, resource_id, detail
+		FROM audit_outbox
+		WHERE event_id = ?`, eventID,
+	).Scan(
+		&event.EventID, &event.OccurredAt, &event.Action, &event.UserID,
+		&event.Email, &event.Resource, &event.ResourceID, &event.Detail,
+	); err != nil {
+		t.Fatalf("read audit outbox event %s: %v", eventID, err)
+	}
+	event.OccurredAt = event.OccurredAt.UTC()
+	return event
 }
 
 type opAMPTokenFixture struct {

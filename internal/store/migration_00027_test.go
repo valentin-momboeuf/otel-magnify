@@ -2,14 +2,19 @@ package store
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"io/fs"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/magnify-labs/otel-magnify/internal/testdb"
+	"github.com/pressly/goose/v3"
 )
 
 func TestMigration00027CreatesOpAMPTokenSchema(t *testing.T) {
-	db := newTestDB(t)
+	db := newMigration00027TestDB(t)
 
 	var idType string
 	if err := db.QueryRow(`
@@ -46,7 +51,7 @@ func TestMigration00027CreatesOpAMPTokenSchema(t *testing.T) {
 }
 
 func TestMigration00027EnforcesOpAMPTokenConstraints(t *testing.T) {
-	db := newTestDB(t)
+	db := newMigration00027TestDB(t)
 	createdAt := time.Date(2026, time.July, 22, 8, 0, 0, 0, time.UTC)
 
 	type fixture struct {
@@ -145,4 +150,27 @@ func TestMigration00027EnforcesOpAMPTokenConstraints(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert boundary-valid token: %v", err)
 	}
+}
+
+func newMigration00027TestDB(t *testing.T) *DB {
+	t.Helper()
+	db := openUnmigratedTestPostgres(t, testdb.New(t).DSN)
+	sqlMigrations, err := fs.Sub(migrationsFS, "migrations")
+	if err != nil {
+		t.Fatalf("migrations fs: %v", err)
+	}
+	provider, err := goose.NewProvider(
+		goose.DialectPostgres,
+		db.DB,
+		sqlMigrations,
+		goose.WithDisableGlobalRegistry(true),
+		goose.WithGoMigrations(migration00026),
+	)
+	if err != nil {
+		t.Fatalf("new migration provider: %v", err)
+	}
+	if _, err := provider.UpTo(context.Background(), 27); err != nil {
+		t.Fatalf("migrate schema to version 27: %v", err)
+	}
+	return db
 }

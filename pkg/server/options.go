@@ -45,6 +45,22 @@ func WithAuditLogger(l ext.AuditLogger) Option {
 	}
 }
 
+// WithAuditOutboxSink enables durable outbox delivery to an explicitly
+// configured persistent sink. The community no-op logger never starts it.
+func WithAuditOutboxSink(l ext.AuditLogger) Option {
+	return func(s *Server) {
+		if l == nil {
+			return
+		}
+		switch l.(type) {
+		case ext.NopAuditLogger, *ext.NopAuditLogger:
+			return
+		default:
+			s.auditOutboxSink = l
+		}
+	}
+}
+
 // WithReportSigner wires an enterprise report signer/verifier into evidence-pack exports.
 func WithReportSigner(signer ext.ReportSigner) Option {
 	return func(s *Server) {
