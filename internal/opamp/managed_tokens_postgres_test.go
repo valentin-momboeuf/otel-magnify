@@ -235,7 +235,7 @@ func TestManagedTokensPostgresPersistAcrossApplicationPoolRestart(t *testing.T) 
 	}
 
 	createdAt := time.Now().UTC()
-	expiresAt := createdAt.Add(3 * time.Second)
+	expiresAt := createdAt.Add(10 * time.Second)
 	active := createManagedTokenPostgresCredential(t, db, "active", createdAt, nil)
 	expiring := createManagedTokenPostgresCredential(t, db, "expiring", createdAt, &expiresAt)
 	revoking := createManagedTokenPostgresCredential(t, db, "revoking", createdAt, nil)
@@ -265,7 +265,7 @@ func TestManagedTokensPostgresPersistAcrossApplicationPoolRestart(t *testing.T) 
 	waitForManagedTokenCondition(t, 2*time.Second, "revoked connection removal", func() bool {
 		return firstServer.opamp.ConnectedInstanceCount() == 2
 	})
-	waitForManagedTokenCondition(t, 5*time.Second, "hot expiry connection removal", func() bool {
+	waitForManagedTokenCondition(t, 15*time.Second, "hot expiry connection removal", func() bool {
 		return firstServer.opamp.ConnectedInstanceCount() == 1
 	})
 

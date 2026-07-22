@@ -32,6 +32,8 @@ const reportsAvailableComponentsCap = uint64(protobufs.AgentCapabilities_AgentCa
 // so the UI can gate config editing affordances.
 const acceptsRemoteConfigCap = uint64(protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig)
 
+const defaultWriteTimeout = 5 * time.Second
+
 // Store is the narrow subset of store.DB the OpAMP server needs.
 type Store interface {
 	GetWorkload(id string) (models.Workload, error)
@@ -80,6 +82,8 @@ type Options struct {
 	// Tests inject these hooks to exercise exact expiry and timer races.
 	now       func() time.Time
 	afterFunc connectionAfterFunc
+	// writeTimeout bounds socket writes. Tests shorten it to exercise stalled peers.
+	writeTimeout time.Duration
 }
 
 // Server wraps the opamp-go server and manages workload state.
@@ -88,11 +92,12 @@ type Server struct {
 	store    Store
 	notifier Notifier
 
-	registry  *InstanceRegistry
-	grace     *GraceController
-	retention time.Duration
-	now       func() time.Time
-	tokens    *tokenConnections
+	registry     *InstanceRegistry
+	grace        *GraceController
+	retention    time.Duration
+	now          func() time.Time
+	writeTimeout time.Duration
+	tokens       *tokenConnections
 
 	mu    sync.RWMutex
 	conns map[string]*tokenSession // instanceUID hex -> exact owning session
@@ -115,15 +120,19 @@ func New(db Store, notifier Notifier, opts Options) *Server {
 	if opts.now == nil {
 		opts.now = time.Now
 	}
+	if opts.writeTimeout <= 0 || opts.writeTimeout > defaultWriteTimeout {
+		opts.writeTimeout = defaultWriteTimeout
+	}
 	s := &Server{
-		opamp:     opampServer.New(nil),
-		store:     db,
-		notifier:  notifier,
-		registry:  NewInstanceRegistry(),
-		grace:     NewGraceController(opts.DisconnectGrace),
-		retention: opts.RetentionDuration,
-		now:       opts.now,
-		conns:     make(map[string]*tokenSession),
+		opamp:        opampServer.New(nil),
+		store:        db,
+		notifier:     notifier,
+		registry:     NewInstanceRegistry(),
+		grace:        NewGraceController(opts.DisconnectGrace),
+		retention:    opts.RetentionDuration,
+		now:          opts.now,
+		writeTimeout: opts.writeTimeout,
+		conns:        make(map[string]*tokenSession),
 	}
 	s.tokens = newTokenConnections(opts.now, opts.afterFunc, s.disconnectSessions)
 	s.pushFn = func(workloadID string, yaml []byte, target string) error {
@@ -226,14 +235,40 @@ func (s *Server) sendToInstance(ctx context.Context, uid string, msg *protobufs.
 	if !ok {
 		return fmt.Errorf("instance %s not connected", uid)
 	}
-	defer lease.Release()
-	return session.send(ctx, msg)
+	err := session.send(ctx, msg, s.writeTimeout)
+	lease.Release()
+	if err != nil {
+		s.disconnectSession(session)
+	}
+	return err
 }
 
-func (session *tokenSession) send(ctx context.Context, msg *protobufs.ServerToAgent) error {
+func (session *tokenSession) send(ctx context.Context, msg *protobufs.ServerToAgent, timeout time.Duration) error {
 	session.sendGate.Lock()
 	defer session.sendGate.Unlock()
-	return session.conn.Send(ctx, msg)
+
+	conn := session.conn.Connection()
+	if conn != nil {
+		deadline := time.Now().Add(timeout)
+		if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+			deadline = contextDeadline
+		}
+		if err := conn.SetWriteDeadline(deadline); err != nil {
+			_ = conn.Close()
+			return fmt.Errorf("set OpAMP write deadline: %w", err)
+		}
+	}
+	err := session.conn.Send(ctx, msg)
+	if errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
+		return err
+	}
+	if conn != nil {
+		clearErr := conn.SetWriteDeadline(time.Time{})
+		if err == nil && clearErr != nil {
+			return fmt.Errorf("clear OpAMP write deadline: %w", clearErr)
+		}
+	}
+	return err
 }
 
 // Attach mounts the OpAMP handler on an existing HTTP mux.
@@ -421,10 +456,16 @@ func (s *Server) onSessionMessage(
 	// instead send it here so the token lease covers the complete operation.
 	// Plain HTTP cannot use Connection.Send; returning the reply is its only
 	// supported response path.
-	err := session.send(ctx, reply)
+	err := session.send(ctx, reply, s.writeTimeout)
 	if errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
+		if session.holdHTTPLease(lease) {
+			return reply
+		}
+		s.tokens.Remove(session)
+		session.clearWriteDeadline()
 		lease.Release()
-		return reply
+		s.disconnectSessions([]*tokenSession{session})
+		return nil
 	}
 	lease.Release()
 	if err != nil {
@@ -485,6 +526,7 @@ func (s *Server) onSessionConnectionClose(session *tokenSession, _ types.Connect
 	// Remove is non-blocking so a close callback cannot deadlock with a Send that
 	// is being unblocked by transport shutdown.
 	s.tokens.Remove(session)
+	session.finishHTTPResponse()
 	s.releaseSession(session)
 }
 
@@ -807,19 +849,20 @@ func flattenAvailableComponents(ac *protobufs.AvailableComponents) *models.Avail
 // admitted before the tombstone, then releases and closes only its sessions.
 func (s *Server) DisconnectTokenConnections(tokenID string) int {
 	sessions := s.tokens.Disable(tokenID)
-	s.disconnectSessions(sessions)
 	return len(sessions)
 }
 
 func (s *Server) disconnectSessions(sessions []*tokenSession) {
 	for _, session := range sessions {
-		s.releaseSession(session)
-		if session.conn == nil {
-			continue
-		}
-		if err := session.conn.Disconnect(); err != nil && !errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
-			log.Printf("OpAMP connection disconnect failed: %v", err)
-		}
+		session.disconnectOnce.Do(func() {
+			s.releaseSession(session)
+			if session.conn == nil {
+				return
+			}
+			if err := session.conn.Disconnect(); err != nil && !errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
+				log.Printf("OpAMP connection disconnect failed: %v", err)
+			}
+		})
 	}
 }
 
