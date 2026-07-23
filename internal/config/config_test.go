@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"reflect"
 	"testing"
 	"time"
 )
@@ -58,13 +59,49 @@ func TestLoadInvalidValuesFallBackToDefault(t *testing.T) {
 	}
 }
 
-func TestLoadOpAMPSharedSecret(t *testing.T) {
-	t.Setenv("OPAMP_SHARED_SECRET", "opamp-psk")
+func TestConfigHasNoLegacyOpAMPSharedSecret(t *testing.T) {
+	if _, found := reflect.TypeOf(Config{}).FieldByName("OpAMPSharedSecret"); found {
+		t.Fatal("Config still exposes the legacy OpAMPSharedSecret field")
+	}
+}
+
+func TestLoadOpAMPTransportDefaults(t *testing.T) {
+	for _, key := range []string{
+		"OPAMP_INSECURE",
+		"OPAMP_TLS_CERT_FILE",
+		"OPAMP_TLS_KEY_FILE",
+	} {
+		t.Setenv(key, "")
+	}
 
 	c := Load()
 
-	if c.OpAMPSharedSecret != "opamp-psk" {
-		t.Fatalf("OpAMPSharedSecret = %q, want %q", c.OpAMPSharedSecret, "opamp-psk")
+	if c.OpAMPInsecure != "false" {
+		t.Fatalf("OpAMPInsecure = %q, want %q", c.OpAMPInsecure, "false")
+	}
+	if c.OpAMPTLSCertFile != "" {
+		t.Fatalf("OpAMPTLSCertFile = %q, want empty", c.OpAMPTLSCertFile)
+	}
+	if c.OpAMPTLSKeyFile != "" {
+		t.Fatalf("OpAMPTLSKeyFile = %q, want empty", c.OpAMPTLSKeyFile)
+	}
+}
+
+func TestLoadOpAMPTransportOverrides(t *testing.T) {
+	t.Setenv("OPAMP_INSECURE", "true")
+	t.Setenv("OPAMP_TLS_CERT_FILE", "/run/secrets/opamp.crt")
+	t.Setenv("OPAMP_TLS_KEY_FILE", "/run/secrets/opamp.key")
+
+	c := Load()
+
+	if c.OpAMPInsecure != "true" {
+		t.Fatalf("OpAMPInsecure = %q, want %q", c.OpAMPInsecure, "true")
+	}
+	if c.OpAMPTLSCertFile != "/run/secrets/opamp.crt" {
+		t.Fatalf("OpAMPTLSCertFile = %q, want configured path", c.OpAMPTLSCertFile)
+	}
+	if c.OpAMPTLSKeyFile != "/run/secrets/opamp.key" {
+		t.Fatalf("OpAMPTLSKeyFile = %q, want configured path", c.OpAMPTLSKeyFile)
 	}
 }
 
