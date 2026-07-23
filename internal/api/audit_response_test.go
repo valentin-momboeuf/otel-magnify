@@ -46,6 +46,20 @@ func TestRespondAuditUnavailable_NoSideEffect(t *testing.T) {
 	}
 }
 
+func TestRespondAuditUnavailable_UnknownSideEffect(t *testing.T) {
+	rec := httptest.NewRecorder()
+	respondAuditUnavailable(rec, sideEffectUnknown)
+
+	if rec.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d", rec.Code)
+	}
+	var body map[string]string
+	_ = json.Unmarshal(rec.Body.Bytes(), &body)
+	if body["side_effect_status"] != "unknown" {
+		t.Errorf("side_effect_status = %q, want unknown", body["side_effect_status"])
+	}
+}
+
 func TestEmitAudit_Responds503AndReportsNotEmittedOnFailure(t *testing.T) {
 	audit := &recordingAuditLogger{}
 	audit.failWith(errors.New("audit DB down"))

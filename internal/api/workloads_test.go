@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -33,9 +34,15 @@ type pushCall struct {
 }
 
 type fakeOpAMPPusher struct {
-	pushed    []pushCall
-	err       error
-	instances map[string][]opamp.Instance
+	pushed            []pushCall
+	err               error
+	instances         map[string][]opamp.Instance
+	disconnectMu      sync.Mutex
+	tokenConnections  map[string]int
+	disconnectStates  map[string]chan struct{}
+	disconnectStarted chan string
+	disconnectRelease <-chan struct{}
+	disconnected      int
 }
 
 func (f *fakeOpAMPPusher) PushConfig(_ context.Context, workloadID string, body []byte, target string) error {
@@ -56,6 +63,38 @@ func (f *fakeOpAMPPusher) InstanceWorkload(instanceUID string) (string, bool) {
 		}
 	}
 	return "", false
+}
+
+func (f *fakeOpAMPPusher) DisconnectTokenConnections(tokenID string) int {
+	f.disconnectMu.Lock()
+	if f.disconnectStates == nil {
+		f.disconnectStates = make(map[string]chan struct{})
+	}
+	if done := f.disconnectStates[tokenID]; done != nil {
+		f.disconnectMu.Unlock()
+		<-done
+		return 0
+	}
+	done := make(chan struct{})
+	f.disconnectStates[tokenID] = done
+	count := f.tokenConnections[tokenID]
+	delete(f.tokenConnections, tokenID)
+	started := f.disconnectStarted
+	release := f.disconnectRelease
+	f.disconnectMu.Unlock()
+
+	if started != nil {
+		started <- tokenID
+	}
+	if release != nil {
+		<-release
+	}
+
+	f.disconnectMu.Lock()
+	f.disconnected += count
+	close(done)
+	f.disconnectMu.Unlock()
+	return count
 }
 
 // newTestAPI is shared by workloads_test.go and configs_test.go. Returns the
