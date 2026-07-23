@@ -1,6 +1,7 @@
 import axios from 'axios'
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { useTranslation } from 'react-i18next'
+import { useBlocker, useBeforeUnload } from 'react-router-dom'
 import { useQueryClient } from '@tanstack/react-query'
 
 import {
@@ -19,9 +20,39 @@ type TokenCreationFlowProps = {
   onReconcileToken: (token: OpAMPTokenMetadata) => void
 }
 
-type SafeCreateFailure = {
-  kind: 'validation' | 'too-large' | 'ambiguous'
-  tokenId?: string
+type SafeCreateFailure = 'validation' | 'too-large' | 'ambiguous'
+type RefreshState = 'refreshing' | 'refresh-failed' | 'succeeded'
+type ExactOutcome = 'found-active-or-expired' | 'revoked' | 'absent'
+
+type Reconciliation =
+  | {
+      kind: 'generic'
+      refreshState: RefreshState
+    }
+  | {
+      kind: 'exact'
+      refreshState: Exclude<RefreshState, 'succeeded'>
+      tokenId: string
+    }
+  | {
+      kind: 'exact'
+      refreshState: 'succeeded'
+      outcome: ExactOutcome
+      token?: OpAMPTokenMetadata
+      tokenId: string
+    }
+
+function classifyExactOutcome(
+  tokens: OpAMPTokenMetadata[],
+  tokenId: string,
+): Pick<
+  Extract<Reconciliation, { kind: 'exact'; refreshState: 'succeeded' }>,
+  'outcome' | 'token'
+> {
+  const token = tokens.find((candidate) => candidate.id === tokenId)
+  if (!token) return { outcome: 'absent' }
+  if (token.status === 'revoked') return { outcome: 'revoked', token }
+  return { outcome: 'found-active-or-expired', token }
 }
 
 export default function TokenCreationFlow({ tokens, onReconcileToken }: TokenCreationFlowProps) {
@@ -31,112 +62,226 @@ export default function TokenCreationFlow({ tokens, onReconcileToken }: TokenCre
   const [isPending, setIsPending] = useState(false)
   const [createResponse, setCreateResponse] = useState<CreateOpAMPTokenResponse | null>(null)
   const [failure, setFailure] = useState<SafeCreateFailure | null>(null)
+  const [reconciliation, setReconciliation] = useState<Reconciliation | null>(null)
 
-  useEffect(
-    () => () => {
-      setCreateResponse(null)
+  const navigationUnsafe = isPending || Boolean(createResponse)
+  const blocker = useBlocker(navigationUnsafe)
+  useBeforeUnload(
+    useCallback(
+      (event) => {
+        if (!navigationUnsafe) return
+        event.preventDefault()
+        event.returnValue = ''
+      },
+      [navigationUnsafe],
+    ),
+  )
+  useEffect(() => {
+    if (blocker.state === 'blocked' && !navigationUnsafe) blocker.reset()
+  }, [blocker, navigationUnsafe])
+
+  const refreshMetadata = useCallback(async () => {
+    const refreshedTokens = await opampTokensAPI.list()
+    queryClient.setQueryData(opampTokenKeys.list(), refreshedTokens)
+    return refreshedTokens
+  }, [queryClient])
+
+  const refreshExact = useCallback(
+    async (tokenId: string) => {
+      setReconciliation({ kind: 'exact', refreshState: 'refreshing', tokenId })
+      try {
+        const refreshedTokens = await refreshMetadata()
+        setReconciliation({
+          kind: 'exact',
+          refreshState: 'succeeded',
+          tokenId,
+          ...classifyExactOutcome(refreshedTokens, tokenId),
+        })
+      } catch {
+        setReconciliation({ kind: 'exact', refreshState: 'refresh-failed', tokenId })
+      }
     },
-    [],
+    [refreshMetadata],
   )
 
-  const refreshMetadata = () =>
-    queryClient.invalidateQueries({ queryKey: opampTokenKeys.list(), exact: true })
+  const refreshGeneric = useCallback(async () => {
+    setReconciliation({ kind: 'generic', refreshState: 'refreshing' })
+    try {
+      await refreshMetadata()
+      setReconciliation({ kind: 'generic', refreshState: 'succeeded' })
+    } catch {
+      setReconciliation({ kind: 'generic', refreshState: 'refresh-failed' })
+    }
+  }, [refreshMetadata])
 
   const handleSubmit = async (request: CreateOpAMPTokenRequest) => {
     setIsPending(true)
     setFailure(null)
+    setReconciliation(null)
     try {
       const response = await opampTokensAPI.create(request)
       setCreateResponse(response)
       setFormOpen(false)
-      void refreshMetadata()
+      void refreshMetadata().catch(() => undefined)
     } catch (error) {
       const status = axios.isAxiosError(error) ? error.response?.status : undefined
       const data = axios.isAxiosError<OpAMPTokenMutationError>(error)
         ? error.response?.data
         : undefined
       if (status === 400) {
-        setFailure({ kind: 'validation' })
+        setFailure('validation')
       } else if (status === 413) {
-        setFailure({ kind: 'too-large' })
+        setFailure('too-large')
       } else if (
         status === 503 &&
         data?.side_effect_status === 'unknown' &&
         typeof data.token_id === 'string'
       ) {
-        setFailure({ kind: 'ambiguous', tokenId: data.token_id })
+        setFailure('ambiguous')
         setFormOpen(false)
-        await refreshMetadata()
+        setIsPending(false)
+        await refreshExact(data.token_id)
       } else {
-        setFailure({ kind: 'ambiguous' })
-        await refreshMetadata()
+        setFailure('ambiguous')
+        setIsPending(false)
+        await refreshGeneric()
       }
     } finally {
       setIsPending(false)
     }
   }
 
-  const affectedToken = failure?.tokenId
-    ? tokens.find((token) => token.id === failure.tokenId)
-    : undefined
-  const affectedTokenIsRevocable =
-    affectedToken?.status === 'active' || affectedToken?.status === 'expired'
+  const currentExactToken =
+    reconciliation?.kind === 'exact' && reconciliation.refreshState === 'succeeded'
+      ? (tokens.find((token) => token.id === reconciliation.tokenId) ?? reconciliation.token)
+      : undefined
+  const currentExactOutcome =
+    currentExactToken?.status === 'revoked'
+      ? 'revoked'
+      : reconciliation?.kind === 'exact' && reconciliation.refreshState === 'succeeded'
+        ? reconciliation.outcome
+        : undefined
+  const exactReconciliationUnsafe =
+    reconciliation?.kind === 'exact' &&
+    (reconciliation.refreshState !== 'succeeded' ||
+      currentExactOutcome === 'found-active-or-expired')
+  const genericRefreshState =
+    reconciliation?.kind === 'generic' ? reconciliation.refreshState : null
+  const genericSubmissionBlocked =
+    genericRefreshState === 'refreshing' || genericRefreshState === 'refresh-failed'
+  const genericReconciliationUnsafe =
+    reconciliation?.kind === 'generic' && reconciliation.refreshState !== 'succeeded'
 
   return (
     <>
-      <button className="btn btn-primary" type="button" onClick={() => setFormOpen(true)}>
+      <button
+        className="btn btn-primary"
+        type="button"
+        disabled={exactReconciliationUnsafe || genericReconciliationUnsafe}
+        onClick={() => {
+          setFailure(null)
+          setReconciliation(null)
+          setFormOpen(true)
+        }}
+      >
         {t('admin.opamp.create.open')}
       </button>
 
       {formOpen && !createResponse && (
         <CreateTokenDialog
-          errorKind={failure?.kind ?? null}
+          errorKind={failure}
           isPending={isPending}
           onCancel={() => {
-            setFailure(null)
+            if (reconciliation?.kind !== 'generic') {
+              setFailure(null)
+              setReconciliation(null)
+            }
             setFormOpen(false)
           }}
+          onRetryRefresh={refreshGeneric}
           onSubmit={handleSubmit}
+          refreshState={genericRefreshState}
+          submissionBlocked={genericSubmissionBlocked}
         />
       )}
 
-      {failure?.tokenId && affectedToken && !formOpen && (
-        <div className="opamp-token-banner opamp-token-banner-warning" role="alert">
-          {affectedToken.status === 'revoked'
-            ? t('admin.opamp.create.reconciliation.revoked')
-            : t('admin.opamp.create.reconciliation.found', { id: affectedToken.id })}
-          {affectedTokenIsRevocable && (
-            <button
-              className="btn btn-danger"
-              type="button"
-              onClick={() => onReconcileToken(affectedToken)}
-            >
-              {t('admin.opamp.create.reconciliation.revoke')}
+      {reconciliation?.kind === 'generic' && !formOpen && (
+        <div
+          className={`opamp-token-banner ${
+            reconciliation.refreshState === 'refresh-failed'
+              ? 'opamp-token-banner-error'
+              : 'opamp-token-banner-warning'
+          }`}
+          role="alert"
+        >
+          <span>
+            {reconciliation.refreshState === 'refreshing' &&
+              t('admin.opamp.reconciliation.refreshing')}
+            {reconciliation.refreshState === 'refresh-failed' &&
+              t('admin.opamp.reconciliation.refresh_failed')}
+            {reconciliation.refreshState === 'succeeded' && t('admin.opamp.create.error.ambiguous')}
+          </span>
+          {reconciliation.refreshState === 'refresh-failed' && (
+            <button className="btn" type="button" onClick={refreshGeneric}>
+              {t('admin.opamp.reconciliation.retry_refresh')}
             </button>
           )}
         </div>
       )}
 
-      {failure?.tokenId && !affectedToken && !formOpen && (
-        <div className="opamp-token-banner opamp-token-banner-warning" role="alert">
-          {t('admin.opamp.create.reconciliation.absent', { id: failure.tokenId })}
-          <button
-            className="btn"
-            type="button"
-            onClick={() => {
-              setFailure(null)
-              setFormOpen(true)
-            }}
-          >
-            {t('admin.opamp.create.reconciliation.retry')}
-          </button>
+      {reconciliation?.kind === 'exact' && !formOpen && (
+        <div
+          className={`opamp-token-banner ${
+            reconciliation.refreshState === 'refresh-failed'
+              ? 'opamp-token-banner-error'
+              : 'opamp-token-banner-warning'
+          }`}
+          role="alert"
+        >
+          <span>
+            {reconciliation.refreshState === 'refreshing' &&
+              t('admin.opamp.reconciliation.refreshing')}
+            {reconciliation.refreshState === 'refresh-failed' &&
+              t('admin.opamp.reconciliation.refresh_failed')}
+            {reconciliation.refreshState === 'succeeded' &&
+              currentExactOutcome === 'found-active-or-expired' &&
+              t('admin.opamp.create.reconciliation.found', { id: reconciliation.tokenId })}
+            {reconciliation.refreshState === 'succeeded' &&
+              currentExactOutcome === 'revoked' &&
+              t('admin.opamp.create.reconciliation.revoked')}
+            {reconciliation.refreshState === 'succeeded' &&
+              currentExactOutcome === 'absent' &&
+              t('admin.opamp.create.reconciliation.absent', { id: reconciliation.tokenId })}
+          </span>
+          {reconciliation.refreshState === 'refresh-failed' && (
+            <button
+              className="btn"
+              type="button"
+              onClick={() => refreshExact(reconciliation.tokenId)}
+            >
+              {t('admin.opamp.reconciliation.retry_refresh')}
+            </button>
+          )}
+          {reconciliation.refreshState === 'succeeded' &&
+            currentExactOutcome === 'found-active-or-expired' &&
+            currentExactToken && (
+              <button
+                className="btn btn-danger"
+                type="button"
+                onClick={() => onReconcileToken(currentExactToken)}
+              >
+                {t('admin.opamp.create.reconciliation.revoke')}
+              </button>
+            )}
         </div>
       )}
 
       {createResponse && (
         <TokenSecretDialog
+          navigationBlocked={blocker.state === 'blocked'}
           value={createResponse.value}
           onAcknowledge={() => {
+            if (blocker.state === 'blocked') blocker.reset()
             setCreateResponse(null)
             setFailure(null)
           }}

@@ -1101,6 +1101,11 @@
         "environment": "Environment",
         "expires_at": "Expires at"
       },
+      "reconciliation": {
+        "refreshing": "Refreshing token metadata…",
+        "refresh_failed": "Metadata refresh failed. The outcome remains unsafe to act on.",
+        "retry_refresh": "Retry refresh"
+      },
       "create": {
         "open": "Create token",
         "eyebrow": "New machine credential",
@@ -1114,9 +1119,9 @@
           "ambiguous": "The create outcome is unknown. Inspect newly created rows and revoke every suspect irretrievable credential before retrying."
         },
         "reconciliation": {
-          "found": "The server may have created this token. The exact public ID {{id}} is present; revoke it before retrying.",
-          "revoked": "The affected token is already revoked. The unknown outcome is reconciled.",
-          "absent": "The server may have created token {{id}}, but that public ID is absent after refresh. No credential was returned.",
+          "found": "The server may have created this token. The exact public ID {{id}} is active or expired after a successful refresh; revoke it before retrying.",
+          "revoked": "The affected token is already revoked after a successful refresh. The unknown outcome is reconciled.",
+          "absent": "The exact public ID {{id}} is absent after a successful refresh. No credential was returned.",
           "revoke": "Revoke affected token",
           "retry": "Try create again"
         }
@@ -1132,7 +1137,8 @@
         "copy": "Copy token",
         "copied": "Token copied",
         "copy_failed": "Copy failed. The token is selected; copy it manually before continuing.",
-        "acknowledge": "I have saved this token"
+        "acknowledge": "I have saved this token",
+        "navigation_blocked": "Navigation is blocked until you acknowledge this one-shot credential."
       },
       "revoke": {
         "action": "Revoke",
@@ -1146,8 +1152,9 @@
           "generic": "Unable to revoke the token. No server details are shown."
         },
         "unknown": {
-          "active": "Fail-closed disconnect was requested, but the commit outcome is unknown. The token is still active or expired after refresh.",
-          "reconciled": "The token is revoked after refresh. The unknown outcome is reconciled.",
+          "active": "Fail-closed disconnect was requested, but the commit outcome is unknown. The token is still active or expired after a successful refresh.",
+          "reconciled": "The token is revoked after a successful refresh. The unknown outcome is reconciled.",
+          "absent": "The token is absent after a successful refresh. No further revoke retry is available.",
           "retry": "Retry revoke"
         }
       },

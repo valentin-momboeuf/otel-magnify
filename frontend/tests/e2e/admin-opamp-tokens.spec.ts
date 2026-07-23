@@ -4,6 +4,8 @@ import type { Page, Route } from '@playwright/test'
 
 import { expect, mockCapabilities, mockMe, test } from './fixtures'
 
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1'
+
 test.use({
   trace: 'off',
   screenshot: 'off',
@@ -62,6 +64,14 @@ function runtimeCredential(): string {
   return `ompt_${randomUUID()}.${randomBytes(32).toString('base64url')}`
 }
 
+function deferred() {
+  let resolve!: () => void
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise
+  })
+  return { promise, resolve }
+}
+
 async function prepareAdmin(page: Page): Promise<void> {
   await mockMe(page, { groups: [adminGroup] })
   await mockCapabilities(page, {})
@@ -112,14 +122,29 @@ async function routeCreateSuccess(
 }
 
 async function expectCredentialElementMatchesFormat(page: Page): Promise<void> {
-  const matches = await page
-    .getByLabel('One-shot token value')
-    .evaluate((element) =>
-      /^ompt_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$/.test(
-        (element as HTMLInputElement).value,
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const element = document.querySelector<HTMLInputElement>('.opamp-token-secret-value')
+        return Boolean(
+          element &&
+          /^ompt_[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}$/.test(
+            element.value,
+          ),
+        )
+      }),
+    )
+    .toBe(true)
+}
+
+async function expectCredentialPresence(page: Page, expected: boolean): Promise<void> {
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => document.querySelector<HTMLInputElement>('.opamp-token-secret-value') !== null,
       ),
     )
-  expect(matches).toBe(true)
+    .toBe(expected)
 }
 
 async function expectCredentialAbsentFromStorage(page: Page): Promise<void> {
@@ -135,6 +160,20 @@ async function expectCredentialAbsentFromStorage(page: Page): Promise<void> {
   })
   expect(storageContainsCredential).toBe(false)
 }
+
+async function clearCredentialFieldInBrowser(page: Page): Promise<void> {
+  if (page.isClosed()) return
+  await page
+    .evaluate(() => {
+      const field = document.querySelector<HTMLInputElement>('.opamp-token-secret-value')
+      if (field) field.value = ''
+    })
+    .catch(() => undefined)
+}
+
+test.afterEach(async ({ page }) => {
+  await clearCredentialFieldInBrowser(page)
+})
 
 test.describe('OpAMP token administration access and metadata', () => {
   test('shows the Community section with empty capabilities and explains the empty state', async ({
@@ -242,6 +281,58 @@ test.describe('OpAMP token administration access and metadata', () => {
 })
 
 test.describe('OpAMP token one-shot creation', () => {
+  test('uses native modal focus containment and restores each trigger', async ({
+    loggedInPage: page,
+  }) => {
+    await prepareAdmin(page)
+    await mockTokenList(page, [activeToken])
+
+    await page.goto('/admin/opamp/tokens')
+    await page.getByRole('button', { name: 'Create token' }).click()
+    const createModalState = await page.evaluate(() => ({
+      nativeModal: Boolean(
+        document.querySelector<HTMLDialogElement>(
+          'dialog[aria-labelledby="create-opamp-token-title"]',
+        )?.open,
+      ),
+      initialFocus:
+        document.activeElement === document.querySelector<HTMLInputElement>('input[required]'),
+    }))
+    expect(createModalState).toEqual({ nativeModal: true, initialFocus: true })
+    const createDialog = page.locator('dialog[aria-labelledby="create-opamp-token-title"]')
+    const createDialogBox = await createDialog.boundingBox()
+    if (!createDialogBox) throw new Error('create dialog bounds unavailable')
+    await page.mouse.click(createDialogBox.x + 5, createDialogBox.y + 5)
+    await expect(createDialog).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel' }).click()
+    const createFocusRestored = await page.evaluate(
+      () => document.activeElement?.textContent?.trim() === 'Create token',
+    )
+    expect(createFocusRestored).toBe(true)
+
+    await page
+      .getByTestId(`opamp-token-row-${activeToken.id}`)
+      .getByRole('button', { name: 'Revoke' })
+      .click()
+    const revokeModalState = await page.evaluate(() => ({
+      nativeModal: Boolean(
+        document.querySelector<HTMLDialogElement>(
+          'dialog[aria-labelledby="revoke-opamp-token-title"]',
+        )?.open,
+      ),
+      initialFocus: document.activeElement?.textContent?.trim() === 'Cancel',
+    }))
+    expect(revokeModalState).toEqual({ nativeModal: true, initialFocus: true })
+    await page.keyboard.press('Escape')
+    const revokeClosedAndRestored = await page.evaluate(
+      () =>
+        document.querySelector<HTMLDialogElement>(
+          'dialog[aria-labelledby="revoke-opamp-token-title"]',
+        ) === null && document.activeElement?.textContent?.trim() === 'Revoke',
+    )
+    expect(revokeClosedAndRestored).toBe(true)
+  })
+
   test('sends the minimal payload and clears the one-shot value only on acknowledgement', async ({
     loggedInPage: page,
   }) => {
@@ -271,9 +362,18 @@ test.describe('OpAMP token one-shot creation', () => {
     await createToken(page)
 
     await expect.poll(() => payload).toEqual({ name: 'production collectors' })
-    await expect(page.getByText('CREATED')).toBeVisible()
-    await expect(page.getByText('VISIBLE ONCE')).toBeVisible()
-    await expect(page.getByText('CLEARED ON CLOSE')).toBeVisible()
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const railText = document.querySelector('.opamp-token-handoff-rail')?.textContent ?? ''
+          return (
+            railText.includes('CREATED') &&
+            railText.includes('VISIBLE ONCE') &&
+            railText.includes('CLEARED ON CLOSE')
+          )
+        }),
+      )
+      .toBe(true)
     await expectCredentialElementMatchesFormat(page)
 
     await page.getByRole('button', { name: 'Copy token' }).click()
@@ -283,21 +383,23 @@ test.describe('OpAMP token one-shot creation', () => {
           .__credentialCopyWasValid === true,
     )
     expect(clipboardWriteWasValid).toBe(true)
-    await expect(page.getByText('Token copied')).toBeVisible()
+    const copiedStatusIsVisible = await page.evaluate(
+      () =>
+        document.querySelector('[role="status"]')?.textContent?.includes('Token copied') ?? false,
+    )
+    expect(copiedStatusIsVisible).toBe(true)
 
     await page.keyboard.press('Escape')
-    await expect(page.getByLabel('One-shot token value')).toBeVisible()
-    await page
-      .locator('.opamp-token-dialog-backdrop')
-      .click({ position: { x: 5, y: 5 }, force: true })
-    await expect(page.getByLabel('One-shot token value')).toBeVisible()
+    await expectCredentialPresence(page, true)
+    await page.mouse.click(5, 5)
+    await expectCredentialPresence(page, true)
 
     await page.getByRole('button', { name: 'I have saved this token' }).click()
-    await expect(page.getByLabel('One-shot token value')).toHaveCount(0)
+    await expectCredentialPresence(page, false)
     await expectCredentialAbsentFromStorage(page)
 
     await page.reload()
-    await expect(page.getByLabel('One-shot token value')).toHaveCount(0)
+    await expectCredentialPresence(page, false)
     await expectCredentialAbsentFromStorage(page)
   })
 
@@ -330,6 +432,107 @@ test.describe('OpAMP token one-shot creation', () => {
         expires_at: new Date('2026-08-23T10:30').toISOString(),
       })
     await expectCredentialElementMatchesFormat(page)
+  })
+
+  test('keeps every create dismissal path locked until the pending response is rendered', async ({
+    loggedInPage: page,
+  }) => {
+    await prepareAdmin(page)
+    await mockTokenList(page, [])
+    const createResponse = deferred()
+    await page.route('**/api/v1/opamp/tokens', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.fallback()
+        return
+      }
+      await createResponse.promise
+      await route.fulfill({
+        status: 201,
+        contentType: 'application/json',
+        body: JSON.stringify({ token: activeToken, value: runtimeCredential() }),
+      })
+    })
+
+    await page.goto('/admin/opamp/tokens')
+    await createToken(page, 'pending response')
+
+    const cancelButton = page.getByRole('button', { name: 'Cancel' })
+    await expect(cancelButton).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Creating…' })).toBeDisabled()
+
+    const pendingUnloadIsBlocked = await page.evaluate(() => {
+      const event = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(event)
+      return event.defaultPrevented
+    })
+    expect(pendingUnloadIsBlocked).toBe(true)
+    await page.evaluate(() => {
+      document.querySelector<HTMLAnchorElement>('a[href="/"]')?.click()
+    })
+    await page.waitForTimeout(50)
+    const pendingNavigationWasBlocked = await page.evaluate(
+      () =>
+        window.location.pathname === '/admin/opamp/tokens' &&
+        Boolean(
+          document.querySelector<HTMLDialogElement>(
+            'dialog[aria-labelledby="create-opamp-token-title"]',
+          )?.open,
+        ),
+    )
+    expect(pendingNavigationWasBlocked).toBe(true)
+
+    await page.keyboard.press('Escape')
+    await page.mouse.click(5, 5)
+    const pendingDialogStayedOpen = await page.evaluate(
+      () =>
+        Boolean(
+          document.querySelector<HTMLDialogElement>(
+            'dialog[aria-labelledby="create-opamp-token-title"]',
+          )?.open,
+        ) &&
+        document.querySelector<HTMLInputElement>('input[required]')?.value === 'pending response',
+    )
+    expect(pendingDialogStayedOpen).toBe(true)
+
+    createResponse.resolve()
+    await expectCredentialElementMatchesFormat(page)
+    await page.getByRole('button', { name: 'I have saved this token' }).click()
+    await expectCredentialPresence(page, false)
+  })
+
+  test('releases a blocked navigation after a failed create returns no secret', async ({
+    loggedInPage: page,
+  }) => {
+    await prepareAdmin(page)
+    await mockTokenList(page, [])
+    const createResponse = deferred()
+    await page.route('**/api/v1/opamp/tokens', async (route) => {
+      if (route.request().method() !== 'POST') {
+        await route.fallback()
+        return
+      }
+      await createResponse.promise
+      await route.fulfill({
+        status: 400,
+        contentType: 'application/json',
+        body: JSON.stringify({ error: 'unsafe validation details' }),
+      })
+    })
+
+    await page.goto('/admin/opamp/tokens')
+    await createToken(page, 'failed pending response')
+    await page.evaluate(() => {
+      document.querySelector<HTMLAnchorElement>('a[href="/"]')?.click()
+    })
+    await page.waitForTimeout(50)
+    expect(new URL(page.url()).pathname).toBe('/admin/opamp/tokens')
+
+    createResponse.resolve()
+    await expect(page.getByRole('alert')).toContainText('Check the token details and try again')
+    await page.evaluate(() => {
+      document.querySelector<HTMLAnchorElement>('a[href="/"]')?.click()
+    })
+    await expect.poll(() => new URL(page.url()).pathname).toBe('/')
   })
 
   test('keeps controlled form values and shows safe validation after 400', async ({
@@ -413,16 +616,231 @@ test.describe('OpAMP token one-shot creation', () => {
     await createToken(page)
     await page.getByRole('button', { name: 'Copy token' }).click()
 
-    await expect(page.getByRole('alert')).toContainText('Copy failed. The token is selected')
-    const fullySelected = await page.getByLabel('One-shot token value').evaluate((element) => {
-      const input = element as HTMLInputElement
-      return input.selectionStart === 0 && input.selectionEnd === input.value.length
+    const fallbackState = await page.evaluate(() => {
+      const input = document.querySelector<HTMLInputElement>('.opamp-token-secret-value')
+      const alertText = document.querySelector('[role="alert"]')?.textContent ?? ''
+      return {
+        safeInstruction: alertText.includes('Copy failed. The token is selected'),
+        fullySelected: Boolean(
+          input && input.selectionStart === 0 && input.selectionEnd === input.value.length,
+        ),
+      }
     })
-    expect(fullySelected).toBe(true)
+    expect(fallbackState).toEqual({ safeInstruction: true, fullySelected: true })
+  })
+
+  test('traps focus, blocks navigation and unload, then restores focus after acknowledgement', async ({
+    loggedInPage: page,
+  }) => {
+    await prepareAdmin(page)
+    await mockTokenList(page, [])
+    await routeCreateSuccess(page)
+
+    await page.goto('/admin/opamp/tokens')
+    await createToken(page)
+
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const dialog = document.querySelector<HTMLDialogElement>(
+            'dialog.opamp-token-secret-dialog',
+          )
+          const field = document.querySelector<HTMLInputElement>('.opamp-token-secret-value')
+          return Boolean(dialog?.open && document.activeElement === field)
+        }),
+      )
+      .toBe(true)
+    const initialModalState = await page.evaluate(() => {
+      const dialog = document.querySelector<HTMLDialogElement>('dialog.opamp-token-secret-dialog')
+      const field = document.querySelector<HTMLInputElement>('.opamp-token-secret-value')
+      const createButton = Array.from(document.querySelectorAll('button')).find(
+        (button) => button.textContent?.trim() === 'Create token',
+      )
+      createButton?.focus()
+      const backgroundStayedInert = Boolean(dialog?.contains(document.activeElement))
+      field?.focus()
+      return {
+        nativeModal: Boolean(dialog?.open),
+        initialFocus: document.activeElement === field,
+        backgroundStayedInert,
+      }
+    })
+    expect(initialModalState).toEqual({
+      nativeModal: true,
+      initialFocus: true,
+      backgroundStayedInert: true,
+    })
+
+    await page.keyboard.press('Shift+Tab')
+    const shiftTabWrapped = await page.evaluate(
+      () => document.activeElement?.textContent?.trim() === 'I have saved this token',
+    )
+    expect(shiftTabWrapped).toBe(true)
+    await page.keyboard.press('Tab')
+    const tabWrapped = await page.evaluate(
+      () => document.activeElement?.classList.contains('opamp-token-secret-value') ?? false,
+    )
+    expect(tabWrapped).toBe(true)
+
+    const unloadIsBlocked = await page.evaluate(() => {
+      const event = new Event('beforeunload', { cancelable: true })
+      window.dispatchEvent(event)
+      return event.defaultPrevented
+    })
+    expect(unloadIsBlocked).toBe(true)
+
+    await page.evaluate(() => {
+      document.querySelector<HTMLAnchorElement>('a[href="/"]')?.click()
+    })
+    await page.waitForTimeout(50)
+    const navigationWasBlocked = await page.evaluate(
+      () =>
+        window.location.pathname === '/admin/opamp/tokens' &&
+        document.querySelector<HTMLInputElement>('.opamp-token-secret-value') !== null,
+    )
+    expect(navigationWasBlocked).toBe(true)
+
+    await page.getByRole('button', { name: 'I have saved this token' }).click()
+    const acknowledgedState = await page.evaluate(() => ({
+      stayedOnPage: window.location.pathname === '/admin/opamp/tokens',
+      credentialAbsent:
+        document.querySelector<HTMLInputElement>('.opamp-token-secret-value') === null,
+      focusRestored: document.activeElement?.textContent?.trim() === 'Create token',
+    }))
+    expect(acknowledgedState).toEqual({
+      stayedOnPage: true,
+      credentialAbsent: true,
+      focusRestored: true,
+    })
   })
 })
 
 test.describe('OpAMP token reconciliation and revocation', () => {
+  test('keeps exact create reconciliation locked through delayed and failed metadata refresh', async ({
+    loggedInPage: page,
+  }) => {
+    await prepareAdmin(page)
+    const refreshStarted = deferred()
+    const releaseRefresh = deferred()
+    let createReturnedUnknown = false
+    let refreshMode: 'failure' | 'absent' = 'failure'
+
+    await page.route('**/api/v1/opamp/tokens', async (route) => {
+      if (route.request().method() === 'POST') {
+        createReturnedUnknown = true
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'unsafe persistence detail',
+            side_effect_status: 'unknown',
+            token_id: activeToken.id,
+          }),
+        })
+        return
+      }
+      if (!createReturnedUnknown) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ tokens: [] }),
+        })
+        return
+      }
+
+      refreshStarted.resolve()
+      await releaseRefresh.promise
+      if (refreshMode === 'failure') {
+        await route.fulfill({
+          status: 500,
+          contentType: 'application/json',
+          body: JSON.stringify({ error: 'private refresh detail' }),
+        })
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ tokens: [] }),
+      })
+    })
+
+    await page.goto('/admin/opamp/tokens')
+    await createToken(page, 'unknown exact outcome')
+    await refreshStarted.promise
+
+    await expect(page.getByRole('alert')).toContainText('Refreshing token metadata')
+    await expect(page.getByRole('button', { name: 'Create token' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: /try create again/i })).toHaveCount(0)
+
+    releaseRefresh.resolve()
+    await expect(page.getByRole('alert')).toContainText('Metadata refresh failed')
+    await expect(page.getByRole('button', { name: 'Retry refresh' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Create token' })).toBeDisabled()
+
+    refreshMode = 'absent'
+    await page.getByRole('button', { name: 'Retry refresh' }).click()
+    await expect(page.getByRole('alert')).toContainText('absent after a successful refresh')
+    await expect(page.getByRole('button', { name: 'Create token' })).toBeEnabled()
+  })
+
+  test('keeps generic create retry locked until metadata refresh succeeds', async ({
+    loggedInPage: page,
+  }) => {
+    await prepareAdmin(page)
+    const refreshStarted = deferred()
+    const releaseRefresh = deferred()
+    let createFailed = false
+    let refreshSucceeds = false
+
+    await page.route('**/api/v1/opamp/tokens', async (route) => {
+      if (route.request().method() === 'POST') {
+        createFailed = true
+        await route.abort('connectionfailed')
+        return
+      }
+      if (!createFailed) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ tokens: [] }),
+        })
+        return
+      }
+      refreshStarted.resolve()
+      await releaseRefresh.promise
+      await route.fulfill({
+        status: refreshSucceeds ? 200 : 500,
+        contentType: 'application/json',
+        body: JSON.stringify(refreshSucceeds ? { tokens: [] } : { error: 'private detail' }),
+      })
+    })
+
+    await page.goto('/admin/opamp/tokens')
+    await createToken(page, 'generic unknown outcome')
+    await refreshStarted.promise
+
+    await expect(page.getByRole('alert')).toContainText('Refreshing token metadata')
+    await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
+
+    releaseRefresh.resolve()
+    await expect(page.getByRole('alert')).toContainText('Metadata refresh failed')
+    await expect(page.getByRole('button', { name: 'Create', exact: true })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Retry refresh' })).toBeVisible()
+    await expect(page.getByRole('button', { name: 'Cancel' })).toBeVisible()
+    await page.getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+    await expect(page.getByRole('button', { name: 'Create token' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Retry refresh' })).toBeVisible()
+
+    refreshSucceeds = true
+    await page.getByRole('button', { name: 'Retry refresh' }).click()
+    await expect(page.getByRole('alert')).toContainText(
+      'Inspect newly created rows and revoke every suspect',
+    )
+    await expect(page.getByRole('button', { name: 'Create token' })).toBeEnabled()
+  })
+
   test('reconciles create commit-unknown using only the exact public token ID', async ({
     loggedInPage: page,
   }) => {
@@ -468,20 +886,20 @@ test.describe('OpAMP token reconciliation and revocation', () => {
     await expect.poll(() => revokedPublicId).toBe(activeToken.id)
   })
 
-  test('refreshes and offers retry after a revoke commit-unknown while the token remains active', async ({
+  test('reports revoked exact-create reconciliation after a successful refresh', async ({
     loggedInPage: page,
   }) => {
     await prepareAdmin(page)
-    await mockTokenList(page, [activeToken])
-    let revokeAttempts = 0
-    await page.route('**/api/v1/opamp/tokens/*/revoke', async (route) => {
-      revokeAttempts += 1
-      if (revokeAttempts === 1) {
+    let createReturnedUnknown = false
+    const exactRevokedToken = { ...activeToken, status: 'revoked' as const }
+    await page.route('**/api/v1/opamp/tokens', async (route) => {
+      if (route.request().method() === 'POST') {
+        createReturnedUnknown = true
         await route.fulfill({
           status: 503,
           contentType: 'application/json',
           body: JSON.stringify({
-            error: 'unsafe disconnect detail',
+            error: 'unsafe persistence detail',
             side_effect_status: 'unknown',
             token_id: activeToken.id,
           }),
@@ -491,7 +909,106 @@ test.describe('OpAMP token reconciliation and revocation', () => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
-        body: JSON.stringify({ token: revokedToken, disconnected_connections: 0 }),
+        body: JSON.stringify({ tokens: createReturnedUnknown ? [exactRevokedToken] : [] }),
+      })
+    })
+
+    await page.goto('/admin/opamp/tokens')
+    await createToken(page, 'revoked outcome')
+
+    await expect(page.getByRole('alert')).toContainText(
+      'already revoked after a successful refresh',
+    )
+    await expect(page.getByRole('button', { name: 'Create token' })).toBeEnabled()
+    await expect(page.getByRole('button', { name: 'Revoke affected token' })).toHaveCount(0)
+  })
+
+  test('waits for observable refresh before retrying revoke commit-unknown', async ({
+    loggedInPage: page,
+  }) => {
+    await prepareAdmin(page)
+    const refreshStarted = deferred()
+    const releaseRefresh = deferred()
+    let revokeAttempts = 0
+    let refreshMode: 'failure' | 'active' = 'failure'
+    await page.route('**/api/v1/opamp/tokens', async (route) => {
+      if (route.request().method() !== 'GET') {
+        await route.fallback()
+        return
+      }
+      if (revokeAttempts === 0) {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({ tokens: [activeToken] }),
+        })
+        return
+      }
+      refreshStarted.resolve()
+      await releaseRefresh.promise
+      await route.fulfill({
+        status: refreshMode === 'active' ? 200 : 500,
+        contentType: 'application/json',
+        body: JSON.stringify(
+          refreshMode === 'active' ? { tokens: [activeToken] } : { error: 'private detail' },
+        ),
+      })
+    })
+    await page.route('**/api/v1/opamp/tokens/*/revoke', async (route) => {
+      revokeAttempts += 1
+      await route.fulfill({
+        status: 503,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          error: 'unsafe disconnect detail',
+          side_effect_status: 'unknown',
+          token_id: activeToken.id,
+        }),
+      })
+    })
+
+    await page.goto('/admin/opamp/tokens')
+    await page
+      .getByTestId(`opamp-token-row-${activeToken.id}`)
+      .getByRole('button', { name: 'Revoke' })
+      .click()
+    await page.getByRole('button', { name: 'Confirm revoke' }).click()
+    await refreshStarted.promise
+
+    const alert = page.getByRole('alert')
+    await expect(alert).toContainText('Refreshing token metadata')
+    await expect(alert).not.toContainText('unsafe disconnect detail')
+    await expect(alert.getByRole('button', { name: 'Retry revoke' })).toHaveCount(0)
+
+    releaseRefresh.resolve()
+    await expect(alert).toContainText('Metadata refresh failed')
+    await expect(alert.getByRole('button', { name: 'Retry refresh' })).toBeVisible()
+    await expect(alert.getByRole('button', { name: 'Cancel' })).toBeVisible()
+
+    refreshMode = 'active'
+    await alert.getByRole('button', { name: 'Retry refresh' }).click()
+    await expect(alert).toContainText('still active or expired after a successful refresh')
+    await expect(alert.getByRole('button', { name: 'Retry revoke' })).toBeVisible()
+    await expect(alert.getByRole('button', { name: 'Cancel' })).toBeVisible()
+    await alert.getByRole('button', { name: 'Cancel' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
+  })
+
+  test('keeps every revoke dismissal path locked until the pending response is rendered', async ({
+    loggedInPage: page,
+  }) => {
+    await prepareAdmin(page)
+    let tokens = [activeToken]
+    await mockTokenList(page, () => tokens)
+    const revokeResponse = deferred()
+    await page.route('**/api/v1/opamp/tokens/*/revoke', async (route) => {
+      await revokeResponse.promise
+      const appliedToken = { ...activeToken, status: 'revoked' as const }
+      tokens = [appliedToken]
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({ token: appliedToken, disconnected_connections: 1 }),
       })
     })
 
@@ -502,12 +1019,16 @@ test.describe('OpAMP token reconciliation and revocation', () => {
       .click()
     await page.getByRole('button', { name: 'Confirm revoke' }).click()
 
-    const alert = page.getByRole('alert')
-    await expect(alert).toContainText('Fail-closed disconnect was requested')
-    await expect(alert).not.toContainText('unsafe disconnect detail')
-    await alert.getByRole('button', { name: 'Retry revoke' }).click()
-    await expect.poll(() => revokeAttempts).toBe(2)
+    await expect(page.getByRole('button', { name: 'Cancel' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Confirm revoke' })).toBeDisabled()
+    await page.keyboard.press('Escape')
+    await page.mouse.click(5, 5)
+    await expect(page.getByRole('dialog')).toBeVisible()
+
+    revokeResponse.resolve()
     await expect(page.getByText('Token revoked')).toBeVisible()
+    await page.getByRole('button', { name: 'Done' }).click()
+    await expect(page.getByRole('dialog')).toHaveCount(0)
   })
 
   test('cancels revocation, accepts disconnected zero, and renders generic errors safely', async ({
@@ -519,7 +1040,7 @@ test.describe('OpAMP token reconciliation and revocation', () => {
     let revokeAttempts = 0
     await page.route('**/api/v1/opamp/tokens/*/revoke', async (route) => {
       revokeAttempts += 1
-      if (revokeAttempts === 1) {
+      if (revokeAttempts <= 2) {
         await route.fulfill({
           status: 500,
           contentType: 'application/json',
@@ -547,9 +1068,15 @@ test.describe('OpAMP token reconciliation and revocation', () => {
     const alert = page.getByRole('alert')
     await expect(alert).toContainText('Unable to revoke the token')
     await expect(alert).not.toContainText('unsafe revoke body')
-    await alert.getByRole('button', { name: 'Retry' }).click()
+    await expect(alert.getByRole('button', { name: 'Cancel' })).toBeVisible()
+    await alert.getByRole('button', { name: 'Cancel' }).click()
+
+    await row.getByRole('button', { name: 'Revoke' }).click()
+    await page.getByRole('button', { name: 'Confirm revoke' }).click()
+    const retryAlert = page.getByRole('alert')
+    await retryAlert.getByRole('button', { name: 'Retry' }).click()
     await expect(page.getByText('Token revoked')).toBeVisible()
-    await expect.poll(() => revokeAttempts).toBe(2)
+    await expect.poll(() => revokeAttempts).toBe(3)
   })
 })
 

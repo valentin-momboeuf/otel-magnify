@@ -2,6 +2,18 @@ import { randomUUID } from 'node:crypto'
 
 import { expect, test } from '@playwright/test'
 
+process.env.PLAYWRIGHT_NO_COPY_PROMPT = '1'
+
+test.afterEach(async ({ page }) => {
+  if (page.isClosed()) return
+  await page
+    .evaluate(() => {
+      const field = document.querySelector<HTMLInputElement>('.opamp-token-secret-value')
+      if (field) field.value = ''
+    })
+    .catch(() => undefined)
+})
+
 test('creates, clears, reloads metadata, and revokes an OpAMP token', async ({ page }) => {
   const tokenName = `e2e-opamp-${randomUUID()}`
 
@@ -41,10 +53,16 @@ test('creates, clears, reloads metadata, and revokes an OpAMP token', async ({ p
   expect(browserStorageIsCredentialFree).toBe(true)
 
   await page.getByRole('button', { name: 'I have saved this token' }).click()
-  await expect(page.getByLabel('One-shot token value')).toHaveCount(0)
+  const credentialIsAbsentAfterAcknowledgement = await page.evaluate(
+    () => document.querySelector<HTMLInputElement>('.opamp-token-secret-value') === null,
+  )
+  expect(credentialIsAbsentAfterAcknowledgement).toBe(true)
 
   await page.reload()
-  await expect(page.getByLabel('One-shot token value')).toHaveCount(0)
+  const credentialIsAbsentAfterReload = await page.evaluate(
+    () => document.querySelector<HTMLInputElement>('.opamp-token-secret-value') === null,
+  )
+  expect(credentialIsAbsentAfterReload).toBe(true)
   const row = page.locator('tr').filter({ hasText: tokenName })
   await expect(row).toBeVisible()
   await expect(row.getByText(tokenName, { exact: true })).toBeVisible()

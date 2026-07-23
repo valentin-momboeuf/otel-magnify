@@ -1101,6 +1101,11 @@
         "environment": "Environnement",
         "expires_at": "Expire le"
       },
+      "reconciliation": {
+        "refreshing": "Actualisation des métadonnées du token…",
+        "refresh_failed": "L'actualisation des métadonnées a échoué. Le résultat ne permet aucune action sûre.",
+        "retry_refresh": "Réessayer l'actualisation"
+      },
       "create": {
         "open": "Créer un token",
         "eyebrow": "Nouveau credential machine",
@@ -1114,9 +1119,9 @@
           "ambiguous": "Le résultat de la création est inconnu. Inspectez les lignes nouvellement créées et révoquez chaque credential suspect et irrécupérable avant de réessayer."
         },
         "reconciliation": {
-          "found": "Le serveur a peut-être créé ce token. L'ID public exact {{id}} est présent ; révoquez-le avant de réessayer.",
-          "revoked": "Le token concerné est déjà révoqué. Le résultat inconnu est réconcilié.",
-          "absent": "Le serveur a peut-être créé le token {{id}}, mais cet ID public est absent après actualisation. Aucun credential n'a été renvoyé.",
+          "found": "Le serveur a peut-être créé ce token. L'ID public exact {{id}} est actif ou expiré après une actualisation réussie ; révoquez-le avant de réessayer.",
+          "revoked": "Le token concerné est déjà révoqué après une actualisation réussie. Le résultat inconnu est réconcilié.",
+          "absent": "L'ID public exact {{id}} est absent après une actualisation réussie. Aucun credential n'a été renvoyé.",
           "revoke": "Révoquer le token concerné",
           "retry": "Réessayer la création"
         }
@@ -1132,7 +1137,8 @@
         "copy": "Copier le token",
         "copied": "Token copié",
         "copy_failed": "La copie a échoué. Le token est sélectionné ; copiez-le manuellement avant de continuer.",
-        "acknowledge": "J'ai enregistré ce token"
+        "acknowledge": "J'ai enregistré ce token",
+        "navigation_blocked": "La navigation est bloquée jusqu'à l'acquittement de ce credential one-shot."
       },
       "revoke": {
         "action": "Révoquer",
@@ -1146,8 +1152,9 @@
           "generic": "Impossible de révoquer le token. Aucun détail serveur n'est affiché."
         },
         "unknown": {
-          "active": "La déconnexion fail-closed a été demandée, mais le résultat du commit est inconnu. Le token est encore actif ou expiré après actualisation.",
-          "reconciled": "Le token est révoqué après actualisation. Le résultat inconnu est réconcilié.",
+          "active": "La déconnexion fail-closed a été demandée, mais le résultat du commit est inconnu. Le token est encore actif ou expiré après une actualisation réussie.",
+          "reconciled": "Le token est révoqué après une actualisation réussie. Le résultat inconnu est réconcilié.",
+          "absent": "Le token est absent après une actualisation réussie. Aucune nouvelle tentative de révocation n'est proposée.",
           "retry": "Réessayer la révocation"
         }
       },

@@ -211,24 +211,20 @@
   color: var(--red);
 }
 
-.opamp-token-dialog-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 80;
-  display: flex;
-  align-items: center;
-  justify-content: center;
+.opamp-token-dialog::backdrop {
   background: color-mix(in srgb, var(--bg) 82%, transparent);
-  padding: 1rem;
 }
 
 .opamp-token-dialog {
   width: min(38rem, 100%);
+  box-sizing: border-box;
   max-height: calc(100vh - 2rem);
+  margin: auto;
   overflow-y: auto;
   border: 1px solid var(--border-hi);
   border-radius: var(--radius-lg);
   background: var(--surface);
+  color: var(--text);
   box-shadow: var(--shadow-lg);
   padding: 1.35rem;
 }
@@ -276,6 +272,13 @@
 
 .opamp-token-dialog-actions {
   margin-top: 1.25rem;
+}
+
+.opamp-token-inline-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.5rem;
 }
 
 .opamp-token-handoff-rail {
@@ -351,7 +354,7 @@
 
 @media (prefers-reduced-motion: reduce) {
   .page-admin-opamp-tokens *,
-  .opamp-token-dialog-backdrop * {
+  .opamp-token-dialog * {
     scroll-behavior: auto;
     transition-duration: 0.01ms !important;
     animation-duration: 0.01ms !important;
