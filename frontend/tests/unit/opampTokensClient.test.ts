@@ -1,5 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 
 import type {
   AxiosAdapter,
@@ -8,6 +9,7 @@ import type {
   AxiosResponse,
   InternalAxiosRequestConfig,
 } from 'axios'
+import ts from 'typescript'
 import api from '../../src/api/client.ts'
 import {
   opampTokensAPI,
@@ -15,6 +17,7 @@ import {
   type OpAMPTokenMetadata,
   type OpAMPTokenMutationError,
 } from '../../src/api/opampTokens.ts'
+import { queryClient } from '../../src/api/queryClient.ts'
 import { opampTokenKeys } from '../../src/api/queryKeys.ts'
 
 const tokenMetadata: OpAMPTokenMetadata = {
@@ -29,25 +32,35 @@ const tokenMetadata: OpAMPTokenMetadata = {
   status: 'active',
 }
 
+type StorageWrite = {
+  storage: 'localStorage' | 'sessionStorage'
+  key: string
+  value: string
+}
+
 function installStorageMocks() {
-  const writes: unknown[] = []
-  const storage = {
+  const writes: StorageWrite[] = []
+  const storage = (storageName: StorageWrite['storage']): Storage => ({
     getItem: () => null,
-    setItem: (_key: string, value: string) => {
-      writes.push(value)
+    setItem: (key: string, value: string) => {
+      writes.push({ storage: storageName, key, value })
     },
     removeItem: () => undefined,
     clear: () => undefined,
     key: () => null,
     length: 0,
-  }
+  })
 
   Object.defineProperties(globalThis, {
-    localStorage: { configurable: true, value: storage },
-    sessionStorage: { configurable: true, value: storage },
+    localStorage: { configurable: true, value: storage('localStorage') },
+    sessionStorage: { configurable: true, value: storage('sessionStorage') },
   })
 
   return writes
+}
+
+function storageWritesContain(writes: StorageWrite[], value: string) {
+  return writes.some((write) => write.key.includes(value) || write.value.includes(value))
 }
 
 async function withAdapter<T>(adapter: AxiosAdapter, run: () => Promise<T>) {
@@ -131,10 +144,7 @@ test('create omits only exactly empty optional fields and returns the one-shot v
   assert.equal(result.value === rawToken, true)
   assert.equal('value' in result.token, false)
   assert.equal(requestContains(seenConfig!, rawToken), false)
-  assert.equal(
-    storageWrites.some((value) => String(value).includes(rawToken)),
-    false,
-  )
+  assert.equal(storageWritesContain(storageWrites, rawToken), false)
 })
 
 test('revoke encodes the public id and sends no body or prior raw value', async () => {
@@ -166,10 +176,7 @@ test('revoke encodes the public id and sends no body or prior raw value', async 
   assert.equal(revokeConfig?.url, '/v1/opamp/tokens/team%2Fplatform%20token%3F%23/revoke')
   assert.equal(revokeConfig?.data, undefined)
   assert.equal(requestContains(revokeConfig!, rawToken), false)
-  assert.equal(
-    storageWrites.some((value) => String(value).includes(rawToken)),
-    false,
-  )
+  assert.equal(storageWritesContain(storageWrites, rawToken), false)
 })
 
 test('a rejected commit-unknown response preserves only reconciliation-safe error data', async () => {
@@ -212,4 +219,129 @@ test('query keys are metadata-only and exact', () => {
   assert.deepEqual(opampTokenKeys.all, ['admin', 'opamp', 'tokens'])
   assert.deepEqual(opampTokenKeys.list(), ['admin', 'opamp', 'tokens', 'list'])
   assert.equal(JSON.stringify(opampTokenKeys).includes(rawToken), false)
+})
+
+test('storage spies capture keys and values for both browser storage APIs', () => {
+  const storageWrites = installStorageMocks()
+  const rawToken = ['opamp', 'storage', 'credential'].join('_')
+
+  localStorage.setItem(rawToken, 'local-safe-value')
+  localStorage.setItem('local-safe-key', rawToken)
+  sessionStorage.setItem(rawToken, 'session-safe-value')
+  sessionStorage.setItem('session-safe-key', rawToken)
+
+  assert.equal(
+    storageWrites.some((write) => write.storage === 'localStorage' && write.key === rawToken),
+    true,
+  )
+  assert.equal(
+    storageWrites.some((write) => write.storage === 'localStorage' && write.value === rawToken),
+    true,
+  )
+  assert.equal(
+    storageWrites.some((write) => write.storage === 'sessionStorage' && write.key === rawToken),
+    true,
+  )
+  assert.equal(
+    storageWrites.some((write) => write.storage === 'sessionStorage' && write.value === rawToken),
+    true,
+  )
+})
+
+test('direct create and subsequent calls leave the shared query and mutation caches secret-free', async () => {
+  installStorageMocks()
+  queryClient.clear()
+  const rawToken = ['opamp', 'cache', 'credential'].join('_')
+  let returnedSecretMatched = false
+
+  try {
+    await withAdapter(
+      async (config) => {
+        if (config.method === 'get') {
+          return response(config, { tokens: [tokenMetadata] })
+        }
+        if (config.url?.endsWith('/revoke')) {
+          return response(config, {
+            token: { ...tokenMetadata, status: 'revoked' },
+            disconnected_connections: 1,
+          })
+        }
+        return response(config, { token: tokenMetadata, value: rawToken }, 201)
+      },
+      async () => {
+        const created = await opampTokensAPI.create({ name: tokenMetadata.name })
+        returnedSecretMatched = created.value === rawToken
+        await opampTokensAPI.list()
+        await opampTokensAPI.revoke(tokenMetadata.id)
+      },
+    )
+
+    const cacheSurface = {
+      queries: queryClient
+        .getQueryCache()
+        .getAll()
+        .map((query) => ({ queryKey: query.queryKey, state: query.state, meta: query.meta })),
+      mutations: queryClient
+        .getMutationCache()
+        .getAll()
+        .map((mutation) => ({
+          mutationKey: mutation.options.mutationKey,
+          meta: mutation.options.meta,
+          state: mutation.state,
+        })),
+    }
+
+    assert.equal(returnedSecretMatched, true)
+    assert.equal(JSON.stringify(cacheSurface).includes(rawToken), false)
+    assert.equal(cacheSurface.queries.length, 0)
+    assert.equal(cacheSurface.mutations.length, 0)
+  } finally {
+    queryClient.clear()
+  }
+})
+
+test('the API module boundary excludes storage, query caches, and extra module-level state', () => {
+  const source = readFileSync('src/api/opampTokens.ts', 'utf8')
+  const sourceFile = ts.createSourceFile(
+    'opampTokens.ts',
+    source,
+    ts.ScriptTarget.Latest,
+    true,
+    ts.ScriptKind.TS,
+  )
+  const importSpecifiers = sourceFile.statements
+    .filter(ts.isImportDeclaration)
+    .map((declaration) => declaration.moduleSpecifier)
+    .filter(ts.isStringLiteral)
+    .map((specifier) => specifier.text)
+  const forbiddenIdentifiers = new Set([
+    'localStorage',
+    'sessionStorage',
+    'queryClient',
+    'QueryClient',
+    'useMutation',
+  ])
+  const moduleLifetimeVariables: Array<{ isConst: boolean; name: string }> = []
+  let hasForbiddenIdentifier = false
+
+  function visit(node: ts.Node) {
+    if (ts.isIdentifier(node) && forbiddenIdentifiers.has(node.text)) {
+      hasForbiddenIdentifier = true
+    }
+    if (ts.isVariableDeclaration(node) && ts.isVariableDeclarationList(node.parent)) {
+      moduleLifetimeVariables.push({
+        isConst: (node.parent.flags & ts.NodeFlags.Const) !== 0,
+        name: ts.isIdentifier(node.name) ? node.name.text : '',
+      })
+    }
+    ts.forEachChild(node, visit)
+  }
+  visit(sourceFile)
+
+  assert.equal(
+    importSpecifiers.every((specifier) => specifier === './client.ts'),
+    true,
+  )
+  assert.equal(hasForbiddenIdentifier, false)
+  assert.deepEqual(moduleLifetimeVariables, [{ isConst: true, name: 'opampTokensAPI' }])
 })
