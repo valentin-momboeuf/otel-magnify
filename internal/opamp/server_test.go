@@ -444,16 +444,18 @@ func TestPushConfig_TargetInstanceRejectsCrossWorkloadBinding(t *testing.T) {
 type managedTokenStore struct {
 	*fakeStore
 
-	tokenMu       sync.Mutex
-	expectedID    string
-	expectedHash  [32]byte
-	expiresAt     *time.Time
-	validateErr   error
-	markErr       error
-	validateCalls int
-	markCalls     int
-	markStarted   chan struct{}
-	markRelease   chan struct{}
+	tokenMu         sync.Mutex
+	expectedID      string
+	expectedHash    [32]byte
+	expiresAt       *time.Time
+	validateErr     error
+	markErr         error
+	validateCalls   int
+	markCalls       int
+	validateStarted chan struct{}
+	validateRelease chan struct{}
+	markStarted     chan struct{}
+	markRelease     chan struct{}
 }
 
 func (s *managedTokenStore) ValidateOpAMPToken(
@@ -468,7 +470,18 @@ func (s *managedTokenStore) ValidateOpAMPToken(
 	expectedID := s.expectedID
 	expectedHash := s.expectedHash
 	expiresAt := s.expiresAt
+	started := s.validateStarted
+	release := s.validateRelease
 	s.tokenMu.Unlock()
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if release != nil {
+		<-release
+	}
 	if err != nil {
 		return models.OpAMPTokenPrincipal{}, err
 	}
@@ -565,6 +578,91 @@ func managedTokenTestMessage(uid []byte, sequence uint64) *protobufs.AgentToServ
 			}},
 		},
 	}
+}
+
+func prepareManagedAutoPush(
+	t *testing.T,
+) (*Server, *managedTokenStore, opampauth.GeneratedToken, types.ConnectionCallbacks, *recordingConn, *protobufs.AgentToServer) {
+	t.Helper()
+	return prepareManagedAutoPushWithOptions(t, nil, Options{})
+}
+
+func prepareManagedAutoPushWithOptions(
+	t *testing.T,
+	expiresAt *time.Time,
+	opts Options,
+) (*Server, *managedTokenStore, opampauth.GeneratedToken, types.ConnectionCallbacks, *recordingConn, *protobufs.AgentToServer) {
+	t.Helper()
+	server, store, generated := newManagedTokenServer(t, expiresAt, opts)
+	message := managedTokenTestMessage([]byte{
+		0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77, 0x88,
+		0x99, 0xaa, 0xbb, 0xcc, 0xdd, 0xee, 0xff, 0x10,
+	}, 1)
+	message.RemoteConfigStatus = &protobufs.RemoteConfigStatus{
+		LastRemoteConfigHash: []byte{0xde, 0xad, 0xbe, 0xef},
+		Status:               protobufs.RemoteConfigStatuses_RemoteConfigStatuses_APPLIED,
+	}
+	uid := hex.EncodeToString(message.InstanceUid)
+	attrs := flattenAttrs(
+		message.AgentDescription.IdentifyingAttributes,
+		message.AgentDescription.NonIdentifyingAttributes,
+	)
+	workloadID := Fingerprint(attrs, uid).ID
+	configID := "managed-auto-push-config"
+	if err := store.CreateConfig(models.Config{ID: configID, Content: "receivers: {}"}); err != nil {
+		t.Fatalf("create auto-push config: %v", err)
+	}
+	if err := store.UpsertWorkload(models.Workload{
+		ID:               workloadID,
+		Labels:           models.Labels{},
+		ActiveConfigID:   &configID,
+		ActiveConfigHash: "target-config-hash",
+	}); err != nil {
+		t.Fatalf("seed auto-push workload: %v", err)
+	}
+	server.pushFn = func(string, []byte, string) error { return nil }
+	callbacks := authenticateManagedToken(t, server, generated.Value)
+	conn := &recordingConn{}
+	callbacks.OnConnected(context.Background(), conn)
+	return server, store, generated, callbacks, conn, message
+}
+
+func prepareManagedRollback(
+	t *testing.T,
+	expiresAt *time.Time,
+	opts Options,
+) (*Server, *managedTokenStore, opampauth.GeneratedToken, types.ConnectionCallbacks, *recordingConn, *protobufs.AgentToServer) {
+	t.Helper()
+	server, store, generated := newManagedTokenServer(t, expiresAt, opts)
+	callbacks := authenticateManagedToken(t, server, generated.Value)
+	conn := &recordingConn{}
+	callbacks.OnConnected(context.Background(), conn)
+	uid := []byte{
+		0x21, 0x32, 0x43, 0x54, 0x65, 0x76, 0x87, 0x98,
+		0xa9, 0xba, 0xcb, 0xdc, 0xed, 0xfe, 0x0f, 0x10,
+	}
+	callbacks.OnMessage(context.Background(), conn, managedTokenTestMessage(uid, 1))
+	workloadID, ok := server.registry.LookupWorkload(hex.EncodeToString(uid))
+	if !ok {
+		t.Fatal("managed rollback fixture has no workload binding")
+	}
+	store.mu.Lock()
+	store.lastApplied = &models.WorkloadConfig{
+		WorkloadID: workloadID,
+		ConfigID:   "rollback-good-config",
+		Content:    "receivers: {}",
+	}
+	store.mu.Unlock()
+	failed := &protobufs.AgentToServer{
+		InstanceUid: uid,
+		SequenceNum: 2,
+		RemoteConfigStatus: &protobufs.RemoteConfigStatus{
+			LastRemoteConfigHash: []byte{0xba, 0xdc, 0x0f, 0xfe},
+			Status:               protobufs.RemoteConfigStatuses_RemoteConfigStatuses_FAILED,
+			ErrorMessage:         "rejected configuration",
+		},
+	}
+	return server, store, generated, callbacks, conn, failed
 }
 
 func TestOpAMPAuthRejectsMalformedAuthorizationWithGenericChallenge(t *testing.T) {
@@ -878,13 +976,16 @@ func TestOpAMPAuthHotExpiryRejectsMessagesAndPushesWithDelayedTimer(t *testing.T
 	upsertsBefore := len(store.upsertCalls)
 	store.mu.Unlock()
 
-	// Do not fire the manual timer: synchronous Acquire must enforce the exact deadline.
+	// Do not fire the manual timer: Acquire itself must enforce the exact deadline.
 	clock.Set(expiresAt)
 	if reply := callbacks.OnMessage(context.Background(), conn, managedTokenTestMessage(uid, 2)); reply != nil {
 		t.Fatal("message at expires_at received a response")
 	}
 	if err := server.PushConfig(context.Background(), "ignored", []byte("receivers: {}"), "2122232425262728292a2b2c2d2e2f30"); err == nil {
 		t.Fatal("push at expires_at succeeded")
+	}
+	if got := server.DisconnectTokenConnections(generated.ID); got != 0 {
+		t.Fatalf("joining exact-expiry cleanup returned %d sessions, want 0", got)
 	}
 	_, markAfter := store.counts()
 	store.mu.Lock()
@@ -1831,7 +1932,7 @@ func TestDisconnectTokenAllowsReentrantCloseCallback(t *testing.T) {
 }
 
 func TestServerStopMakesSessionsInactiveAndClosesAllDespiteErrors(t *testing.T) {
-	server, _, generated := newManagedTokenServer(t, nil, Options{})
+	server, store, generated := newManagedTokenServer(t, nil, Options{})
 	firstCallbacks := authenticateManagedToken(t, server, generated.Value)
 	secondCallbacks := authenticateManagedToken(t, server, generated.Value)
 	first := &recordingConn{disconnectErr: errors.New("first close failed")}
@@ -1845,14 +1946,431 @@ func TestServerStopMakesSessionsInactiveAndClosesAllDespiteErrors(t *testing.T) 
 	if first.disconnects() != 1 || second.disconnects() != 1 {
 		t.Fatalf("Stop disconnect counts = %d/%d, want 1/1", first.disconnects(), second.disconnects())
 	}
-	if callbacks := server.authenticateRequest(managedTokenRequest("Bearer " + generated.Value)); !callbacks.Accept {
-		t.Fatalf("store-valid post-Stop handshake rejected too early with %d", callbacks.HTTPStatusCode)
-	} else {
-		late := &recordingConn{}
-		callbacks.ConnectionCallbacks.OnConnected(context.Background(), late)
-		if late.disconnects() != 1 {
-			t.Fatal("stopped connection manager accepted a late tracked session")
+	validateBefore, _ := store.counts()
+	response := server.authenticateRequest(managedTokenRequest("Bearer " + generated.Value))
+	if response.Accept || response.HTTPStatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("post-Stop handshake = accept %t status %d, want false/503", response.Accept, response.HTTPStatusCode)
+	}
+	validateAfter, _ := store.counts()
+	if validateAfter != validateBefore {
+		t.Fatalf("post-Stop handshake called ValidateOpAMPToken: %d -> %d", validateBefore, validateAfter)
+	}
+}
+
+func TestServerStopContextTimeoutLeavesHandshakeValidationJoinable(t *testing.T) {
+	server, store, generated := newManagedTokenServer(t, nil, Options{})
+	store.validateStarted = make(chan struct{}, 1)
+	store.validateRelease = make(chan struct{})
+	validationReleased := false
+	defer func() {
+		if !validationReleased {
+			close(store.validateRelease)
 		}
+	}()
+
+	handshakeDone := make(chan types.ConnectionResponse, 1)
+	go func() {
+		handshakeDone <- server.authenticateRequest(managedTokenRequest("Bearer " + generated.Value))
+	}()
+	select {
+	case <-store.validateStarted:
+	case <-time.After(time.Second):
+		t.Fatal("handshake did not enter ValidateOpAMPToken")
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer stopCancel()
+	if err := server.Stop(stopCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("first Stop error = %v, want context deadline exceeded", err)
+	}
+
+	close(store.validateRelease)
+	validationReleased = true
+	select {
+	case response := <-handshakeDone:
+		if !response.Accept {
+			t.Fatalf("pre-Stop handshake rejected after validation release with status %d", response.HTTPStatusCode)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("handshake did not finish after validation release")
+	}
+	joinCtx, joinCancel := context.WithTimeout(context.Background(), time.Second)
+	defer joinCancel()
+	if err := server.Stop(joinCtx); err != nil {
+		t.Fatalf("second Stop did not join handshake validation: %v", err)
+	}
+
+	validateBefore, _ := store.counts()
+	response := server.authenticateRequest(managedTokenRequest("Bearer " + generated.Value))
+	if response.Accept || response.HTTPStatusCode != http.StatusServiceUnavailable {
+		t.Fatalf("post-Stop handshake = accept %t status %d, want false/503", response.Accept, response.HTTPStatusCode)
+	}
+	validateAfter, _ := store.counts()
+	if validateAfter != validateBefore {
+		t.Fatalf("post-Stop handshake called ValidateOpAMPToken: %d -> %d", validateBefore, validateAfter)
+	}
+}
+
+func TestServerStopWaitsForAutoPushStoreOperation(t *testing.T) {
+	server, store, _, callbacks, conn, message := prepareManagedAutoPush(t)
+	store.getConfigStarted = make(chan struct{}, 1)
+	store.getConfigRelease = make(chan struct{})
+	getConfigReleased := false
+	defer func() {
+		if !getConfigReleased {
+			close(store.getConfigRelease)
+		}
+	}()
+
+	messageDone := make(chan struct{})
+	go func() {
+		callbacks.OnMessage(context.Background(), conn, message)
+		close(messageDone)
+	}()
+	select {
+	case <-store.getConfigStarted:
+	case <-time.After(time.Second):
+		t.Fatal("auto-push did not enter GetConfig")
+	}
+	select {
+	case <-messageDone:
+	case <-time.After(time.Second):
+		t.Fatal("OnMessage waited for asynchronous auto-push")
+	}
+
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), 30*time.Millisecond)
+	defer stopCancel()
+	if err := server.Stop(stopCtx); !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("first Stop error = %v, want context deadline exceeded", err)
+	}
+	close(store.getConfigRelease)
+	getConfigReleased = true
+	joinCtx, joinCancel := context.WithTimeout(context.Background(), time.Second)
+	defer joinCancel()
+	if err := server.Stop(joinCtx); err != nil {
+		t.Fatalf("second Stop did not join auto-push: %v", err)
+	}
+
+	store.mu.Lock()
+	callsBefore := store.getConfigCalls
+	store.mu.Unlock()
+	store.getConfigStarted = make(chan struct{}, 1)
+	uid := hex.EncodeToString(message.InstanceUid)
+	attrs := flattenAttrs(
+		message.AgentDescription.IdentifyingAttributes,
+		message.AgentDescription.NonIdentifyingAttributes,
+	)
+	server.launchAutoPush(
+		"managed-auto-push-config",
+		Fingerprint(attrs, uid).ID,
+		uid,
+		nil,
+	)
+	select {
+	case <-store.getConfigStarted:
+		t.Fatal("successful Stop launched a later asynchronous GetConfig")
+	case <-time.After(30 * time.Millisecond):
+	}
+	store.mu.Lock()
+	callsAfter := store.getConfigCalls
+	store.mu.Unlock()
+	if callsAfter != callsBefore {
+		t.Fatalf("successful Stop allowed a later asynchronous GetConfig: %d -> %d", callsBefore, callsAfter)
+	}
+}
+
+func TestDisconnectTokenWaitsForAutoPushStoreOperation(t *testing.T) {
+	server, store, generated, callbacks, conn, message := prepareManagedAutoPush(t)
+	store.getConfigStarted = make(chan struct{}, 1)
+	store.getConfigRelease = make(chan struct{})
+	getConfigReleased := false
+	defer func() {
+		if !getConfigReleased {
+			close(store.getConfigRelease)
+		}
+	}()
+
+	messageDone := make(chan struct{})
+	go func() {
+		callbacks.OnMessage(context.Background(), conn, message)
+		close(messageDone)
+	}()
+	select {
+	case <-store.getConfigStarted:
+	case <-time.After(time.Second):
+		t.Fatal("auto-push did not enter GetConfig")
+	}
+	select {
+	case <-messageDone:
+	case <-time.After(time.Second):
+		t.Fatal("OnMessage waited for asynchronous auto-push")
+	}
+
+	disableDone := make(chan int, 1)
+	go func() { disableDone <- server.DisconnectTokenConnections(generated.ID) }()
+	waitForTokenDisableState(t, server.tokens, generated.ID)
+	select {
+	case <-disableDone:
+		t.Fatal("Disable returned while auto-push still held its forked token lease")
+	case <-time.After(30 * time.Millisecond):
+	}
+
+	close(store.getConfigRelease)
+	getConfigReleased = true
+	select {
+	case count := <-disableDone:
+		if count != 1 {
+			t.Fatalf("Disable returned %d draining sessions, want 1", count)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Disable did not finish after auto-push GetConfig was released")
+	}
+}
+
+func TestAutoPushSendErrorDoesNotWaitOnItsForkedLease(t *testing.T) {
+	server, store, _, callbacks, conn, message := prepareManagedAutoPush(t)
+	server.pushFn = func(workloadID string, yaml []byte, instance string) error {
+		return server.PushConfig(context.Background(), workloadID, yaml, instance)
+	}
+	store.getConfigStarted = make(chan struct{}, 1)
+	store.getConfigRelease = make(chan struct{})
+	getConfigReleased := false
+	defer func() {
+		if !getConfigReleased {
+			close(store.getConfigRelease)
+		}
+	}()
+
+	callbacks.OnMessage(context.Background(), conn, message)
+	select {
+	case <-store.getConfigStarted:
+	case <-time.After(time.Second):
+		t.Fatal("auto-push did not enter GetConfig")
+	}
+	conn.mu.Lock()
+	conn.sendErr = errors.New("auto-push send failed")
+	disconnectStarted := make(chan struct{})
+	disconnectRelease := make(chan struct{})
+	conn.disconnectHook = func() {
+		close(disconnectStarted)
+		<-disconnectRelease
+	}
+	conn.mu.Unlock()
+	disconnectReleased := false
+	defer func() {
+		if !disconnectReleased {
+			close(disconnectRelease)
+		}
+	}()
+
+	close(store.getConfigRelease)
+	getConfigReleased = true
+	select {
+	case <-disconnectStarted:
+	case <-time.After(time.Second):
+		t.Fatal("auto-push Send error deadlocked while waiting on its own forked lease")
+	}
+
+	stopDone := make(chan error, 1)
+	go func() { stopDone <- server.Stop(context.Background()) }()
+	waitForTokenStopState(t, server.tokens)
+	select {
+	case <-stopDone:
+		t.Fatal("Stop returned before asynchronous Send-error cleanup completed")
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(disconnectRelease)
+	disconnectReleased = true
+	select {
+	case err := <-stopDone:
+		if err != nil {
+			t.Fatalf("Stop after auto-push Send error: %v", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not join asynchronous Send-error cleanup")
+	}
+	if conn.disconnects() != 1 {
+		t.Fatalf("auto-push Send error disconnected transport %d times, want 1", conn.disconnects())
+	}
+}
+
+func TestAutoPushExactExpiryDoesNotWaitOnItsForkedLease(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(time.Minute)
+	clock := &tokenConnectionTestClock{now: now}
+	timers := &tokenConnectionTestTimers{}
+	server, store, generated, callbacks, conn, message := prepareManagedAutoPushWithOptions(
+		t,
+		&expiresAt,
+		Options{now: clock.Now, afterFunc: timers.AfterFunc},
+	)
+	server.pushFn = func(workloadID string, yaml []byte, instance string) error {
+		return server.PushConfig(context.Background(), workloadID, yaml, instance)
+	}
+	store.getConfigStarted = make(chan struct{}, 1)
+	store.getConfigRelease = make(chan struct{})
+	getConfigReleased := false
+	defer func() {
+		if !getConfigReleased {
+			close(store.getConfigRelease)
+		}
+	}()
+
+	callbacks.OnMessage(context.Background(), conn, message)
+	select {
+	case <-store.getConfigStarted:
+	case <-time.After(time.Second):
+		t.Fatal("auto-push did not enter GetConfig")
+	}
+	clock.Set(expiresAt)
+	close(store.getConfigRelease)
+	getConfigReleased = true
+	waitForTokenDisableState(t, server.tokens, generated.ID)
+
+	disableDone := make(chan int, 1)
+	go func() { disableDone <- server.DisconnectTokenConnections(generated.ID) }()
+	select {
+	case count := <-disableDone:
+		if count != 0 {
+			t.Fatalf("joining Disable returned %d sessions, want 0", count)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("exact-expiry Acquire deadlocked on the auto-push forked lease")
+	}
+	if conn.disconnects() != 1 {
+		t.Fatalf("exact-expiry auto-push disconnected transport %d times, want 1", conn.disconnects())
+	}
+	stopCtx, stopCancel := context.WithTimeout(context.Background(), time.Second)
+	defer stopCancel()
+	if err := server.Stop(stopCtx); err != nil {
+		t.Fatalf("Stop did not join exact-expiry auto-push cleanup: %v", err)
+	}
+}
+
+func TestManagedRollbackExactExpiryDoesNotWaitOnParentLease(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(time.Minute)
+	clock := &tokenConnectionTestClock{now: now}
+	timers := &tokenConnectionTestTimers{}
+	server, store, generated, callbacks, conn, failed := prepareManagedRollback(
+		t,
+		&expiresAt,
+		Options{now: clock.Now, afterFunc: timers.AfterFunc},
+	)
+	store.rollbackTargetStarted = make(chan struct{}, 1)
+	store.rollbackTargetRelease = make(chan struct{})
+	rollbackReleased := false
+	defer func() {
+		if !rollbackReleased {
+			close(store.rollbackTargetRelease)
+		}
+	}()
+
+	messageDone := make(chan struct{})
+	go func() {
+		callbacks.OnMessage(context.Background(), conn, failed)
+		close(messageDone)
+	}()
+	select {
+	case <-store.rollbackTargetStarted:
+	case <-time.After(time.Second):
+		t.Fatal("managed rollback did not enter GetRollbackTarget")
+	}
+	clock.Set(expiresAt)
+	close(store.rollbackTargetRelease)
+	rollbackReleased = true
+	waitForTokenDisableState(t, server.tokens, generated.ID)
+
+	disableDone := make(chan int, 1)
+	go func() { disableDone <- server.DisconnectTokenConnections(generated.ID) }()
+	select {
+	case <-messageDone:
+	case <-time.After(time.Second):
+		t.Fatal("managed rollback deadlocked after exact expiry in nested PushConfig")
+	}
+	select {
+	case count := <-disableDone:
+		if count != 0 {
+			t.Fatalf("joining Disable returned %d sessions, want 0", count)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Disable did not join exact-expiry rollback cleanup")
+	}
+	if conn.disconnects() != 1 {
+		t.Fatalf("exact-expiry rollback disconnected transport %d times, want 1", conn.disconnects())
+	}
+}
+
+func TestDisableWaitsForManagedRollbackPostStoreCalls(t *testing.T) {
+	tests := []struct {
+		name string
+		arm  func(*fakeStore) (<-chan struct{}, chan struct{})
+	}{
+		{
+			name: "record rollback",
+			arm: func(store *fakeStore) (<-chan struct{}, chan struct{}) {
+				store.recordConfigStarted = make(chan struct{}, 1)
+				store.recordConfigRelease = make(chan struct{})
+				return store.recordConfigStarted, store.recordConfigRelease
+			},
+		},
+		{
+			name: "mark rollback sent",
+			arm: func(store *fakeStore) (<-chan struct{}, chan struct{}) {
+				store.markConfigSentStarted = make(chan struct{}, 1)
+				store.markConfigSentRelease = make(chan struct{})
+				return store.markConfigSentStarted, store.markConfigSentRelease
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			server, store, generated, callbacks, conn, failed := prepareManagedRollback(t, nil, Options{})
+			server.pushFn = func(string, []byte, string) error { return nil }
+			started, release := tt.arm(store.fakeStore)
+			released := false
+			defer func() {
+				if !released {
+					close(release)
+				}
+			}()
+
+			messageDone := make(chan struct{})
+			go func() {
+				callbacks.OnMessage(context.Background(), conn, failed)
+				close(messageDone)
+			}()
+			select {
+			case <-started:
+			case <-time.After(time.Second):
+				t.Fatal("managed rollback did not reach the blocked post-push Store call")
+			}
+
+			disableDone := make(chan int, 1)
+			go func() { disableDone <- server.DisconnectTokenConnections(generated.ID) }()
+			waitForTokenDisableState(t, server.tokens, generated.ID)
+			select {
+			case <-disableDone:
+				t.Fatal("Disable returned before managed rollback completed its post-push Store call")
+			case <-time.After(30 * time.Millisecond):
+			}
+
+			close(release)
+			released = true
+			select {
+			case <-messageDone:
+			case <-time.After(time.Second):
+				t.Fatal("managed rollback did not finish after releasing the Store call")
+			}
+			select {
+			case count := <-disableDone:
+				if count != 1 {
+					t.Fatalf("Disable returned %d sessions, want 1", count)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("Disable did not finish after managed rollback released its parent lease")
+			}
+		})
 	}
 }
 

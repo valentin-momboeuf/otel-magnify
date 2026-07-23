@@ -73,6 +73,7 @@ func (s *tokenSession) clearWriteDeadline() {
 }
 
 type tokenLease struct {
+	manager *tokenConnections
 	session *tokenSession
 	once    sync.Once
 }
@@ -85,6 +86,24 @@ func (l *tokenLease) Release() {
 		l.session.gate.RUnlock()
 		l.session.leases.Add(-1)
 	})
+}
+
+func (l *tokenLease) Fork() (*tokenLease, bool) {
+	if l == nil || l.manager == nil || l.session == nil {
+		return nil, false
+	}
+	m := l.manager
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.stopped || m.disableStates[l.session.principal.ID] != nil {
+		return nil, false
+	}
+	if _, tracked := m.sessions[l.session]; !tracked {
+		return nil, false
+	}
+	l.session.gate.RLock()
+	l.session.leases.Add(1)
+	return &tokenLease{manager: m, session: l.session}, true
 }
 
 type tokenExpiryTimer struct {
@@ -220,11 +239,17 @@ func (m *tokenConnections) Acquire(session *tokenSession, now time.Time) (*token
 		return nil, false
 	}
 	if session.principal.ExpiresAt != nil && !session.principal.ExpiresAt.After(now) {
-		state, _ := m.beginDisableLocked(session.principal.ID)
-		m.expiryWG.Add(1)
+		state, winner := m.beginDisableLocked(session.principal.ID)
+		if winner {
+			m.expiryWG.Add(1)
+		}
 		m.mu.Unlock()
-		m.completeDisable(state)
-		m.expiryWG.Done()
+		if winner {
+			go func() {
+				defer m.expiryWG.Done()
+				m.completeDisable(state)
+			}()
+		}
 		return nil, false
 	}
 
@@ -233,7 +258,7 @@ func (m *tokenConnections) Acquire(session *tokenSession, now time.Time) (*token
 	session.gate.RLock()
 	session.leases.Add(1)
 	m.mu.Unlock()
-	return &tokenLease{session: session}, true
+	return &tokenLease{manager: m, session: session}, true
 }
 
 func (m *tokenConnections) Remove(session *tokenSession) {

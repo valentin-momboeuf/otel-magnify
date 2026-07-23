@@ -259,6 +259,67 @@ func TestTokenConnectionsDisableWaitsForAdmittedLease(t *testing.T) {
 	lease.Release()
 }
 
+func TestTokenLeaseForkUsesParentAdmissionWithoutRecheckingExpiry(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	expiresAt := now.Add(time.Minute)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	session := newTokenConnectionTestSession("token-a", &expiresAt)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	parent, ok := manager.Acquire(session, now)
+	if !ok {
+		t.Fatal("Acquire = false, want true")
+	}
+
+	clock.Set(expiresAt.Add(time.Second))
+	child, ok := parent.Fork()
+	if !ok || child == nil {
+		parent.Release()
+		t.Fatal("Fork rechecked expiry after the parent operation was admitted")
+	}
+	child.Release()
+	parent.Release()
+	if got := len(manager.Disable("token-a")); got != 1 {
+		t.Fatalf("Disable returned %d sessions after fork release, want 1", got)
+	}
+}
+
+func TestTokenLeaseForkRefusesDisableTombstone(t *testing.T) {
+	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
+	clock := &tokenConnectionTestClock{now: now}
+	manager := newTokenConnectionTestManager(clock, &tokenConnectionTestTimers{}, nil)
+	session := newTokenConnectionTestSession("token-a", nil)
+	if !manager.Track(session, &tokenConnectionTestConn{}) {
+		t.Fatal("Track = false, want true")
+	}
+	parent, ok := manager.Acquire(session, now)
+	if !ok {
+		t.Fatal("Acquire = false, want true")
+	}
+
+	disabled := make(chan []*tokenSession, 1)
+	go func() { disabled <- manager.Disable("token-a") }()
+	waitForTokenDisableState(t, manager, "token-a")
+	if child, forked := parent.Fork(); forked || child != nil {
+		if child != nil {
+			child.Release()
+		}
+		parent.Release()
+		t.Fatal("Fork succeeded after Disable installed its tombstone")
+	}
+	parent.Release()
+	select {
+	case sessions := <-disabled:
+		if len(sessions) != 1 || sessions[0] != session {
+			t.Fatalf("Disable returned %#v, want the tracked session", sessions)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Disable did not finish after the parent lease was released")
+	}
+}
+
 func TestTokenConnectionsConcurrentDisableJoinsWinner(t *testing.T) {
 	now := time.Date(2026, 7, 22, 9, 0, 0, 0, time.UTC)
 	clock := &tokenConnectionTestClock{now: now}
@@ -418,7 +479,7 @@ func TestTokenConnectionsRejectsExactExpiryWithoutTimerCallback(t *testing.T) {
 			t.Fatalf("expiry callback returned %#v, want the tracked session", sessions)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("synchronous expiry did not invoke the cleanup callback")
+		t.Fatal("exact expiry did not invoke the cleanup callback")
 	}
 }
 

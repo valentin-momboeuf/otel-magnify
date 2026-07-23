@@ -102,8 +102,9 @@ type Server struct {
 	mu    sync.RWMutex
 	conns map[string]*tokenSession // instanceUID hex -> exact owning session
 
-	stopMu    sync.Mutex
-	stopState *serverStopState
+	stopMu     sync.Mutex
+	stopState  *serverStopState
+	operations sync.WaitGroup
 
 	// pushFn sends a config YAML to a workload. Defaults to PushConfig;
 	// overridable in tests so they can observe auto-push behavior without
@@ -114,6 +115,18 @@ type Server struct {
 type serverStopState struct {
 	done chan struct{}
 	err  error
+}
+
+type serverOperation struct {
+	wg   *sync.WaitGroup
+	once sync.Once
+}
+
+func (o *serverOperation) Done() {
+	if o == nil || o.wg == nil {
+		return
+	}
+	o.once.Do(o.wg.Done)
 }
 
 // New creates a new OpAMP server. db and notifier can be nil (useful for
@@ -246,7 +259,7 @@ func (s *Server) sendToInstance(ctx context.Context, uid string, msg *protobufs.
 	err := session.send(ctx, msg, s.writeTimeout)
 	lease.Release()
 	if err != nil {
-		s.disconnectSession(session)
+		s.disconnectSessionAfterSendError(session)
 	}
 	return err
 }
@@ -345,6 +358,12 @@ func (w *flushResponseWriter) Write(body []byte) (int, error) {
 }
 
 func (s *Server) authenticateRequest(req *http.Request) types.ConnectionResponse {
+	operation, ok := s.beginOperation()
+	if !ok {
+		return serviceUnavailableConnectionResponse()
+	}
+	defer operation.Done()
+
 	const prefix = "Bearer "
 	values := req.Header.Values("Authorization")
 	if len(values) != 1 {
@@ -408,6 +427,16 @@ func (s *Server) Stop(ctx context.Context) error {
 	}
 }
 
+func (s *Server) beginOperation() (*serverOperation, bool) {
+	s.stopMu.Lock()
+	defer s.stopMu.Unlock()
+	if s.stopState != nil {
+		return nil, false
+	}
+	s.operations.Add(1)
+	return &serverOperation{wg: &s.operations}, true
+}
+
 func (s *Server) beginStop() *serverStopState {
 	s.stopMu.Lock()
 	if s.stopState != nil {
@@ -415,15 +444,16 @@ func (s *Server) beginStop() *serverStopState {
 		s.stopMu.Unlock()
 		return state
 	}
-	graceState := s.grace.beginStop()
-	tokenState, _ := s.tokens.beginStop()
 	state := &serverStopState{done: make(chan struct{})}
 	s.stopState = state
+	graceState := s.grace.beginStop()
+	tokenState, _ := s.tokens.beginStop()
 	s.stopMu.Unlock()
 
 	go func() {
 		<-graceState.done
 		<-tokenState.done
+		s.operations.Wait()
 		state.err = s.opamp.Stop(context.Background())
 		close(state.done)
 	}()
@@ -471,6 +501,13 @@ func classifyAgentMessage(msg *protobufs.AgentToServer) agentMessageKind {
 // message. Keeping authentication and connection ownership outside this helper
 // lets the historical workload tests exercise message semantics directly.
 func (s *Server) handleAcceptedMessage(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+	return s.handleAcceptedMessageWithLease(msg, nil)
+}
+
+func (s *Server) handleAcceptedMessageWithLease(
+	msg *protobufs.AgentToServer,
+	parentLease *tokenLease,
+) *protobufs.ServerToAgent {
 	uid := hex.EncodeToString(msg.InstanceUid)
 	var workloadID string
 	var requestComponents bool
@@ -486,7 +523,7 @@ func (s *Server) handleAcceptedMessage(msg *protobufs.AgentToServer) *protobufs.
 		}
 	}
 
-	s.refreshWorkloadState(workloadID, uid)
+	s.refreshWorkloadState(workloadID, uid, parentLease)
 	s.recordRemoteConfigStatus(workloadID, uid, msg.RemoteConfigStatus)
 
 	return replyToAgent(msg, requestComponents)
@@ -527,7 +564,7 @@ func (s *Server) onSessionMessage(
 		lease.Release()
 		return nil
 	}
-	reply, disconnect := s.processSessionMessage(ctx, session, conn, msg)
+	reply, disconnect := s.processSessionMessage(ctx, session, conn, msg, lease)
 	if disconnect {
 		session.terminal = true
 	}
@@ -569,6 +606,7 @@ func (s *Server) processSessionMessage(
 	session *tokenSession,
 	conn types.Connection,
 	msg *protobufs.AgentToServer,
+	lease *tokenLease,
 ) (*protobufs.ServerToAgent, bool) {
 	if msg == nil || len(msg.InstanceUid) != 16 || session.conn != conn {
 		return nil, true
@@ -582,7 +620,7 @@ func (s *Server) processSessionMessage(
 		if !matches {
 			return nil, true
 		}
-		return s.handleAcceptedMessage(msg), false
+		return s.handleAcceptedMessageWithLease(msg, lease), false
 	}
 	if session.uid != "" {
 		s.mu.Unlock()
@@ -607,7 +645,7 @@ func (s *Server) processSessionMessage(
 	}
 	session.admitted = true
 	s.mu.Unlock()
-	return s.handleAcceptedMessage(msg), false
+	return s.handleAcceptedMessageWithLease(msg, lease), false
 }
 
 func (s *Server) onSessionConnectionClose(session *tokenSession, _ types.Connection) {
@@ -709,7 +747,7 @@ func (s *Server) handleKnownInstanceUpdate(uid string, msg *protobufs.AgentToSer
 	return wl, true
 }
 
-func (s *Server) refreshWorkloadState(workloadID, uid string) {
+func (s *Server) refreshWorkloadState(workloadID, uid string, parentLease *tokenLease) {
 	// Aggregated status + broadcast + conditional auto-push.
 	if s.store == nil {
 		return
@@ -728,10 +766,15 @@ func (s *Server) refreshWorkloadState(workloadID, uid string) {
 		drifted := s.countDrift(workloadID, wl.ActiveConfigHash)
 		s.notifier.BroadcastWorkloadUpdate(wl, connected, drifted)
 	}
-	s.maybeTriggerAutoPush(workloadID, uid, wl)
+	s.maybeTriggerAutoPush(workloadID, uid, wl, parentLease)
 }
 
-func (s *Server) maybeTriggerAutoPush(workloadID, uid string, wl models.Workload) {
+func (s *Server) maybeTriggerAutoPush(
+	workloadID string,
+	uid string,
+	wl models.Workload,
+	parentLease *tokenLease,
+) {
 	// Auto-push (P.2): only when this specific instance diverges from the
 	// workload's pinned active config.
 	if wl.ActiveConfigHash == "" || wl.ActiveConfigID == nil {
@@ -742,10 +785,33 @@ func (s *Server) maybeTriggerAutoPush(workloadID, uid string, wl models.Workload
 			continue
 		}
 		if i.EffectiveConfigHash != "" && i.EffectiveConfigHash != wl.ActiveConfigHash {
-			//nolint:gosec // auto-push is server-initiated and must outlive the OpAMP message context
-			go s.triggerAutoPush(context.Background(), *wl.ActiveConfigID, workloadID, uid)
+			s.launchAutoPush(*wl.ActiveConfigID, workloadID, uid, parentLease)
 		}
 	}
+}
+
+func (s *Server) launchAutoPush(configID, workloadID, uid string, parentLease *tokenLease) {
+	operation, ok := s.beginOperation()
+	if !ok {
+		return
+	}
+	var lease *tokenLease
+	if parentLease != nil {
+		lease, ok = parentLease.Fork()
+		if !ok {
+			operation.Done()
+			return
+		}
+	}
+
+	//nolint:gosec // auto-push is server-initiated and must outlive the OpAMP message context
+	go func() {
+		defer operation.Done()
+		if lease != nil {
+			defer lease.Release()
+		}
+		s.triggerAutoPush(context.Background(), configID, workloadID, uid)
+	}()
 }
 
 func (s *Server) recordRemoteConfigStatus(workloadID, uid string, status *protobufs.RemoteConfigStatus) {
@@ -959,6 +1025,19 @@ func (s *Server) disconnectSessions(sessions []*tokenSession) {
 
 func (s *Server) disconnectSession(session *tokenSession) {
 	s.tokens.Remove(session)
+	s.finishDisconnectSession(session)
+}
+
+func (s *Server) disconnectSessionAfterSendError(session *tokenSession) {
+	s.tokens.Remove(session)
+	if session.leases.Load() == 0 {
+		s.finishDisconnectSession(session)
+		return
+	}
+	go s.finishDisconnectSession(session)
+}
+
+func (s *Server) finishDisconnectSession(session *tokenSession) {
 	s.tokens.waitRemoveDrain(session)
 	s.disconnectSessions([]*tokenSession{session})
 	s.tokens.CompleteRemove(session)

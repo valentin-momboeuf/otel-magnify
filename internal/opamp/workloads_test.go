@@ -39,7 +39,16 @@ type fakeStore struct {
 	}
 	// Prepared lastApplied return: returned verbatim by
 	// GetLastAppliedWorkloadConfig regardless of arg. nil means "none".
-	lastApplied *models.WorkloadConfig
+	lastApplied           *models.WorkloadConfig
+	getConfigCalls        int
+	getConfigStarted      chan struct{}
+	getConfigRelease      chan struct{}
+	rollbackTargetStarted chan struct{}
+	rollbackTargetRelease chan struct{}
+	recordConfigStarted   chan struct{}
+	recordConfigRelease   chan struct{}
+	markConfigSentStarted chan struct{}
+	markConfigSentRelease chan struct{}
 }
 
 func newFakeStore() *fakeStore {
@@ -100,8 +109,20 @@ func (f *fakeStore) ClearWorkloadRetention(id string) error {
 
 func (f *fakeStore) GetConfig(id string) (models.Config, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
+	f.getConfigCalls++
+	started := f.getConfigStarted
+	release := f.getConfigRelease
 	c, ok := f.configs[id]
+	f.mu.Unlock()
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if release != nil {
+		<-release
+	}
 	if !ok {
 		return models.Config{}, fmt.Errorf("not found: %s", id)
 	}
@@ -117,8 +138,19 @@ func (f *fakeStore) CreateConfig(c models.Config) error {
 
 func (f *fakeStore) RecordWorkloadConfig(wc models.WorkloadConfig) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	f.workloadConfigs = append(f.workloadConfigs, wc)
+	started := f.recordConfigStarted
+	release := f.recordConfigRelease
+	f.mu.Unlock()
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if release != nil {
+		<-release
+	}
 	return nil
 }
 
@@ -133,13 +165,24 @@ func (f *fakeStore) UpdateWorkloadConfigStatus(workloadID, configID, status, err
 
 func (f *fakeStore) MarkWorkloadConfigSent(workloadID, configID string, sentAt time.Time) error {
 	f.mu.Lock()
-	defer f.mu.Unlock()
+	started := f.markConfigSentStarted
+	release := f.markConfigSentRelease
 	for i := len(f.workloadConfigs) - 1; i >= 0; i-- {
 		if f.workloadConfigs[i].WorkloadID == workloadID && f.workloadConfigs[i].ConfigID == configID {
 			f.workloadConfigs[i].Status = models.PushStatusSent
 			f.workloadConfigs[i].SentAt = &sentAt
-			return nil
+			break
 		}
+	}
+	f.mu.Unlock()
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if release != nil {
+		<-release
 	}
 	return nil
 }
@@ -178,11 +221,26 @@ func (f *fakeStore) GetLastAppliedWorkloadConfig(_ string) (*models.WorkloadConf
 
 func (f *fakeStore) GetRollbackTarget(_ string, excludeHash string) (*models.RollbackTarget, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
-	if f.lastApplied == nil || f.lastApplied.ConfigID == excludeHash {
+	started := f.rollbackTargetStarted
+	release := f.rollbackTargetRelease
+	var target *models.RollbackTarget
+	if f.lastApplied != nil && f.lastApplied.ConfigID != excludeHash {
+		target = &models.RollbackTarget{Kind: "previous", Config: *f.lastApplied}
+	}
+	f.mu.Unlock()
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if release != nil {
+		<-release
+	}
+	if target == nil {
 		return nil, nil
 	}
-	return &models.RollbackTarget{Kind: "previous", Config: *f.lastApplied}, nil
+	return target, nil
 }
 
 func (f *fakeStore) InsertWorkloadEvent(e models.WorkloadEvent) (int64, error) {
