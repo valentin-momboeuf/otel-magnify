@@ -155,12 +155,13 @@ export default function TokenCreationFlow({ tokens, onReconcileToken }: TokenCre
     reconciliation?.kind === 'exact' && reconciliation.refreshState === 'succeeded'
       ? (tokens.find((token) => token.id === reconciliation.tokenId) ?? reconciliation.token)
       : undefined
-  const currentExactOutcome =
-    currentExactToken?.status === 'revoked'
+  const currentExactOutcome = currentExactToken
+    ? currentExactToken.status === 'revoked'
       ? 'revoked'
-      : reconciliation?.kind === 'exact' && reconciliation.refreshState === 'succeeded'
-        ? reconciliation.outcome
-        : undefined
+      : 'found-active-or-expired'
+    : reconciliation?.kind === 'exact' && reconciliation.refreshState === 'succeeded'
+      ? reconciliation.outcome
+      : undefined
   const exactReconciliationUnsafe =
     reconciliation?.kind === 'exact' &&
     (reconciliation.refreshState !== 'succeeded' ||

@@ -784,6 +784,51 @@ test.describe('OpAMP token reconciliation and revocation', () => {
     await expect(page.getByRole('button', { name: 'Create token' })).toBeEnabled()
   })
 
+  test('locks exact reconciliation when a later list refresh reveals the active token', async ({
+    loggedInPage: page,
+  }) => {
+    await prepareAdmin(page)
+    let createReturnedUnknown = false
+    let revealToken = false
+    await page.route('**/api/v1/opamp/tokens', async (route) => {
+      if (route.request().method() === 'POST') {
+        createReturnedUnknown = true
+        await route.fulfill({
+          status: 503,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            error: 'unsafe persistence detail',
+            side_effect_status: 'unknown',
+            token_id: activeToken.id,
+          }),
+        })
+        return
+      }
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          tokens: createReturnedUnknown && revealToken ? [activeToken] : [],
+        }),
+      })
+    })
+
+    await page.goto('/admin/opamp/tokens')
+    await createToken(page, 'late visible outcome')
+
+    await expect(page.getByRole('alert')).toContainText('absent after a successful refresh')
+    await expect(page.getByRole('button', { name: 'Create token' })).toBeEnabled()
+
+    revealToken = true
+    await page.getByRole('button', { name: 'Refresh', exact: true }).click()
+
+    await expect(page.getByRole('alert')).toContainText(
+      'active or expired after a successful refresh',
+    )
+    await expect(page.getByRole('button', { name: 'Create token' })).toBeDisabled()
+    await expect(page.getByRole('button', { name: 'Revoke affected token' })).toBeVisible()
+  })
+
   test('keeps generic create retry locked until metadata refresh succeeds', async ({
     loggedInPage: page,
   }) => {
