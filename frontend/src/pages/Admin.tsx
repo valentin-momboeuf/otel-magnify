@@ -10,7 +10,9 @@ export default function Admin() {
   const { enabled: ssoAdminEnabled } = useCapability('sso.admin')
 
   if (!me) return null
-  if (!hasPerm(me.groups, 'users:manage')) return <Navigate to="/" replace />
+  const canManageUsers = hasPerm(me.groups, 'users:manage')
+  const canManageSettings = hasPerm(me.groups, 'settings:manage')
+  if (!canManageUsers && !canManageSettings) return <Navigate to="/" replace />
 
   return (
     <div className="page-profile">
@@ -18,17 +20,20 @@ export default function Admin() {
       <section className="profile-section">
         <h3>{t('admin.sections.title')}</h3>
         <ul className="admin-index">
-          {ssoAdminEnabled && hasPerm(me.groups, 'settings:manage') && (
+          {canManageSettings && (
+            <li>
+              <Link to="/admin/opamp/tokens">
+                <strong>{t('nav.admin.opamp_tokens')}</strong>
+                <p className="muted">{t('admin.sections.opamp.description')}</p>
+              </Link>
+            </li>
+          )}
+          {ssoAdminEnabled && canManageSettings && (
             <li>
               <Link to="/admin/sso/providers">
                 <strong>{t('nav.admin.sso')}</strong>
                 <p className="muted">{t('admin.sections.sso.description')}</p>
               </Link>
-            </li>
-          )}
-          {!ssoAdminEnabled && hasPerm(me.groups, 'settings:manage') && (
-            <li className="muted">
-              <em>{t('admin.placeholder')}</em>
             </li>
           )}
         </ul>

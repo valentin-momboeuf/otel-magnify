@@ -1060,8 +1060,99 @@
     "placeholder": "D'autres outils d'administration arrivent bientôt.",
     "sections": {
       "title": "Sections d'administration",
+      "opamp": {
+        "description": "Créer, transmettre une fois, réconcilier et révoquer les credentials Collector et Supervisor."
+      },
       "sso": {
         "description": "Gérer les fournisseurs SSO SAML et les mappings de groupes."
+      }
+    },
+    "opamp": {
+      "title": "Tokens OpAMP",
+      "subtitle": "Gérer les credentials Collector et Supervisor.",
+      "refresh": "Actualiser",
+      "empty": {
+        "title": "Aucun token OpAMP",
+        "description": "Aucun agent ne peut s'authentifier tant qu'un token n'existe pas. Créez-en un avant de connecter un Collector ou un Supervisor."
+      },
+      "rotation": {
+        "title": "Rotation manuelle",
+        "description": "Créez et déployez le remplacement, actualisez jusqu'à son utilisation, puis révoquez l'ancien token."
+      },
+      "column": {
+        "name": "Nom",
+        "team": "Équipe",
+        "environment": "Environnement",
+        "created": "Créé",
+        "expires": "Expiration",
+        "last_used": "Dernière utilisation",
+        "status": "Statut",
+        "actions": "Actions"
+      },
+      "status": {
+        "active": "actif",
+        "expired": "expiré",
+        "revoked": "révoqué"
+      },
+      "field": {
+        "name": "Nom",
+        "description": "Description",
+        "team": "Équipe",
+        "environment": "Environnement",
+        "expires_at": "Expire le"
+      },
+      "create": {
+        "open": "Créer un token",
+        "eyebrow": "Nouveau credential machine",
+        "title": "Créer un token OpAMP",
+        "description": "Les métadonnées restent disponibles, mais la valeur du credential n'est renvoyée qu'une fois.",
+        "submit": "Créer",
+        "creating": "Création…",
+        "error": {
+          "validation": "Vérifiez les informations du token puis réessayez.",
+          "too-large": "La requête est trop volumineuse. Réduisez les métadonnées puis réessayez.",
+          "ambiguous": "Le résultat de la création est inconnu. Inspectez les lignes nouvellement créées et révoquez chaque credential suspect et irrécupérable avant de réessayer."
+        },
+        "reconciliation": {
+          "found": "Le serveur a peut-être créé ce token. L'ID public exact {{id}} est présent ; révoquez-le avant de réessayer.",
+          "revoked": "Le token concerné est déjà révoqué. Le résultat inconnu est réconcilié.",
+          "absent": "Le serveur a peut-être créé le token {{id}}, mais cet ID public est absent après actualisation. Aucun credential n'a été renvoyé.",
+          "revoke": "Révoquer le token concerné",
+          "retry": "Réessayer la création"
+        }
+      },
+      "secret": {
+        "lifecycle": "Créé, visible une fois, effacé à la fermeture",
+        "created": "CRÉÉ",
+        "visible_once": "VISIBLE UNE FOIS",
+        "cleared": "EFFACÉ À LA FERMETURE",
+        "title": "Enregistrez ce credential maintenant",
+        "description": "Il ne pourra plus être récupéré après la fermeture de cette fenêtre.",
+        "value_label": "Valeur one-shot du token",
+        "copy": "Copier le token",
+        "copied": "Token copié",
+        "copy_failed": "La copie a échoué. Le token est sélectionné ; copiez-le manuellement avant de continuer.",
+        "acknowledge": "J'ai enregistré ce token"
+      },
+      "revoke": {
+        "action": "Révoquer",
+        "eyebrow": "Déconnexion fail-closed",
+        "title": "Révoquer le token OpAMP",
+        "description": "Révoquer « {{name}} » et déconnecter toutes les connexions authentifiées avec ce token ?",
+        "confirm": "Confirmer la révocation",
+        "done": "Terminer",
+        "success": "Token révoqué",
+        "error": {
+          "generic": "Impossible de révoquer le token. Aucun détail serveur n'est affiché."
+        },
+        "unknown": {
+          "active": "La déconnexion fail-closed a été demandée, mais le résultat du commit est inconnu. Le token est encore actif ou expiré après actualisation.",
+          "reconciled": "Le token est révoqué après actualisation. Le résultat inconnu est réconcilié.",
+          "retry": "Réessayer la révocation"
+        }
+      },
+      "error": {
+        "list": "Impossible de charger les tokens OpAMP."
       }
     },
     "sso": {
@@ -1118,6 +1209,7 @@
   },
   "nav": {
     "admin": {
+      "opamp_tokens": "Tokens OpAMP",
       "sso": "Fournisseurs SSO"
     }
   },

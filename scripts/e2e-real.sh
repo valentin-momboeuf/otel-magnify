@@ -22,11 +22,53 @@ export SEED_ADMIN_PASSWORD="initialPass!!!12"
 export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-e2e-real-postgres-password}"
 export DB_DSN="${DB_DSN:-postgres://magnify:${POSTGRES_PASSWORD}@postgres:5432/magnify?sslmode=disable}"
 
+artifact_dir=""
+
 cleanup() {
+  original_status="$?"
+  final_status="$original_status"
+  set +e
+
+  if [ -d "$artifact_dir" ]; then
+    if rg --quiet --text \
+      'ompt_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}' \
+      "$artifact_dir"; then
+      echo "credential material detected in Playwright artifacts" >&2
+      final_status=1
+    elif [ "$?" -ne 1 ]; then
+      echo "Playwright artifact scan failed" >&2
+      final_status=1
+    fi
+  fi
+
   echo "--- docker compose down -v ---"
   docker compose -p otel-magnify-e2e down -v >/dev/null 2>&1 || true
+
+  if [ -n "$artifact_dir" ]; then
+    case "$artifact_dir" in
+      "${TMPDIR:-/tmp}"/otel-magnify-playwright.*)
+        if [ -d "$artifact_dir" ] && [ ! -L "$artifact_dir" ]; then
+          rm -rf -- "$artifact_dir"
+        else
+          echo "refusing to remove an invalid Playwright artifact directory" >&2
+          final_status=1
+        fi
+        ;;
+      *)
+        echo "refusing to remove an invalid Playwright artifact directory" >&2
+        final_status=1
+        ;;
+    esac
+  fi
+
+  trap - EXIT
+  exit "$final_status"
 }
 trap cleanup EXIT
+
+artifact_dir="$(mktemp -d "${TMPDIR:-/tmp}/otel-magnify-playwright.XXXXXX")"
+chmod 0700 "$artifact_dir"
+export PLAYWRIGHT_OUTPUT_DIR="$artifact_dir"
 
 # Wipe any leftover volume from a previous aborted run before starting.
 docker compose -p otel-magnify-e2e down -v >/dev/null 2>&1 || true

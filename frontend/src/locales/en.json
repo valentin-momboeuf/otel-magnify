@@ -1060,8 +1060,99 @@
     "placeholder": "More admin tools coming.",
     "sections": {
       "title": "Admin sections",
+      "opamp": {
+        "description": "Create, hand off once, reconcile and revoke Collector and Supervisor credentials."
+      },
       "sso": {
         "description": "Manage SAML SSO providers and group mappings."
+      }
+    },
+    "opamp": {
+      "title": "OpAMP tokens",
+      "subtitle": "Manage Collector and Supervisor credentials.",
+      "refresh": "Refresh",
+      "empty": {
+        "title": "No OpAMP token exists",
+        "description": "No agent can authenticate until a token exists. Create one before connecting a Collector or Supervisor."
+      },
+      "rotation": {
+        "title": "Manual rotation",
+        "description": "Create and deploy the replacement, refresh until it is used, then revoke the old token."
+      },
+      "column": {
+        "name": "Name",
+        "team": "Team",
+        "environment": "Environment",
+        "created": "Created",
+        "expires": "Expires",
+        "last_used": "Last used",
+        "status": "Status",
+        "actions": "Actions"
+      },
+      "status": {
+        "active": "active",
+        "expired": "expired",
+        "revoked": "revoked"
+      },
+      "field": {
+        "name": "Name",
+        "description": "Description",
+        "team": "Team",
+        "environment": "Environment",
+        "expires_at": "Expires at"
+      },
+      "create": {
+        "open": "Create token",
+        "eyebrow": "New machine credential",
+        "title": "Create OpAMP token",
+        "description": "Metadata remains available, but the credential value is returned only once.",
+        "submit": "Create",
+        "creating": "Creating…",
+        "error": {
+          "validation": "Check the token details and try again.",
+          "too-large": "Token request is too large. Shorten the metadata and try again.",
+          "ambiguous": "The create outcome is unknown. Inspect newly created rows and revoke every suspect irretrievable credential before retrying."
+        },
+        "reconciliation": {
+          "found": "The server may have created this token. The exact public ID {{id}} is present; revoke it before retrying.",
+          "revoked": "The affected token is already revoked. The unknown outcome is reconciled.",
+          "absent": "The server may have created token {{id}}, but that public ID is absent after refresh. No credential was returned.",
+          "revoke": "Revoke affected token",
+          "retry": "Try create again"
+        }
+      },
+      "secret": {
+        "lifecycle": "Created, visible once, cleared on close",
+        "created": "CREATED",
+        "visible_once": "VISIBLE ONCE",
+        "cleared": "CLEARED ON CLOSE",
+        "title": "Save this credential now",
+        "description": "It cannot be retrieved after you close this dialog.",
+        "value_label": "One-shot token value",
+        "copy": "Copy token",
+        "copied": "Token copied",
+        "copy_failed": "Copy failed. The token is selected; copy it manually before continuing.",
+        "acknowledge": "I have saved this token"
+      },
+      "revoke": {
+        "action": "Revoke",
+        "eyebrow": "Fail-closed disconnect",
+        "title": "Revoke OpAMP token",
+        "description": "Revoke “{{name}}” and disconnect every connection authenticated with it?",
+        "confirm": "Confirm revoke",
+        "done": "Done",
+        "success": "Token revoked",
+        "error": {
+          "generic": "Unable to revoke the token. No server details are shown."
+        },
+        "unknown": {
+          "active": "Fail-closed disconnect was requested, but the commit outcome is unknown. The token is still active or expired after refresh.",
+          "reconciled": "The token is revoked after refresh. The unknown outcome is reconciled.",
+          "retry": "Retry revoke"
+        }
+      },
+      "error": {
+        "list": "Unable to load OpAMP tokens."
       }
     },
     "sso": {
@@ -1118,6 +1209,7 @@
   },
   "nav": {
     "admin": {
+      "opamp_tokens": "OpAMP tokens",
       "sso": "SSO providers"
     }
   },
