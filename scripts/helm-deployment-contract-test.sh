@@ -283,6 +283,17 @@ helm_contract_assert_render_fails \
   --set opamp.insecure=true \
   --set opamp.tls.existingSecret=magnify-opamp-tls
 
+helm_contract_assert_render_fails \
+  "networkPolicy.api.allowAll string false" \
+  "networkPolicy.api.allowAll must be a boolean" \
+  "${external_secret_values[@]}" \
+  --set-string networkPolicy.api.allowAll=false
+helm_contract_assert_render_fails \
+  "networkPolicy.opamp.allowAll string false" \
+  "networkPolicy.opamp.allowAll must be a boolean" \
+  "${external_secret_values[@]}" \
+  --set-string networkPolicy.opamp.allowAll=false
+
 default_network_policy="$(helm_contract_extract_network_policy "$external_render")"
 expected_default_network_policy='kind: NetworkPolicy
 metadata:
