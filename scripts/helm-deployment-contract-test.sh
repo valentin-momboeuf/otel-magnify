@@ -55,6 +55,39 @@ helm_contract_assert_absent() {
   fi
 }
 
+helm_contract_extract_network_policy() {
+  local rendered_file="$1"
+
+  awk '
+    $0 == "kind: NetworkPolicy" {
+      in_network_policy = 1
+    }
+    in_network_policy && $0 == "---" {
+      exit
+    }
+    in_network_policy {
+      print
+    }
+  ' "$rendered_file"
+}
+
+helm_contract_assert_render_fails() {
+  local description="$1"
+  local expected_error="$2"
+  shift 2
+  local error_file="$temporary_directory/expected-render-error"
+  local output_file="$temporary_directory/unexpected-render-output"
+
+  if helm template magnify "$chart_path" \
+    --namespace observability \
+    "$@" \
+    >"$output_file" 2>"$error_file"; then
+    helm_contract_record_failure "$description rendered successfully"
+  elif ! grep -Fq -- "$expected_error" "$error_file"; then
+    helm_contract_record_failure "$description did not return the required error"
+  fi
+}
+
 helm_contract_assert_deployment_exact_line() {
   local rendered_file="$1"
   local expected_line="$2"
@@ -138,6 +171,11 @@ inline_a_render="$temporary_directory/inline-a.yaml"
 inline_b_render="$temporary_directory/inline-b.yaml"
 external_ignored_a_render="$temporary_directory/external-ignored-a.yaml"
 external_ignored_b_render="$temporary_directory/external-ignored-b.yaml"
+tls_render="$temporary_directory/tls.yaml"
+insecure_render="$temporary_directory/insecure.yaml"
+network_policy_disabled_render="$temporary_directory/network-policy-disabled.yaml"
+network_policy_from_render="$temporary_directory/network-policy-from.yaml"
+network_policy_allow_all_render="$temporary_directory/network-policy-allow-all.yaml"
 
 external_secret_values=(
   --set database.existingSecret=magnify-db
@@ -162,6 +200,20 @@ helm_contract_assert_fragment \
   $'  strategy:\n    type: Recreate' \
   "Deployment strategy is not Recreate"
 
+helm_contract_assert_fragment \
+  "$external_render" \
+  $'            - name: OPAMP_INSECURE\n              value: "false"' \
+  "default transport does not render OPAMP_INSECURE=false"
+for unexpected_tls_default in \
+  "OPAMP_TLS_CERT_FILE" \
+  "OPAMP_TLS_KEY_FILE" \
+  "opamp-tls"; do
+  helm_contract_assert_absent \
+    "$external_render" \
+    "$unexpected_tls_default" \
+    "default transport unexpectedly renders TLS material: $unexpected_tls_default"
+done
+
 helm_contract_assert_probe "$external_render" startupProbe /healthz 5 60
 helm_contract_assert_probe "$external_render" livenessProbe /healthz 10 3
 helm_contract_assert_probe "$external_render" readinessProbe /readyz 5 3
@@ -178,7 +230,7 @@ while IFS='|' read -r fixture_name replica_display replica_yaml_value; do
     >"$temporary_directory/replica-${fixture_name}.rendered.yaml" 2>"$replica_error"; then
     helm_contract_record_failure "replicaCount=$replica_display rendered successfully"
   elif ! grep -Fq \
-    "replicaCount must remain 1 because OpAMP connections are process-local" \
+    "replicaCount must remain 1 because OpAMP connections, token revocation, and token expiration are process-local; distributed broadcast is required before scaling out" \
     "$replica_error"; then
     helm_contract_record_failure "replicaCount=$replica_display did not return the required error"
   fi
@@ -191,6 +243,141 @@ string-one|"1"|"1"
 integer-zero|0|0
 integer-two|2|2
 EOF
+
+helm_contract_render "$tls_render" \
+  "${external_secret_values[@]}" \
+  --set opamp.tls.existingSecret=magnify-opamp-tls
+for tls_setting in \
+  $'            - name: OPAMP_INSECURE\n              value: "false"' \
+  $'            - name: OPAMP_TLS_CERT_FILE\n              value: "/var/run/otel-magnify/opamp-tls/tls.crt"' \
+  $'            - name: OPAMP_TLS_KEY_FILE\n              value: "/var/run/otel-magnify/opamp-tls/tls.key"' \
+  $'            - name: opamp-tls\n              mountPath: /var/run/otel-magnify/opamp-tls\n              readOnly: true' \
+  $'        - name: opamp-tls\n          secret:\n            secretName: magnify-opamp-tls\n            items:\n              - key: "tls.crt"\n                path: tls.crt\n              - key: "tls.key"\n                path: tls.key'; do
+  helm_contract_assert_fragment \
+    "$tls_render" \
+    "$tls_setting" \
+    "external OpAMP TLS Secret does not render the required setting: ${tls_setting%%$'\n'*}"
+done
+
+helm_contract_render "$insecure_render" \
+  "${external_secret_values[@]}" \
+  --set opamp.insecure=true
+helm_contract_assert_fragment \
+  "$insecure_render" \
+  $'            - name: OPAMP_INSECURE\n              value: "true"' \
+  "explicit insecure transport does not render OPAMP_INSECURE=true"
+for unexpected_tls_insecure in \
+  "OPAMP_TLS_CERT_FILE" \
+  "OPAMP_TLS_KEY_FILE" \
+  "opamp-tls"; do
+  helm_contract_assert_absent \
+    "$insecure_render" \
+    "$unexpected_tls_insecure" \
+    "explicit insecure transport unexpectedly renders TLS material: $unexpected_tls_insecure"
+done
+
+helm_contract_assert_render_fails \
+  "opamp.insecure=true with opamp.tls.existingSecret" \
+  "opamp.insecure=true cannot be combined with opamp.tls.existingSecret" \
+  "${external_secret_values[@]}" \
+  --set opamp.insecure=true \
+  --set opamp.tls.existingSecret=magnify-opamp-tls
+
+default_network_policy="$(helm_contract_extract_network_policy "$external_render")"
+expected_default_network_policy='kind: NetworkPolicy
+metadata:
+  name: magnify
+  namespace: observability
+  labels:
+    app: magnify
+spec:
+  podSelector:
+    matchLabels:
+      app: magnify
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: api'
+if [[ "$default_network_policy" != "$expected_default_network_policy" ]]; then
+  helm_contract_record_failure "default NetworkPolicy does not allow only the API port"
+fi
+
+helm_contract_render "$network_policy_disabled_render" \
+  "${external_secret_values[@]}" \
+  --set networkPolicy.enabled=false
+helm_contract_assert_absent \
+  "$network_policy_disabled_render" \
+  "kind: NetworkPolicy" \
+  "networkPolicy.enabled=false still renders a NetworkPolicy"
+
+network_policy_values="$temporary_directory/network-policy-values.yaml"
+printf '%s\n' \
+  'networkPolicy:' \
+  '  api:' \
+  '    allowAll: false' \
+  '  opamp:' \
+  '    from:' \
+  '      - namespaceSelector:' \
+  '          matchLabels:' \
+  '            kubernetes.io/metadata.name: agents' \
+  '        podSelector:' \
+  '          matchLabels:' \
+  '            app.kubernetes.io/name: collector' \
+  >"$network_policy_values"
+helm_contract_render "$network_policy_from_render" \
+  "${external_secret_values[@]}" \
+  --values "$network_policy_values"
+network_policy_from="$(helm_contract_extract_network_policy "$network_policy_from_render")"
+expected_network_policy_from='kind: NetworkPolicy
+metadata:
+  name: magnify
+  namespace: observability
+  labels:
+    app: magnify
+spec:
+  podSelector:
+    matchLabels:
+      app: magnify
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: agents
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: collector
+      ports:
+        - port: opamp'
+if [[ "$network_policy_from" != "$expected_network_policy_from" ]]; then
+  helm_contract_record_failure "OpAMP NetworkPolicy peers do not render exactly on the named opamp port"
+fi
+
+helm_contract_render "$network_policy_allow_all_render" \
+  "${external_secret_values[@]}" \
+  --set networkPolicy.api.allowAll=false \
+  --set networkPolicy.opamp.allowAll=true
+network_policy_allow_all="$(helm_contract_extract_network_policy "$network_policy_allow_all_render")"
+expected_network_policy_allow_all='kind: NetworkPolicy
+metadata:
+  name: magnify
+  namespace: observability
+  labels:
+    app: magnify
+spec:
+  podSelector:
+    matchLabels:
+      app: magnify
+  policyTypes:
+    - Ingress
+  ingress:
+    - ports:
+        - port: opamp'
+if [[ "$network_policy_allow_all" != "$expected_network_policy_allow_all" ]]; then
+  helm_contract_record_failure "explicit OpAMP allowAll does not render a port-only ingress rule"
+fi
 
 helm_contract_render "$inline_a_render" \
   --set database.existingSecret=magnify-db \

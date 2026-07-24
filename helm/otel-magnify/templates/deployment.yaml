@@ -1,8 +1,3 @@
-{{- $replicaCountKind := kindOf .Values.replicaCount }}
-{{- $replicaCountIsNumeric := or (eq $replicaCountKind "float64") (eq $replicaCountKind "int64") }}
-{{- if not (and $replicaCountIsNumeric (eq (printf "%v" .Values.replicaCount) "1")) }}
-{{- fail "replicaCount must remain 1 because OpAMP connections are process-local" }}
-{{- end }}
 apiVersion: apps/v1
 kind: Deployment
 {{- if not (or .Values.database.existingSecret .Values.database.dsn) }}
@@ -95,15 +90,14 @@ spec:
               value: ":8080"
             - name: OPAMP_ADDR
               value: ":4320"
-            - name: OPAMP_SHARED_SECRET
-              {{- if .Values.opampSharedSecret }}
-              valueFrom:
-                secretKeyRef:
-                  name: {{ .Release.Name }}-secret
-                  key: opamp-shared-secret
-              {{- else }}
-              value: ""
-              {{- end }}
+            - name: OPAMP_INSECURE
+              value: {{ .Values.opamp.insecure | quote }}
+            {{- if .Values.opamp.tls.existingSecret }}
+            - name: OPAMP_TLS_CERT_FILE
+              value: "/var/run/otel-magnify/opamp-tls/tls.crt"
+            - name: OPAMP_TLS_KEY_FILE
+              value: "/var/run/otel-magnify/opamp-tls/tls.key"
+            {{- end }}
             - name: CORS_ORIGINS
               value: {{ .Values.config.corsOrigins | quote }}
           resources:
@@ -111,6 +105,11 @@ spec:
           volumeMounts:
             - name: tmp
               mountPath: /tmp
+            {{- if .Values.opamp.tls.existingSecret }}
+            - name: opamp-tls
+              mountPath: /var/run/otel-magnify/opamp-tls
+              readOnly: true
+            {{- end }}
           livenessProbe:
             httpGet:
               path: /healthz
@@ -135,3 +134,13 @@ spec:
       volumes:
         - name: tmp
           emptyDir: {}
+        {{- if .Values.opamp.tls.existingSecret }}
+        - name: opamp-tls
+          secret:
+            secretName: {{ .Values.opamp.tls.existingSecret }}
+            items:
+              - key: {{ .Values.opamp.tls.certKey | quote }}
+                path: tls.crt
+              - key: {{ .Values.opamp.tls.privateKeyKey | quote }}
+                path: tls.key
+        {{- end }}

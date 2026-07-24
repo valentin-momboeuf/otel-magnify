@@ -1,0 +1,42 @@
+{{- if .Values.networkPolicy.enabled }}
+{{- $apiEnabled := or .Values.networkPolicy.api.allowAll (gt (len .Values.networkPolicy.api.from) 0) }}
+{{- $opampEnabled := or .Values.networkPolicy.opamp.allowAll (gt (len .Values.networkPolicy.opamp.from) 0) }}
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: {{ .Release.Name }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app: {{ .Release.Name }}
+spec:
+  podSelector:
+    matchLabels:
+      app: {{ .Release.Name }}
+  policyTypes:
+    - Ingress
+  {{- if or $apiEnabled $opampEnabled }}
+  ingress:
+    {{- if $apiEnabled }}
+      {{- if .Values.networkPolicy.api.allowAll }}
+    - ports:
+      {{- else }}
+    - from:
+        {{- toYaml .Values.networkPolicy.api.from | nindent 8 }}
+      ports:
+      {{- end }}
+        - port: api
+    {{- end }}
+    {{- if $opampEnabled }}
+      {{- if .Values.networkPolicy.opamp.allowAll }}
+    - ports:
+      {{- else }}
+    - from:
+        {{- toYaml .Values.networkPolicy.opamp.from | nindent 8 }}
+      ports:
+      {{- end }}
+        - port: opamp
+    {{- end }}
+  {{- else }}
+  ingress: []
+  {{- end }}
+{{- end }}

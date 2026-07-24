@@ -1,0 +1,8 @@
+{{- $replicaCountKind := kindOf .Values.replicaCount }}
+{{- $replicaCountIsNumeric := or (eq $replicaCountKind "float64") (eq $replicaCountKind "int64") }}
+{{- if not (and $replicaCountIsNumeric (eq (printf "%v" .Values.replicaCount) "1")) }}
+{{- fail "replicaCount must remain 1 because OpAMP connections, token revocation, and token expiration are process-local; distributed broadcast is required before scaling out" }}
+{{- end }}
+{{- if and .Values.opamp.insecure .Values.opamp.tls.existingSecret }}
+{{- fail "opamp.insecure=true cannot be combined with opamp.tls.existingSecret" }}
+{{- end }}
