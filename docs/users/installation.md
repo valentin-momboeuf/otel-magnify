@@ -41,16 +41,35 @@ Save its one-shot value in a private file, then start the opt-in activation
 agent:
 
 ```bash
-mkdir -m 700 -p .tmp
-read -r -s -p "Paste the one-shot OpAMP token: " OPAMP_TOKEN
+opamp_token_directory="$(mktemp -d "/tmp/otel-magnify-opamp.XXXXXX")"
+chmod 700 "${opamp_token_directory}"
+export OPAMP_TOKEN_FILE="${opamp_token_directory}/opamp-token"
+cleanup_opamp_token() {
+  rm -f -- "${OPAMP_TOKEN_FILE:-}"
+  rmdir -- "${opamp_token_directory:-}" 2>/dev/null || true
+}
+trap cleanup_opamp_token EXIT
+
+read -r -s -p "Paste the one-shot OpAMP token: " opamp_token
 echo
-printf '%s' "${OPAMP_TOKEN}" >.tmp/opamp-token
-chmod 600 .tmp/opamp-token
-unset OPAMP_TOKEN
-export OPAMP_TOKEN_FILE="${PWD}/.tmp/opamp-token"
+printf '%s' "${opamp_token}" >"${OPAMP_TOKEN_FILE}"
+chmod 600 "${OPAMP_TOKEN_FILE}"
+unset opamp_token
 export OPAMP_RUNTIME_UID="$(id -u)"
 export OPAMP_RUNTIME_GID="$(id -g)"
 docker compose --profile activation up --detach --build activation-agent
+```
+
+The token directory is outside the checkout. The trap removes it when this
+shell exits. When the demo is finished, stop the agent and clean it up
+immediately:
+
+```bash
+docker compose --profile activation stop activation-agent
+cleanup_opamp_token
+trap - EXIT
+unset OPAMP_TOKEN_FILE OPAMP_RUNTIME_UID OPAMP_RUNTIME_GID opamp_token_directory
+unset -f cleanup_opamp_token
 ```
 
 The local OpAMP endpoint is available only on the Compose network at
@@ -296,6 +315,14 @@ and verify recovery independently before an application upgrade.
 
 Reference Secrets created by your secret manager without copying their content
 into a Helm values file:
+
+```bash
+kubectl create namespace otel-agents --dry-run=client -o yaml | kubectl apply -f -
+kubectl label namespace otel-agents opamp-clients=true --overwrite
+```
+
+The commands above create the example client namespace and apply the exact
+label selected by this NetworkPolicy configuration:
 
 ```yaml
 database:

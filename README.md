@@ -93,20 +93,39 @@ docker compose up --detach --build postgres otel-magnify
 
 Open `http://localhost:8080`, sign in, then open
 **Administration → OpAMP tokens** and create the first token. Its credential
-value is shown once. Save it in the local activation file without putting it in
-shell history, then start the agent:
+value is shown once. Save it in a temporary activation file outside the
+checkout without putting it in shell history, then start the agent:
 
 ```bash
-mkdir -m 700 -p .tmp
-read -r -s -p "Paste the one-shot OpAMP token: " OPAMP_TOKEN
+opamp_token_directory="$(mktemp -d "/tmp/otel-magnify-opamp.XXXXXX")"
+chmod 700 "${opamp_token_directory}"
+export OPAMP_TOKEN_FILE="${opamp_token_directory}/opamp-token"
+cleanup_opamp_token() {
+  rm -f -- "${OPAMP_TOKEN_FILE:-}"
+  rmdir -- "${opamp_token_directory:-}" 2>/dev/null || true
+}
+trap cleanup_opamp_token EXIT
+
+read -r -s -p "Paste the one-shot OpAMP token: " opamp_token
 echo
-printf '%s' "${OPAMP_TOKEN}" >.tmp/opamp-token
-chmod 600 .tmp/opamp-token
-unset OPAMP_TOKEN
-export OPAMP_TOKEN_FILE="${PWD}/.tmp/opamp-token"
+printf '%s' "${opamp_token}" >"${OPAMP_TOKEN_FILE}"
+chmod 600 "${OPAMP_TOKEN_FILE}"
+unset opamp_token
 export OPAMP_RUNTIME_UID="$(id -u)"
 export OPAMP_RUNTIME_GID="$(id -g)"
 docker compose --profile activation up --detach --build activation-agent
+```
+
+The token directory is outside the checkout. The trap removes it when this
+shell exits. When the demo is finished, stop the agent and clean it up
+immediately:
+
+```bash
+docker compose --profile activation stop activation-agent
+cleanup_opamp_token
+trap - EXIT
+unset OPAMP_TOKEN_FILE OPAMP_RUNTIME_UID OPAMP_RUNTIME_GID opamp_token_directory
+unset -f cleanup_opamp_token
 ```
 
 Select `otelcol-activation-demo`, edit the configuration, then use **Validate
@@ -145,6 +164,7 @@ or prepare an application upgrade.
 ```bash
 # Backend
 export JWT_SECRET="$(openssl rand -hex 32)"
+OPAMP_INSECURE=true \
 DB_DSN="${DB_DSN:?set DB_DSN through your local secret workflow}" \
   go run ./cmd/server/
 
@@ -154,7 +174,10 @@ npm install
 npm run dev
 ```
 
-The API runs on `:8080`, OpAMP on `:4320`, frontend dev server on `:5173` (proxied to backend).
+The API runs on `:8080`, the explicitly insecure local OpAMP listener on
+`:4320`, and the frontend dev server on `:5173` (proxied to the backend). Do
+not use this plaintext OpAMP setting outside a trusted local development
+network.
 
 ### 5,000 collector load test
 
@@ -174,7 +197,10 @@ timing controls, output artifacts, and acceptance criteria.
 
 ```bash
 read -r -p "Released image version (without v prefix): " otel_magnify_version
+namespace="otel-magnify"
+kubectl create namespace "${namespace}" --dry-run=client -o yaml | kubectl apply -f -
 helm install magnify helm/otel-magnify/ \
+  --namespace "${namespace}" \
   --set image.tag="${otel_magnify_version:?pin a released image version}" \
   --set database.existingSecret=magnify-postgres \
   --set auth.existingSecret=magnify-auth \

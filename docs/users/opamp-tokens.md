@@ -58,7 +58,8 @@ listener. Restrict source namespaces, pods, or networks with
 Plain `ws://` is only for an explicitly trusted local test network. Set
 `OPAMP_INSECURE=true` with no TLS files, as the repository's isolated Compose
 scenario does. Never transmit a bearer token over plaintext outside that
-bounded local mode, and never disable client certificate verification.
+bounded local mode, and never disable server-certificate verification by the
+client.
 
 ## Configure clients
 
@@ -104,9 +105,9 @@ remote configuration. This version has official binaries and the image
 `ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-opampsupervisor:0.150.0`.
 Pair it with Collector contrib `0.150.1`; do not silently substitute another
 version because the Supervisor configuration is version-sensitive. The
-official Supervisor image bundles the Collector from its own release, so use
-the `0.150.0` Supervisor binary in a pinned combined image or mount a verified
-Collector contrib `0.150.1` executable.
+official Supervisor image contains only the Supervisor. Supply a separately
+pinned and verified Collector contrib `0.150.1` executable through your image
+build or artifact workflow while keeping Supervisor `0.150.0`.
 
 The Supervisor's equivalent connection block is:
 
@@ -119,9 +120,10 @@ server:
     insecure: false
 ```
 
-Set `capabilities.accepts_remote_config: true` and provide a writable
-`storage.directory`. For a private PKI, mount the CA and add
-`server.tls.ca_file` rather than disabling verification.
+Set `capabilities.accepts_remote_config: true` and place `storage.directory`
+on a persistent writable volume so a pod replacement preserves the Supervisor
+`InstanceUid`. For a private PKI, mount the CA and add `server.tls.ca_file`
+rather than disabling verification.
 
 ### Kubernetes
 
@@ -138,24 +140,32 @@ env:
         key: token
 ```
 
-Mount a private CA from a separate Secret when required:
+Mount a private CA from a separate Secret when required. The official
+Supervisor image runs as UID `10001`; the pod-level `fsGroup` below gives that
+non-root process group-read access without making the CA world-readable:
 
 ```yaml
-volumeMounts:
-  - name: opamp-ca
-    mountPath: /var/run/secrets/opamp-ca
-    readOnly: true
-volumes:
-  - name: opamp-ca
-    secret:
-      secretName: opamp-client-ca
-      defaultMode: 0400
+spec:
+  securityContext:
+    fsGroup: 10001
+  containers:
+    - name: opamp-supervisor
+      volumeMounts:
+        - name: opamp-ca
+          mountPath: /var/run/secrets/opamp-ca
+          readOnly: true
+  volumes:
+    - name: opamp-ca
+      secret:
+        secretName: opamp-client-ca
+        defaultMode: 0440
 ```
 
-Ensure the container UID can read mounted files. Outside Kubernetes, store
-token and private-CA files in an operator-owned directory with mode `0700` and
-credential files with mode `0600`. Avoid world-readable files, process
-arguments, and committed environment files.
+For a different client image, set `fsGroup` to a supplementary group used by
+that non-root process. Outside Kubernetes, store token and private-CA files in
+an operator-owned directory with mode `0700` and credential files with mode
+`0600`. Avoid world-readable files, process arguments, and committed
+environment files.
 
 ## Rotate, expire, and revoke
 
@@ -163,9 +173,16 @@ Use overlapping rotation:
 
 1. Create a replacement token and store its one-shot value.
 2. Deploy it to the intended clients while the old token remains active.
-3. Refresh the token list until the replacement's `last_used_at` proves a
-   client completed its first authenticated OpAMP message.
-4. Revoke the old token.
+3. Restart or roll out every workload that receives the token through a
+   Secret-backed environment variable; running processes do not receive Secret
+   value updates.
+4. Check the rollout against an explicit list of expected instances. Confirm
+   every expected replica was recreated after the Secret update and has
+   reconnected healthy before continuing.
+5. Use the replacement token's `last_used_at` only as supporting token-level
+   evidence that at least one client used it. It does not prove the full fleet
+   migrated.
+6. Revoke the old token only after all expected instances are accounted for.
 
 Revocation prevents new handshakes and disconnects existing connections that
 used that token. Expiration has the same fail-closed connection effect at
@@ -188,9 +205,11 @@ disconnected. Clients then reconnect only after receiving another active token.
   Do not blindly retry a create.
 
 Community persists a durable audit outbox only for token creation and
-revocation. When an Enterprise audit sink is configured, delivery is at least
-once: a sink can receive the same `event_id` again if delivery succeeded but
-acknowledgement did not. Enterprise consumers must deduplicate by `event_id`.
+revocation. At-least-once delivery starts only when a persistent Enterprise
+sink is wired through `WithAuditOutboxSink`; that dispatcher can deliver the
+same `event_id` again if delivery succeeded but acknowledgement did not.
+Enterprise consumers must deduplicate by `event_id`. `AUDIT_SINK=stdout` does
+not wire an outbox sink or start that dispatcher, so these rows remain pending.
 
 ## Security boundaries and current limits
 
@@ -200,10 +219,13 @@ workload metadata. Do not treat inventory metadata as a strong workload
 identity, and never place raw secrets in remote Collector configurations:
 remote configs are stored, rendered, and delivered as configuration data.
 
-Community supports one server replica. Token revocation, token expiration, live
-connections, and invalidation are process-local, so the Helm chart rejects any
+Community supports one server replica. Token lifecycle state and expiry data
+are PostgreSQL-backed, so revoked or expired tokens are rejected on new
+handshakes regardless of which server process checks them. Active-session
+invalidation and teardown, including expiry timers, are process-local and are
+not distributed between replicas. The Helm chart therefore rejects any
 `replicaCount` other than `1` and uses the `Recreate` strategy. Distributed
-invalidation is required before horizontal scaling is safe.
+session invalidation is required before horizontal scaling is safe.
 
 There is intentionally no application rate limiter keyed by `RemoteAddr`.
 Behind a proxy or NAT, that would let one abusive connection lock out an entire

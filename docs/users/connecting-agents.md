@@ -96,12 +96,11 @@ version-sensitive. The official image is:
 ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-opampsupervisor:0.150.0
 ```
 
-The official Supervisor image also bundles the Collector from the Supervisor
-release. The documented otel-magnify pairing deliberately uses Collector
-contrib `0.150.1`, so build a pinned combined image around the Supervisor
-`0.150.0` binary or mount a verified `0.150.1` executable through your artifact
-workflow. Do not silently use the bundled different version or download an
-unpinned executable during pod startup.
+The official image contains the Supervisor only; it does not contain a
+Collector executable. Supply a separately pinned and verified Collector
+contrib `0.150.1` executable through your image build or artifact workflow
+while keeping Supervisor `0.150.0`. Do not download an unpinned executable
+during pod startup.
 
 Supervisor configuration (`supervisor.yaml`):
 
@@ -120,7 +119,7 @@ capabilities:
   reports_remote_config: true
 
 agent:
-  executable: /otelcol-contrib    # path inside the contrib image
+  executable: /opt/otel/otelcol-contrib    # separately supplied 0.150.1 executable
   description:
     identifying_attributes:
       service.name: otelcol-contrib    # must match otelcol* to be classified as a collector
@@ -130,14 +129,35 @@ agent:
       deployment.environment: production
 
 storage:
-  directory: /tmp/supervisor       # needs a writable dir inside the container
+  directory: /var/lib/otelcol/supervisor
 ```
 
 Inject `OPAMP_TOKEN` from a Kubernetes `secretKeyRef`, External Secrets, Vault,
 or an equivalent secret manager. Mount a private CA and set
 `server.tls.ca_file` when the WSS certificate is not rooted in the system trust
-store. Give the non-root runtime a writable Supervisor storage volume; do not
-solve storage permissions by running the container as root.
+store.
+
+Mount persistent writable storage at that directory so a pod replacement
+retains the Supervisor `InstanceUid`. Use a distinct claim for each Supervisor
+instance rather than sharing one state directory:
+
+```yaml
+securityContext:
+  fsGroup: 10001
+containers:
+  - name: opamp-supervisor
+    volumeMounts:
+      - name: supervisor-state
+        mountPath: /var/lib/otelcol/supervisor
+volumes:
+  - name: supervisor-state
+    persistentVolumeClaim:
+      claimName: opamp-supervisor-state
+```
+
+The official image runs as UID `10001`; grant that non-root runtime write
+access to the claim. Do not solve storage permissions by running the container
+as root.
 
 ## Simulating an SDK agent
 
