@@ -53,13 +53,31 @@ npm run test:unit
 
 ## End-to-end and integration checks
 
-- Cold Community activation: `./scripts/activation-smoke.sh` builds an isolated Compose stack, requires an exact `ready` response, verifies PostgreSQL major 18, and exercises bootstrap, login, workload discovery, governed push, and the final OpAMP `applied` status within 15 minutes.
+- Cold Community activation: `./scripts/activation-smoke.sh` builds an
+  isolated Compose stack, requires an exact `ready` response, verifies
+  PostgreSQL major 18, creates and later revokes a managed token, mounts it as a
+  mode-`0600` file into the non-root simulator, and exercises bootstrap, login,
+  workload discovery, governed push, and final OpAMP `applied` status within 15
+  minutes.
 - PostgreSQL lifecycle: `./scripts/postgres-lifecycle-test.sh` verifies the signed v0.7.1 baseline, PostgreSQL 16-to-18 dump/restore, current migrations, restart, and pre-upgrade restore paths with real isolated databases.
 - Helm activation contract: `./scripts/helm-activation-test.sh` verifies Secret references and fail-closed rendering without exposing secret values.
 - Mocked Playwright E2E: `cd frontend && npm run test:e2e`.
 - Real-backend Playwright flow: `./scripts/e2e-real.sh` or `cd frontend && npm run test:e2e:real` when you intentionally want Docker-backed services.
 - SDK agent simulator: `cmd/sdkagent/` exercises the OpAMP pipeline without a real Collector.
 - Docker Compose provides the PostgreSQL service used by the real-backend E2E suite.
+
+Managed-token and secure-client changes use the pinned Go image:
+
+```bash
+docker run --rm --volume "$PWD:/app" --workdir /app golang:1.25.12 \
+  go test ./internal/opampauth ./internal/opamp ./internal/api ./internal/store \
+  ./pkg/server ./cmd/sdkagent ./cmd/opamp-load
+```
+
+The store and API packages require the disposable PostgreSQL 18 test
+environment described above. The activation and load-test clients accept
+credentials only through `--token-file`; plaintext WS additionally requires
+`--allow-insecure-transport`.
 
 ## Docs and hygiene checks
 

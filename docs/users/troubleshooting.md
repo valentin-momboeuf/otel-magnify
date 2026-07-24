@@ -4,7 +4,29 @@ Use this page to map common symptoms to the first checks to run.
 
 ## Agents and workloads
 
-- Agent connects but no workload appears in the inventory — check `OPAMP_ADDR`, WebSocket upgrade, reverse-proxy `Connection: Upgrade` headers, and OpAMP bearer auth if `OPAMP_SHARED_SECRET` is set. Also confirm the agent reports enough resource attributes to satisfy at least the `uid` fingerprint strategy; any OpAMP client should provide this by default.
+- Agent receives `401 Unauthorized` — confirm it sends exactly one
+  `Authorization: Bearer ...` header containing an active managed token. The
+  server intentionally uses the same generic response for malformed, unknown,
+  expired, and revoked credentials.
+- Agent receives `503 Service Unavailable` during the handshake — the token
+  store is unavailable or the server is stopping. Check PostgreSQL readiness;
+  do not replace the token until store health is restored.
+- Agent cannot reach port `4320` — with the secure default, the OpAMP listener
+  stays disabled unless both `OPAMP_TLS_CERT_FILE` and
+  `OPAMP_TLS_KEY_FILE` form a valid, currently usable pair. In Helm, also check
+  the external TLS Secret, service exposure, and
+  `networkPolicy.opamp.from`.
+- WSS fails certificate validation — use a hostname covered by the server
+  certificate and mount the private CA with `tls.ca_file` when applicable.
+  Never set `insecure: true` to bypass verification.
+- Agent connects but no workload appears in the inventory — check
+  `OPAMP_ADDR`, WSS/WebSocket upgrade, load-balancer passthrough or
+  re-encryption, and `Connection: Upgrade` handling. Then confirm the agent
+  reports enough resource attributes to satisfy at least the `uid` fingerprint
+  strategy; any OpAMP client should provide this by default.
+- Replacement token has no `last_used_at` — a client has not completed its
+  first authenticated OpAMP message with that token. Do not revoke the old
+  token until the replacement shows use.
 - Multiple pods land on different workloads when you expect one — the `k8s` fingerprint requires `k8s.namespace.name` plus a workload-kind attribute such as `k8s.deployment.name` or `k8s.daemonset.name`. Enable the Collector `resourcedetection` processor with the `k8s` detector to populate them.
 - Workload stays `connected` after the pods are gone — normal for up to `WORKLOAD_DISCONNECT_GRACE_SECONDS` (default 120 seconds); it flips to `disconnected` after the grace window elapses.
 - A workload disappeared from the inventory — check whether it was manually archived or archived by `WORKLOAD_RETENTION_DAYS` (default 30). Archived workloads are kept in the database but hidden by default; include archived workloads from the UI/API when you need audit history.

@@ -7,7 +7,9 @@ Exhaustive community-server runtime reference. See [Configuration](../users/conf
 | `JWT_SECRET` | Yes | — | Auth | HS256 signing key for JWT tokens. Startup fails when this is unset, when the placeholder value is used, or when the value is shorter than 32 characters. Use a strong random value; at least 32 bytes is recommended for HMAC-SHA256. |
 | `LISTEN_ADDR` | No | `:8080` | API | HTTP listen address for the REST API, embedded frontend, health check, and browser WebSocket hub. |
 | `OPAMP_ADDR` | No | `:4320` | OpAMP | Listen address for the OpAMP WebSocket server. The OpAMP path is `/v1/opamp`. |
-| `OPAMP_SHARED_SECRET` | No | — | OpAMP | Optional bearer token required from OpAMP clients during the HTTP/WebSocket handshake. Empty keeps local/dev OpAMP connections unauthenticated; set a random value for production, shared, or exposed networks. |
+| `OPAMP_INSECURE` | No | `false` | OpAMP | Exact `true` enables plaintext WS only for a trusted local test network. `false` requires both TLS file variables; without them, the OpAMP listener is disabled while the API remains available. |
+| `OPAMP_TLS_CERT_FILE` | No | — | OpAMP | Server certificate chain path for native WSS. Required with `OPAMP_TLS_KEY_FILE` unless insecure local mode is explicitly enabled. |
+| `OPAMP_TLS_KEY_FILE` | No | — | OpAMP | Server private-key path for native WSS. Required with `OPAMP_TLS_CERT_FILE` unless insecure local mode is explicitly enabled. |
 | `CORS_ORIGINS` | No | `http://localhost:5173` | API | Comma-separated list of allowed browser origins. Docker Compose sets this to `http://localhost:8080` for same-origin production-style access. |
 | `DB_DSN` | Yes | — | Store | PostgreSQL 18.x connection string. Docker Compose supplies a local service URL; use `sslmode=verify-full` with a trusted root CA and hostname verification in production. |
 | `DB_MAX_OPEN_CONNS` | No | `40` | Store | Maximum PostgreSQL connections held open. |
@@ -26,18 +28,16 @@ Exhaustive community-server runtime reference. See [Configuration](../users/conf
 ## Load-test variables
 
 These variables are consumed only by `scripts/load-test-5000.sh`; they are not
-community-server runtime configuration. Use test-only values and never reuse
-production credentials for this scenario. `DB_DSN` is required as an intent
-guard, but its supplied value is ignored and replaced with the local isolated
-Compose PostgreSQL DSN.
+community-server runtime configuration. The script generates invocation-local
+JWT, database, admin, and managed OpAMP token credentials under a private
+temporary directory and ignores inherited credential variables.
 
 | Variable | Required | Default | Description |
 |----------|----------|---------|-------------|
 | `LOAD_TEST_CONFIRM` | Yes | — | Must be exactly `5000` before the script will start the 5,000 collector scenario. |
-| `DB_DSN` | Yes | — | Required intent guard. The supplied value is ignored and replaced with the fixed isolated Compose PostgreSQL DSN. |
 | `LOAD_TEST_RAMP` | No | `5m` | Go duration used to spread 5,000 client starts. |
 | `LOAD_TEST_HOLD` | No | `10m` | Go duration that keeps established connections open. |
-| `LOAD_TEST_OUTPUT_DIR` | No | system temporary directory | Directory for the JSON summary, Docker resource snapshot, PostgreSQL activity query, and filtered application errors. |
+| `LOAD_TEST_READY_TIMEOUT_SECONDS` | No | `900` | Positive integer timeout for all 5,000 clients to reach the hold phase. |
 
 ## Feature flags
 
@@ -62,7 +62,8 @@ Capability discovery is not authorization; protected APIs still enforce authenti
 The following values should not be pasted into public issues, docs, logs, or screenshots:
 
 - Real `JWT_SECRET` values.
-- Real `OPAMP_SHARED_SECRET` values.
+- Managed OpAMP token values, including client-side `OPAMP_TOKEN`.
+- Private keys referenced by `OPAMP_TLS_KEY_FILE`.
 - PostgreSQL credentials inside `DB_DSN`.
 - Credential-bearing `WEBHOOK_URL` values.
 - Bearer JWTs and WebSocket URLs containing `?token=`.

@@ -3,22 +3,38 @@
 otel-magnify accepts OpAMP client connections on a dedicated WebSocket listener. The default endpoint is:
 
 ```text
-ws://<host>:4320/v1/opamp
+wss://<host>:4320/v1/opamp
 ```
 
-The listen address is configured with `OPAMP_ADDR`; the path is always `/v1/opamp`.
+The listen address is configured with `OPAMP_ADDR`; the path is always
+`/v1/opamp`. The listener is disabled by default until native TLS is configured.
 
 ## Authentication and transport
 
-Set `OPAMP_SHARED_SECRET` to require an HTTP `Authorization` header during the WebSocket handshake:
+Every handshake requires an active managed token:
 
 ```http
-Authorization: Bearer <shared-secret>
+Authorization: Bearer <managed-opamp-token>
 ```
 
-Missing or mismatched tokens receive `401 Unauthorized` before OpAMP messages are processed. Leaving `OPAMP_SHARED_SECRET` empty preserves unauthenticated local/dev connections.
+Create, list, rotate, and revoke tokens through the versioned admin API or the
+**Administration → OpAMP tokens** page. The credential value is returned only
+once. See [Managed OpAMP tokens](../users/opamp-tokens.md) for the complete
+lifecycle and client configuration.
 
-The community server speaks plain WebSocket. Terminate TLS at a reverse proxy or load balancer for production deployments, and keep the OpAMP listener scoped to trusted agents/networks where possible.
+Missing, malformed, unknown, expired, and revoked tokens receive the same
+generic `401 Unauthorized` with
+`WWW-Authenticate: Bearer realm="opamp"`. A token-store failure returns generic
+`503 Service Unavailable`. Successful authentication does not bind the token's
+team or environment metadata to the workload attributes reported by the
+client.
+
+Native TLS uses `OPAMP_TLS_CERT_FILE` and `OPAMP_TLS_KEY_FILE`. With the
+default `OPAMP_INSECURE=false`, missing or invalid TLS material keeps the
+OpAMP listener disabled. `OPAMP_INSECURE=true` enables plaintext `ws://` only
+for an explicitly trusted local test network and cannot be combined with TLS
+files. Production load balancers must pass through TLS or re-encrypt to the
+native WSS listener.
 
 ## Capabilities used by otel-magnify
 

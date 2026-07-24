@@ -21,6 +21,9 @@ See [Authentication](authentication.md) for login, token lifetime, WebSocket aut
 | `GET` | `/healthz` | No | Plain `ok` liveness response; independent of database connectivity. |
 | `GET` | `/readyz` | No | Plain `ready` response when PostgreSQL is reachable; otherwise `503 not ready`. |
 | `GET` | `/api/system/database` | Yes + `ManageSettings` permission | Numeric PostgreSQL connection-pool statistics. |
+| `GET` | `/api/v1/opamp/tokens` | Yes + `ManageSettings` permission | Lists public managed-token metadata; credential values are never returned. |
+| `POST` | `/api/v1/opamp/tokens` | Yes + `ManageSettings` permission | Creates a managed OpAMP token and returns its credential value once. |
+| `POST` | `/api/v1/opamp/tokens/{id}/revoke` | Yes + `ManageSettings` permission | Revokes a token and disconnects connections authenticated with it. |
 | `GET` | `/api/workloads` | Yes | Lists active, non-archived workloads; pass `?include_archived=true` to include archived rows. |
 | `GET` | `/api/workloads/version-intelligence?recommended_version=...` | Yes + feature gate | Fleet version posture; gated by `config_safety.version_intelligence`. |
 | `GET` | `/api/workloads/{id}` | Yes | Fetches one workload. |
@@ -146,6 +149,88 @@ Community advertises only `config_safety.approvals` and `config_safety.policy_pr
 ```
 
 Capability discovery is not authorization; protected APIs still enforce authentication, RBAC, and server-side gates. `WithCapabilities` is preferred for typed declarations; `WithFeatures` remains supported for legacy edition overlays.
+
+## Managed OpAMP token contracts
+
+All three endpoints require the `settings:manage` permission. `team` and
+`environment` are operator metadata, not authorization rules or workload
+bindings. See [Managed OpAMP tokens](../users/opamp-tokens.md) for the
+operational lifecycle.
+
+### `POST /api/v1/opamp/tokens`
+
+Request:
+
+```json
+{
+  "name": "production-platform",
+  "description": "Production platform collectors",
+  "team": "platform",
+  "environment": "production",
+  "expires_at": "2026-10-01T00:00:00Z"
+}
+```
+
+Only `name` is required. `expires_at`, when present, must be in the future.
+Unknown JSON fields are rejected. The successful response is `201 Created`,
+sets `Cache-Control: no-store` and `Pragma: no-cache`, and contains public
+metadata plus a `value` field. That credential value is returned once and
+cannot be retrieved through another endpoint.
+
+### `GET /api/v1/opamp/tokens`
+
+Returns `200 OK` with newest-first public metadata:
+
+```json
+{
+  "tokens": [
+    {
+      "id": "<token-id>",
+      "name": "production-platform",
+      "description": "Production platform collectors",
+      "team": "platform",
+      "environment": "production",
+      "created_at": "2026-07-24T12:00:00Z",
+      "created_by": "<user-id>",
+      "expires_at": "2026-10-01T00:00:00Z",
+      "last_used_at": "2026-07-24T12:05:00Z",
+      "status": "active"
+    }
+  ]
+}
+```
+
+`status` is `active`, `expired`, or `revoked`. `last_used_at` is recorded after
+the first authenticated OpAMP message and is rate-limited to one database
+update per 30-second activity window. No response from this endpoint contains
+the credential value or its hash.
+
+### `POST /api/v1/opamp/tokens/{id}/revoke`
+
+A successful response is `200 OK` with the revoked token metadata and
+`disconnected_connections`, the number of process-local connections selected
+for fail-closed disconnection. Revocation prevents new handshakes and
+disconnects existing connections using that token. Repeating revocation for a
+known already-revoked token remains safe; an unknown ID returns `404`.
+
+### Store and unknown-outcome failures
+
+A normal store failure returns generic `503 Service Unavailable` with
+`{"error":"token store unavailable"}`. If a create or revoke commit result is
+unknown, the response is:
+
+```json
+{
+  "error": "operation outcome unknown",
+  "side_effect_status": "unknown",
+  "token_id": "<token-id>"
+}
+```
+
+List tokens before taking another action. For an unknown create, revoke the
+exact ID if it exists because no one-shot credential was safely delivered. For
+an unknown revoke, retry only if the listed token is still active or expired.
+Do not blindly retry creation.
 
 ## Workload contracts
 

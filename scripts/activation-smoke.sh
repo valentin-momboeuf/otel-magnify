@@ -308,7 +308,7 @@ activation_main() {
   repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
   cd "${repo_root}"
 
-  unset DB_DSN OPAMP_SHARED_SECRET OPAMP_TOKEN_FILE COMPOSE_FILE COMPOSE_ENV_FILES
+  unset DB_DSN OPAMP_TOKEN_FILE COMPOSE_FILE COMPOSE_ENV_FILES
 
   activation_project_name="otel-magnify-activation-$$-${RANDOM}"
   if [[ ! "${activation_project_name}" =~ ^otel-magnify-activation-[0-9]+-[0-9]+$ ]]; then
