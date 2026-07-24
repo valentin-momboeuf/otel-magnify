@@ -1,6 +1,6 @@
 # Connecting agents
 
-Agents connect to otel-magnify over [OpAMP](https://opentelemetry.io/docs/specs/opamp/) on port `:4320` (configurable via `OPAMP_ADDR`).
+Agents connect to otel-magnify over [OpAMP](https://opentelemetry.io/docs/specs/opamp/) through the default native/internal listener on `:4320` (configurable via `OPAMP_ADDR`); public WSS endpoints commonly use implicit port `443` and pass through or re-encrypt to that listener.
 
 Two agent types are supported:
 
