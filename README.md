@@ -195,26 +195,38 @@ timing controls, output artifacts, and acceptance criteria.
 
 ### Kubernetes (Helm)
 
+Before installing, create `magnify-postgres`, `magnify-auth`,
+`magnify-bootstrap`, and `magnify-opamp-tls` in the `otel-magnify` namespace.
+Follow the [documented bootstrap workflow](docs/users/installation.md#kubernetes-helm)
+through its four `kubectl create secret` commands, then return here and run:
+
 ```bash
 read -r -p "Released image version (without v prefix): " otel_magnify_version
 namespace="otel-magnify"
 kubectl create namespace "${namespace}" --dry-run=client -o yaml | kubectl apply -f -
-helm install magnify helm/otel-magnify/ \
-  --namespace "${namespace}" \
-  --set image.tag="${otel_magnify_version:?pin a released image version}" \
-  --set database.existingSecret=magnify-postgres \
-  --set auth.existingSecret=magnify-auth \
-  --set auth.seedAdmin.enabled=true \
-  --set auth.seedAdmin.existingSecret=magnify-bootstrap \
-  --set opamp.tls.existingSecret=magnify-opamp-tls
+if kubectl --namespace "${namespace}" get \
+  secret/magnify-postgres \
+  secret/magnify-auth \
+  secret/magnify-bootstrap \
+  secret/magnify-opamp-tls >/dev/null; then
+  helm install magnify helm/otel-magnify/ \
+    --namespace "${namespace}" \
+    --set image.tag="${otel_magnify_version:?pin a released image version}" \
+    --set database.existingSecret=magnify-postgres \
+    --set auth.existingSecret=magnify-auth \
+    --set auth.seedAdmin.enabled=true \
+    --set auth.seedAdmin.existingSecret=magnify-bootstrap \
+    --set opamp.tls.existingSecret=magnify-opamp-tls
+else
+  printf '%s\n' "Create all four prerequisite Secrets before installing." >&2
+fi
 ```
 
-Create those Secrets through a secret manager or the [documented bootstrap
-workflow](docs/users/installation.md#kubernetes-helm). Keep the durable JWT key,
-removable first-admin bootstrap Secret, server TLS Secret, and client token
-Secrets separate. The chart denies OpAMP ingress by default; configure explicit
-NetworkPolicy peers. Keep `replicaCount: 1` while token invalidation, OpAMP
-connections, and the live registry remain process-local.
+Keep the durable JWT key, removable first-admin bootstrap Secret, server TLS
+Secret, and client token Secrets separate. The chart denies OpAMP ingress by
+default; configure explicit NetworkPolicy peers. Keep `replicaCount: 1` while
+token invalidation, OpAMP connections, and the live registry remain
+process-local.
 
 ## Configuration
 
@@ -238,7 +250,12 @@ All configuration via environment variables:
 
 ## Connecting Agents
 
-otel-magnify manages agents via the [OpAMP](https://opentelemetry.io/docs/specs/opamp/) protocol. Each agent must connect over WSS to port `4320` and present a managed token created after administrator login.
+otel-magnify manages agents via the
+[OpAMP](https://opentelemetry.io/docs/specs/opamp/) protocol. Each agent must
+connect over WSS and present a managed token created after administrator
+login. Port `4320` is the default native/internal listener; public WSS commonly
+uses port `443`. Expose it through a LoadBalancer or another TCP/TLS path that
+passes traffic through or re-encrypts to the native listener.
 
 The Collector's built-in OpAMP extension can report state but does not apply
 remote configuration. Use the OpAMP Supervisor for a real remotely managed

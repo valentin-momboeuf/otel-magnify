@@ -119,8 +119,10 @@ Capability discovery is not authorization. Protected APIs still enforce authenti
   Generic `401` covers invalid, unknown, expired, and revoked credentials;
   store failures return generic `503`.
 - Managed token creation and revocation atomically enqueue durable audit
-  outbox events. Delivery to an explicitly configured Enterprise sink is at
-  least once, so sinks must deduplicate by `event_id`.
+  outbox events. At-least-once dispatch starts only for a persistent Enterprise
+  sink wired through `WithAuditOutboxSink`, so sinks must deduplicate by
+  `event_id`. `AUDIT_SINK=stdout` wires no dispatcher and leaves the rows
+  pending.
 - `OPAMP_INSECURE=true` is restricted to trusted local tests. Production uses
   native TLS certificate/key files and WSS.
 - Feature flags are discovery metadata, not authorization. Keep RBAC checks on protected handlers even if the UI hides a feature.
