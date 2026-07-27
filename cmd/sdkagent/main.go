@@ -58,13 +58,9 @@ type config struct {
 	probeTimeout           time.Duration
 }
 
-type probeClient interface {
+type sdkAgentClient interface {
 	Start(context.Context, types.StartSettings) error
 	Stop(context.Context) error
-}
-
-type sdkAgentClient interface {
-	probeClient
 	SetAgentDescription(*protobufs.AgentDescription) error
 	SetCapabilities(*protobufs.AgentCapabilities) error
 	SetRemoteConfigStatus(*protobufs.RemoteConfigStatus) error
@@ -73,12 +69,14 @@ type sdkAgentClient interface {
 
 type clientFactory func() sdkAgentClient
 
-type diagnosticDialFunc func(
+type probeCloseFunc func() error
+
+type probeDialFunc func(
 	context.Context,
 	string,
 	http.Header,
 	*tls.Config,
-) (io.Closer, *http.Response, error)
+) (probeCloseFunc, *http.Response, error)
 
 type remoteConfigState struct {
 	mu        sync.RWMutex
@@ -127,7 +125,7 @@ func runMain(args []string, stdout io.Writer, stderr io.Writer) int {
 		func() sdkAgentClient {
 			return client.NewWebSocket(nil)
 		},
-		dialDiagnosticWebSocket,
+		dialProbeWebSocket,
 	)
 }
 
@@ -136,7 +134,7 @@ func runMainWithDependencies(
 	stdout io.Writer,
 	stderr io.Writer,
 	newClient clientFactory,
-	diagnosticDial diagnosticDialFunc,
+	probeDial probeDialFunc,
 ) int {
 	cfg, err := parseConfig(args)
 	if err != nil {
@@ -158,7 +156,7 @@ func runMainWithDependencies(
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	return run(ctx, cfg, token, tlsConfig, stdout, stderr, newClient, diagnosticDial)
+	return run(ctx, cfg, token, tlsConfig, stdout, stderr, newClient, probeDial)
 }
 
 func parseConfig(args []string) (config, error) {
@@ -293,14 +291,26 @@ func run(
 	stdout io.Writer,
 	stderr io.Writer,
 	newClient clientFactory,
-	diagnosticDial diagnosticDialFunc,
+	probeDial probeDialFunc,
 ) int {
+	if cfg.probeOnly {
+		exitCode, message := runProbe(
+			ctx,
+			cfg.endpoint,
+			buildAuthorizationHeader(token),
+			tlsConfig,
+			cfg.probeTimeout,
+			probeDial,
+		)
+		if message != "" {
+			fmt.Fprintln(stderr, message)
+		}
+		return exitCode
+	}
+
 	opampClient := newClient()
 	if opampClient == nil {
 		fmt.Fprintln(stderr, "initialize OpAMP client")
-		if cfg.probeOnly {
-			return exitProbeTransient
-		}
 		return 1
 	}
 
@@ -314,49 +324,19 @@ func run(
 		},
 	}); err != nil {
 		fmt.Fprintln(stderr, "initialize OpAMP client")
-		if cfg.probeOnly {
-			return exitProbeTransient
-		}
 		return 1
 	}
 
-	capabilities := agentCapabilities(cfg.acceptRemoteConfig && !cfg.probeOnly)
+	capabilities := agentCapabilities(cfg.acceptRemoteConfig)
 	if err := opampClient.SetCapabilities(&capabilities); err != nil {
 		fmt.Fprintln(stderr, "initialize OpAMP client")
-		if cfg.probeOnly {
-			return exitProbeTransient
-		}
 		return 1
 	}
 
 	var uid types.InstanceUid
 	if _, err := rand.Read(uid[:]); err != nil {
 		fmt.Fprintln(stderr, "initialize OpAMP client")
-		if cfg.probeOnly {
-			return exitProbeTransient
-		}
 		return 1
-	}
-
-	if cfg.probeOnly {
-		settings := buildStartSettings(
-			cfg.endpoint,
-			token,
-			tlsConfig,
-			uid,
-			types.Callbacks{},
-		)
-		exitCode, message := runProbe(
-			ctx,
-			opampClient,
-			settings,
-			cfg.probeTimeout,
-			diagnosticDial,
-		)
-		if message != "" {
-			fmt.Fprintln(stderr, message)
-		}
-		return exitCode
 	}
 
 	logger := log.New(stdout, "", log.LstdFlags)
@@ -416,97 +396,41 @@ func run(
 
 func runProbe(
 	ctx context.Context,
-	opampClient probeClient,
-	settings types.StartSettings,
+	endpoint string,
+	header http.Header,
+	tlsConfig *tls.Config,
 	timeout time.Duration,
-	diagnosticDial diagnosticDialFunc,
+	probeDial probeDialFunc,
 ) (int, string) {
 	probeCtx, cancel := context.WithTimeout(ctx, timeout)
 	defer cancel()
 
-	connected := make(chan struct{}, 1)
-	connectFailed := make(chan struct{}, 1)
-	var connectFailureOnce sync.Once
-	settings.Callbacks.OnConnect = func(context.Context) {
-		select {
-		case connected <- struct{}{}:
-		default:
-		}
+	closeConnection, response, err := probeDial(
+		probeCtx,
+		endpoint,
+		header.Clone(),
+		tlsConfig,
+	)
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
 	}
-	settings.Callbacks.OnConnectFailed = func(context.Context, error) {
-		connectFailureOnce.Do(func() {
-			connectFailed <- struct{}{}
-		})
+	if closeConnection != nil {
+		_ = closeConnection()
 	}
-
-	if err := opampClient.Start(probeCtx, settings); err != nil {
-		return exitProbeTransient, probeTransportMessage
-	}
-
-	var exitCode int
-	var message string
-probeLoop:
-	for {
-		select {
-		case <-connected:
-			exitCode, message = 0, ""
-			break probeLoop
-		case <-connectFailed:
-			connection, response, diagnosticErr := diagnosticDial(
-				probeCtx,
-				settings.OpAMPServerURL,
-				settings.Header.Clone(),
-				settings.TLSConfig,
-			)
-			if connection != nil {
-				_ = connection.Close()
-			}
-			if response != nil && response.Body != nil {
-				_ = response.Body.Close()
-			}
-
-			select {
-			case <-connected:
-				exitCode, message = 0, ""
-				break probeLoop
-			default:
-			}
-
-			if probeCtx.Err() != nil {
-				exitCode, message = probeContextOutcome(probeCtx)
-				break probeLoop
-			}
-			if connection != nil && diagnosticErr == nil {
-				continue
-			}
-			if response == nil {
-				exitCode, message = exitProbeTransient, probeTransportMessage
-			} else if isAuthoritativeUnauthorized(response) {
-				exitCode, message = exitProbeAuthRejected, probeAuthMessage
-			} else {
-				exitCode, message = exitProbeTransient, probeServiceMessage
-			}
-			break probeLoop
-		case <-probeCtx.Done():
-			select {
-			case <-connected:
-				exitCode, message = 0, ""
-			default:
-				exitCode, message = probeContextOutcome(probeCtx)
-			}
-			break probeLoop
-		}
-	}
-
-	if err := stopClient(opampClient); err != nil {
-		return exitProbeTransient, probeTransportMessage
-	}
-	select {
-	case <-connected:
+	if closeConnection != nil && err == nil && response != nil &&
+		response.StatusCode == http.StatusSwitchingProtocols {
 		return 0, ""
-	default:
-		return exitCode, message
 	}
+	if probeCtx.Err() != nil {
+		return probeContextOutcome(probeCtx)
+	}
+	if response == nil {
+		return exitProbeTransient, probeTransportMessage
+	}
+	if isAuthoritativeUnauthorized(response) {
+		return exitProbeAuthRejected, probeAuthMessage
+	}
+	return exitProbeTransient, probeServiceMessage
 }
 
 func probeContextOutcome(ctx context.Context) (int, string) {
@@ -524,18 +448,22 @@ func isAuthoritativeUnauthorized(response *http.Response) bool {
 	return len(challenges) == 1 && challenges[0] == opampBearerChallenge
 }
 
-func dialDiagnosticWebSocket(
+func dialProbeWebSocket(
 	ctx context.Context,
 	endpoint string,
 	header http.Header,
 	tlsConfig *tls.Config,
-) (io.Closer, *http.Response, error) {
+) (probeCloseFunc, *http.Response, error) {
 	dialer := *websocket.DefaultDialer
 	dialer.TLSClientConfig = tlsConfig
-	return dialer.DialContext(ctx, endpoint, header)
+	connection, response, err := dialer.DialContext(ctx, endpoint, header)
+	if connection == nil {
+		return nil, response, err
+	}
+	return connection.Close, response, err
 }
 
-func stopClient(opampClient probeClient) error {
+func stopClient(opampClient sdkAgentClient) error {
 	ctx, cancel := context.WithTimeout(context.Background(), clientStopTimeout)
 	defer cancel()
 	return opampClient.Stop(ctx)

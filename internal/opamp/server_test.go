@@ -790,7 +790,7 @@ func TestOpAMPAuthCapturesPrincipalInPerConnectionCallbacks(t *testing.T) {
 	}
 }
 
-func TestOpAMPAuthHandshakeWithoutFirstMessageDoesNotTouchActivity(t *testing.T) {
+func TestOpAMPAuthHandshakeWithoutFirstMessageDoesNotTouchActivityOrInventory(t *testing.T) {
 	server, store, generated := newManagedTokenServer(t, nil, Options{})
 	callbacks := authenticateManagedToken(t, server, generated.Value)
 	conn := &recordingConn{}
@@ -800,6 +800,12 @@ func TestOpAMPAuthHandshakeWithoutFirstMessageDoesNotTouchActivity(t *testing.T)
 	_, mark := store.counts()
 	if mark != 0 {
 		t.Fatalf("MarkOpAMPTokenUsed calls = %d, want 0", mark)
+	}
+	store.mu.Lock()
+	upserts := len(store.upsertCalls)
+	store.mu.Unlock()
+	if upserts != 0 {
+		t.Fatalf("workload upserts after handshake = %d, want 0", upserts)
 	}
 }
 

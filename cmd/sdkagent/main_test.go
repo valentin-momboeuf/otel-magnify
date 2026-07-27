@@ -17,6 +17,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"github.com/open-telemetry/opamp-go/client"
 	"github.com/open-telemetry/opamp-go/client/types"
 	"github.com/open-telemetry/opamp-go/protobufs"
@@ -405,14 +406,6 @@ func TestRunMainProbePrintsOnlyGenericOutcome(t *testing.T) {
 		"probe-token",
 		[]byte(sdkAgentTokenSentinel),
 	)
-	fakeClient := &fakeSDKAgentProbeClient{
-		onStart: func(settings types.StartSettings) {
-			settings.Callbacks.OnConnectFailed(
-				context.Background(),
-				errors.New(sdkAgentRawErrorSentinel),
-			)
-		},
-	}
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
 
@@ -427,14 +420,15 @@ func TestRunMainProbePrintsOnlyGenericOutcome(t *testing.T) {
 		&stdout,
 		&stderr,
 		func() sdkAgentClient {
-			return fakeClient
+			t.Fatal("probe initialized a full OpAMP client")
+			return nil
 		},
 		func(
 			context.Context,
 			string,
 			http.Header,
 			*tls.Config,
-		) (io.Closer, *http.Response, error) {
+		) (probeCloseFunc, *http.Response, error) {
 			response := &http.Response{
 				StatusCode: http.StatusUnauthorized,
 				Header:     make(http.Header),
@@ -458,51 +452,201 @@ func TestRunMainProbePrintsOnlyGenericOutcome(t *testing.T) {
 	}
 	assertNoSDKAgentSensitiveData(t, stdout.String())
 	assertNoSDKAgentSensitiveData(t, stderr.String())
-	assertSDKAgentProbeStopped(t, fakeClient)
 }
 
-func TestRunProbeSucceedsOnlyAfterRealOnConnect(t *testing.T) {
-	client := &fakeSDKAgentProbeClient{
-		onStart: func(settings types.StartSettings) {
-			settings.Callbacks.OnConnect(context.Background())
-		},
+func TestRunMainProbeSendsNoAgentMessage(t *testing.T) {
+	tokenPath := writeSDKAgentTestFile(
+		t,
+		"probe-token",
+		[]byte(sdkAgentTokenSentinel),
+	)
+	type probeObservation struct {
+		authorized bool
+		message    bool
 	}
-	settings := sdkAgentProbeStartSettings()
+	observed := make(chan probeObservation, 1)
+	upgrader := websocket.Upgrader{}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		connection, err := upgrader.Upgrade(w, request, nil)
+		if err != nil {
+			observed <- probeObservation{}
+			return
+		}
+		defer connection.Close()
+
+		_ = connection.SetReadDeadline(time.Now().Add(time.Second))
+		_, _, readErr := connection.ReadMessage()
+		observed <- probeObservation{
+			authorized: request.Header.Get("Authorization") == "Bearer "+sdkAgentTokenSentinel,
+			message:    readErr == nil,
+		}
+	}))
+	t.Cleanup(server.Close)
+
+	var stdout bytes.Buffer
+	var stderr bytes.Buffer
+	exitCode := runMainWithDependencies(
+		[]string{
+			"--token-file", tokenPath,
+			"--endpoint", "ws" + strings.TrimPrefix(server.URL, "http"),
+			"--allow-insecure-transport",
+			"--probe-only",
+			"--probe-timeout", "2s",
+		},
+		&stdout,
+		&stderr,
+		func() sdkAgentClient {
+			t.Fatal("probe initialized a full OpAMP client")
+			return client.NewWebSocket(nil)
+		},
+		dialProbeWebSocket,
+	)
+
+	if exitCode != 0 {
+		t.Fatalf("runMain probe exit = %d, stderr = %q", exitCode, stderr.String())
+	}
+	select {
+	case got := <-observed:
+		if !got.authorized {
+			t.Fatal("probe handshake omitted the bearer credential")
+		}
+		if got.message {
+			t.Fatal("probe sent an AgentToServer message after the authenticated handshake")
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("probe server did not observe the connection closing")
+	}
+	if stdout.Len() != 0 || stderr.Len() != 0 {
+		t.Fatal("successful probe produced output")
+	}
+}
+
+func TestDialProbeWebSocketDoesNotFollowRedirect(t *testing.T) {
+	targetHit := make(chan struct{}, 1)
+	target := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		targetHit <- struct{}{}
+	}))
+	t.Cleanup(target.Close)
+
+	sourceSawAuthorization := atomic.Bool{}
+	source := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, request *http.Request) {
+		sourceSawAuthorization.Store(
+			request.Header.Get("Authorization") == "Bearer "+sdkAgentTokenSentinel,
+		)
+		w.Header().Set("Location", "ws"+strings.TrimPrefix(target.URL, "http"))
+		w.WriteHeader(http.StatusFound)
+	}))
+	t.Cleanup(source.Close)
+
+	closeConnection, response, err := dialProbeWebSocket(
+		context.Background(),
+		"ws"+strings.TrimPrefix(source.URL, "http"),
+		buildAuthorizationHeader(sdkAgentTokenSentinel),
+		nil,
+	)
+	if closeConnection != nil {
+		_ = closeConnection()
+		t.Fatal("redirect response unexpectedly established a WebSocket")
+	}
+	if response != nil && response.Body != nil {
+		_ = response.Body.Close()
+	}
+	if err == nil || response == nil || response.StatusCode != http.StatusFound {
+		t.Fatal("probe dialer did not surface the redirect as a failed handshake")
+	}
+	if !sourceSawAuthorization.Load() {
+		t.Fatal("probe source did not receive the bearer credential")
+	}
+	select {
+	case <-targetHit:
+		t.Fatal("probe forwarded the bearer credential across a redirect")
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+func TestRunProbeSucceedsAfterAuthenticatedHandshake(t *testing.T) {
+	connection := &trackingSDKAgentCloser{}
+	body := &trackingSDKAgentReadCloser{Reader: strings.NewReader("")}
+	tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 	dialCalls := atomic.Int32{}
 
 	exitCode, message := runProbe(
 		context.Background(),
-		client,
-		settings,
+		sdkAgentEndpointSentinel,
+		buildAuthorizationHeader(sdkAgentTokenSentinel),
+		tlsConfig,
 		200*time.Millisecond,
-		func(context.Context, string, http.Header, *tls.Config) (io.Closer, *http.Response, error) {
+		func(
+			_ context.Context,
+			endpoint string,
+			header http.Header,
+			gotTLSConfig *tls.Config,
+		) (probeCloseFunc, *http.Response, error) {
 			dialCalls.Add(1)
-			return nil, nil, errors.New(sdkAgentRawErrorSentinel)
+			if endpoint != sdkAgentEndpointSentinel {
+				t.Fatal("probe used a different endpoint")
+			}
+			values := header.Values("Authorization")
+			if len(values) != 1 || values[0] != "Bearer "+sdkAgentTokenSentinel {
+				t.Fatal("probe used a different credential header")
+			}
+			if gotTLSConfig != tlsConfig {
+				t.Fatal("probe used a different TLS configuration")
+			}
+			return connection.Close, &http.Response{
+				StatusCode: http.StatusSwitchingProtocols,
+				Header:     make(http.Header),
+				Body:       body,
+			}, nil
 		},
 	)
 
-	if exitCode != 0 {
-		t.Fatal("probe did not succeed after the real OnConnect callback")
+	if exitCode != 0 || message != "" {
+		t.Fatal("authenticated WebSocket handshake did not succeed")
 	}
-	if message != "" {
-		t.Fatal("successful probe returned output")
+	if dialCalls.Load() != 1 {
+		t.Fatal("probe did not perform exactly one handshake")
 	}
-	if dialCalls.Load() != 0 {
-		t.Fatal("successful probe performed a diagnostic handshake")
+	if !connection.closed.Load() || !body.closed.Load() {
+		t.Fatal("probe did not close all handshake resources")
 	}
-	assertSDKAgentProbeStopped(t, client)
 }
 
-func TestRunProbeTimesOutWithoutOnConnect(t *testing.T) {
-	client := &fakeSDKAgentProbeClient{}
+func TestRunProbeRejectsNonUpgradeConnectionResult(t *testing.T) {
+	connection := &trackingSDKAgentCloser{}
 	exitCode, message := runProbe(
 		context.Background(),
-		client,
-		sdkAgentProbeStartSettings(),
+		sdkAgentEndpointSentinel,
+		buildAuthorizationHeader(sdkAgentTokenSentinel),
+		nil,
+		200*time.Millisecond,
+		func(context.Context, string, http.Header, *tls.Config) (probeCloseFunc, *http.Response, error) {
+			return connection.Close, &http.Response{
+				StatusCode: http.StatusOK,
+				Header:     make(http.Header),
+				Body:       io.NopCloser(strings.NewReader("")),
+			}, nil
+		},
+	)
+
+	if exitCode != exitProbeTransient || message != probeServiceMessage {
+		t.Fatal("probe accepted a connection without a 101 upgrade response")
+	}
+	if !connection.closed.Load() {
+		t.Fatal("probe did not close a rejected connection result")
+	}
+}
+
+func TestRunProbeTimesOutDuringHandshake(t *testing.T) {
+	exitCode, message := runProbe(
+		context.Background(),
+		sdkAgentEndpointSentinel,
+		buildAuthorizationHeader(sdkAgentTokenSentinel),
+		nil,
 		20*time.Millisecond,
-		func(context.Context, string, http.Header, *tls.Config) (io.Closer, *http.Response, error) {
-			t.Fatal("timeout probe performed an unexpected diagnostic handshake")
-			return nil, nil, nil
+		func(ctx context.Context, _ string, _ http.Header, _ *tls.Config) (probeCloseFunc, *http.Response, error) {
+			<-ctx.Done()
+			return nil, nil, ctx.Err()
 		},
 	)
 
@@ -510,10 +654,9 @@ func TestRunProbeTimesOutWithoutOnConnect(t *testing.T) {
 		t.Fatal("probe timeout did not return the stable transient outcome")
 	}
 	assertNoSDKAgentSensitiveData(t, message)
-	assertSDKAgentProbeStopped(t, client)
 }
 
-func TestRunProbeClassifiesDiagnosticFailures(t *testing.T) {
+func TestRunProbeClassifiesHandshakeFailures(t *testing.T) {
 	tests := []struct {
 		name          string
 		statusCode    int
@@ -566,38 +709,32 @@ func TestRunProbeClassifiesDiagnosticFailures(t *testing.T) {
 
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			client := &fakeSDKAgentProbeClient{
-				onStart: func(settings types.StartSettings) {
-					settings.Callbacks.OnConnectFailed(
-						context.Background(),
-						errors.New(sdkAgentRawErrorSentinel),
-					)
-				},
-			}
 			body := &trackingSDKAgentReadCloser{
 				Reader: strings.NewReader(sdkAgentTokenSentinel),
 			}
+			tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
 
 			exitCode, message := runProbe(
 				context.Background(),
-				client,
-				sdkAgentProbeStartSettings(),
+				sdkAgentEndpointSentinel,
+				buildAuthorizationHeader(sdkAgentTokenSentinel),
+				tlsConfig,
 				200*time.Millisecond,
 				func(
 					_ context.Context,
 					endpoint string,
 					header http.Header,
-					tlsConfig *tls.Config,
-				) (io.Closer, *http.Response, error) {
+					gotTLSConfig *tls.Config,
+				) (probeCloseFunc, *http.Response, error) {
 					if endpoint != sdkAgentEndpointSentinel {
-						t.Fatal("diagnostic handshake used a different endpoint")
+						t.Fatal("probe handshake used a different endpoint")
 					}
 					values := header.Values("Authorization")
 					if len(values) != 1 || values[0] != "Bearer "+sdkAgentTokenSentinel {
-						t.Fatal("diagnostic handshake used a different credential header")
+						t.Fatal("probe handshake used a different credential header")
 					}
-					if tlsConfig == nil || tlsConfig.MinVersion != tls.VersionTLS12 {
-						t.Fatal("diagnostic handshake used a different TLS config")
+					if gotTLSConfig != tlsConfig {
+						t.Fatal("probe handshake used a different TLS config")
 					}
 					if test.statusCode == 0 {
 						return nil, nil, test.dialErr
@@ -615,184 +752,14 @@ func TestRunProbeClassifiesDiagnosticFailures(t *testing.T) {
 			)
 
 			if exitCode != test.wantExit || message != test.wantMessage {
-				t.Fatal("probe returned an unstable diagnostic outcome")
+				t.Fatal("probe returned an unstable handshake outcome")
 			}
 			if body.closed.Load() != test.wantBodyClose {
-				t.Fatal("probe did not close the diagnostic response body")
+				t.Fatal("probe did not close the handshake response body")
 			}
 			assertNoSDKAgentSensitiveData(t, message)
-			assertSDKAgentProbeStopped(t, client)
 		})
 	}
-}
-
-func TestRunProbeDeduplicatesFailedCallbacks(t *testing.T) {
-	client := &fakeSDKAgentProbeClient{
-		onStart: func(settings types.StartSettings) {
-			settings.Callbacks.OnConnectFailed(
-				context.Background(),
-				errors.New(sdkAgentRawErrorSentinel),
-			)
-			settings.Callbacks.OnConnectFailed(
-				context.Background(),
-				errors.New(sdkAgentRawErrorSentinel),
-			)
-		},
-	}
-	dialCalls := atomic.Int32{}
-
-	exitCode, _ := runProbe(
-		context.Background(),
-		client,
-		sdkAgentProbeStartSettings(),
-		200*time.Millisecond,
-		func(context.Context, string, http.Header, *tls.Config) (io.Closer, *http.Response, error) {
-			dialCalls.Add(1)
-			return nil, &http.Response{
-				StatusCode: http.StatusServiceUnavailable,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader("")),
-			}, errors.New(sdkAgentRawErrorSentinel)
-		},
-	)
-
-	if exitCode != 11 {
-		t.Fatal("duplicate failure probe returned the wrong exit")
-	}
-	if dialCalls.Load() != 1 {
-		t.Fatal("duplicate failure callbacks triggered multiple diagnostics")
-	}
-	assertSDKAgentProbeStopped(t, client)
-}
-
-func TestRunProbeDiagnosticSuccessDoesNotCountAsProbeSuccess(t *testing.T) {
-	client := &fakeSDKAgentProbeClient{
-		onStart: func(settings types.StartSettings) {
-			settings.Callbacks.OnConnectFailed(
-				context.Background(),
-				errors.New(sdkAgentRawErrorSentinel),
-			)
-		},
-	}
-	connection := &trackingSDKAgentCloser{}
-
-	exitCode, message := runProbe(
-		context.Background(),
-		client,
-		sdkAgentProbeStartSettings(),
-		20*time.Millisecond,
-		func(context.Context, string, http.Header, *tls.Config) (io.Closer, *http.Response, error) {
-			return connection, &http.Response{
-				StatusCode: http.StatusSwitchingProtocols,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader("")),
-			}, nil
-		},
-	)
-
-	if exitCode != 11 || message != "OpAMP probe timed out" {
-		t.Fatal("diagnostic handshake was incorrectly treated as probe success")
-	}
-	if !connection.closed.Load() {
-		t.Fatal("probe did not close the diagnostic connection")
-	}
-	assertSDKAgentProbeStopped(t, client)
-}
-
-func TestRunProbePrefersRacingRealConnection(t *testing.T) {
-	var observed types.StartSettings
-	client := &fakeSDKAgentProbeClient{
-		onStart: func(settings types.StartSettings) {
-			observed = settings
-			settings.Callbacks.OnConnectFailed(
-				context.Background(),
-				errors.New(sdkAgentRawErrorSentinel),
-			)
-		},
-	}
-
-	exitCode, message := runProbe(
-		context.Background(),
-		client,
-		sdkAgentProbeStartSettings(),
-		200*time.Millisecond,
-		func(context.Context, string, http.Header, *tls.Config) (io.Closer, *http.Response, error) {
-			observed.Callbacks.OnConnect(context.Background())
-			return nil, &http.Response{
-				StatusCode: http.StatusServiceUnavailable,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader("")),
-			}, errors.New(sdkAgentRawErrorSentinel)
-		},
-	)
-
-	if exitCode != 0 || message != "" {
-		t.Fatal("probe did not prefer the racing real connection")
-	}
-	assertSDKAgentProbeStopped(t, client)
-}
-
-func TestRunProbePrefersRealConnectionDeliveredWhileStopping(t *testing.T) {
-	var observed types.StartSettings
-	client := &fakeSDKAgentProbeClient{
-		onStart: func(settings types.StartSettings) {
-			observed = settings
-			settings.Callbacks.OnConnectFailed(
-				context.Background(),
-				errors.New(sdkAgentRawErrorSentinel),
-			)
-		},
-	}
-	client.onStop = func() {
-		observed.Callbacks.OnConnect(context.Background())
-	}
-
-	exitCode, message := runProbe(
-		context.Background(),
-		client,
-		sdkAgentProbeStartSettings(),
-		200*time.Millisecond,
-		func(context.Context, string, http.Header, *tls.Config) (io.Closer, *http.Response, error) {
-			response := &http.Response{
-				StatusCode: http.StatusUnauthorized,
-				Header:     make(http.Header),
-				Body:       io.NopCloser(strings.NewReader("")),
-			}
-			response.Header.Set("WWW-Authenticate", opampBearerChallenge)
-			return nil, response, errors.New(sdkAgentRawErrorSentinel)
-		},
-	)
-
-	if exitCode != 0 || message != "" {
-		t.Fatal("probe ignored a real connection delivered while the client stopped")
-	}
-	assertSDKAgentProbeStopped(t, client)
-}
-
-func TestRunProbeTreatsStopFailureAsTransient(t *testing.T) {
-	client := &fakeSDKAgentProbeClient{
-		onStart: func(settings types.StartSettings) {
-			settings.Callbacks.OnConnect(context.Background())
-		},
-		stopErr: errors.New(sdkAgentRawErrorSentinel),
-	}
-
-	exitCode, message := runProbe(
-		context.Background(),
-		client,
-		sdkAgentProbeStartSettings(),
-		200*time.Millisecond,
-		func(context.Context, string, http.Header, *tls.Config) (io.Closer, *http.Response, error) {
-			t.Fatal("successful probe performed a diagnostic handshake")
-			return nil, nil, nil
-		},
-	)
-
-	if exitCode != exitProbeTransient || message != probeTransportMessage {
-		t.Fatal("probe did not classify a client stop failure as transient")
-	}
-	assertNoSDKAgentSensitiveData(t, message)
-	assertSDKAgentProbeStopped(t, client)
 }
 
 func TestAgentCapabilitiesRemainReadOnlyByDefault(t *testing.T) {
@@ -885,44 +852,6 @@ func TestRemoteConfigStateApplyStoresIndependentEffectiveConfig(t *testing.T) {
 	}
 }
 
-type fakeSDKAgentProbeClient struct {
-	onStart   func(types.StartSettings)
-	onStop    func()
-	stopErr   error
-	stopCalls atomic.Int32
-}
-
-func (c *fakeSDKAgentProbeClient) Start(_ context.Context, settings types.StartSettings) error {
-	if c.onStart != nil {
-		c.onStart(settings)
-	}
-	return nil
-}
-
-func (c *fakeSDKAgentProbeClient) Stop(context.Context) error {
-	c.stopCalls.Add(1)
-	if c.onStop != nil {
-		c.onStop()
-	}
-	return c.stopErr
-}
-
-func (c *fakeSDKAgentProbeClient) SetAgentDescription(*protobufs.AgentDescription) error {
-	return nil
-}
-
-func (c *fakeSDKAgentProbeClient) SetCapabilities(*protobufs.AgentCapabilities) error {
-	return nil
-}
-
-func (c *fakeSDKAgentProbeClient) SetRemoteConfigStatus(*protobufs.RemoteConfigStatus) error {
-	return nil
-}
-
-func (c *fakeSDKAgentProbeClient) UpdateEffectiveConfig(context.Context) error {
-	return nil
-}
-
 type trackingSDKAgentCloser struct {
 	closed atomic.Bool
 }
@@ -940,24 +869,6 @@ type trackingSDKAgentReadCloser struct {
 func (c *trackingSDKAgentReadCloser) Close() error {
 	c.closed.Store(true)
 	return nil
-}
-
-func sdkAgentProbeStartSettings() types.StartSettings {
-	var uid types.InstanceUid
-	return buildStartSettings(
-		sdkAgentEndpointSentinel,
-		sdkAgentTokenSentinel,
-		&tls.Config{MinVersion: tls.VersionTLS12},
-		uid,
-		types.Callbacks{},
-	)
-}
-
-func assertSDKAgentProbeStopped(t *testing.T, client *fakeSDKAgentProbeClient) {
-	t.Helper()
-	if client.stopCalls.Load() != 1 {
-		t.Fatal("probe did not stop its client exactly once")
-	}
 }
 
 func assertNoSDKAgentSensitiveData(t *testing.T, output string) {
