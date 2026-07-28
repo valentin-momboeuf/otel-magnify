@@ -92,15 +92,28 @@ esac
 exit 9
 `)
 
+	started := time.Now()
 	result := ValidateWithRuntime(context.Background(), []byte(validMinimal), nil, RuntimeOptions{
 		Enabled:    true,
 		BinaryPath: bin,
 		Timeout:    25 * time.Millisecond,
 	})
+	elapsed := time.Since(started)
 
 	check := findCheck(t, result, "otelcol_runtime")
-	if !result.Valid || check.Status != "warning" || len(check.Messages) == 0 || check.Messages[0].Code != "otelcol_runtime_timeout" {
+	if !result.Valid || check.Status != "warning" || !hasMessage(check, "otelcol_runtime_timeout") {
 		t.Fatalf("timeout should be non-blocking warning: result=%+v check=%+v", result, check)
+	}
+	const maximumElapsed = 500 * time.Millisecond
+	if elapsed >= maximumElapsed {
+		t.Fatalf("runtime timeout blocked for %s, want less than %s", elapsed, maximumElapsed)
+	}
+	durationMillis, ok := check.Metadata["duration_ms"].(int64)
+	if !ok {
+		t.Fatalf("duration_ms metadata = %#v, want int64", check.Metadata["duration_ms"])
+	}
+	if duration := time.Duration(durationMillis) * time.Millisecond; duration >= maximumElapsed {
+		t.Fatalf("runtime duration = %s, want less than %s", duration, maximumElapsed)
 	}
 }
 

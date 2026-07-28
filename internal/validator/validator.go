@@ -85,7 +85,10 @@ type RuntimeOptions struct {
 	MinimumVersion      string
 }
 
-const defaultRuntimeTimeout = 5 * time.Second
+const (
+	defaultRuntimeTimeout   = 5 * time.Second
+	runtimeCommandWaitDelay = 100 * time.Millisecond
+)
 
 // pipelineSections keeps validation output stable while mapping each pipeline
 // section to the corresponding top-level component category.
@@ -546,6 +549,8 @@ func runCommand(parent context.Context, timeout time.Duration, name string, args
 	// #nosec G204: name is resolved through resolveOtelcolPath, which only accepts
 	// configured paths or binaries found on PATH after executable checks.
 	cmd := exec.CommandContext(ctx, name, args...)
+	// Bound cleanup when a terminated shell leaves descendants holding command pipes open.
+	cmd.WaitDelay = runtimeCommandWaitDelay
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout = &stdout
 	cmd.Stderr = &stderr
