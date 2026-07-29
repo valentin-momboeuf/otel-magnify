@@ -21,8 +21,8 @@ rollback.
 
 ## Docker Compose
 
-The supported cold-start path from a source checkout is Docker Compose. It
-includes an opt-in activation workload that can acknowledge remote config:
+The supported cold-start path from a source checkout is Docker Compose. Start
+PostgreSQL and the application first, without an agent:
 
 ```bash
 export JWT_SECRET="$(openssl rand -hex 32)"
@@ -32,10 +32,49 @@ read -r -s -p "Initial admin password (minimum 12 characters): " SEED_ADMIN_PASS
 echo
 export SEED_ADMIN_PASSWORD
 
-docker compose --profile activation up --detach --build
+docker compose up --detach --build postgres otel-magnify
 ```
 
-The API and embedded frontend are served at `http://localhost:8080`. The OpAMP endpoint listens on `:4320` and is available to containers on the Compose network at `ws://otel-magnify:4320/v1/opamp`.
+The API and embedded frontend are served at `http://localhost:8080`. Sign in,
+open **Administration → OpAMP tokens**, and create the first managed token.
+Save its one-shot value in a private file, then start the opt-in activation
+agent:
+
+```bash
+opamp_token_directory="$(mktemp -d "/tmp/otel-magnify-opamp.XXXXXX")"
+chmod 700 "${opamp_token_directory}"
+export OPAMP_TOKEN_FILE="${opamp_token_directory}/opamp-token"
+cleanup_opamp_token() {
+  rm -f -- "${OPAMP_TOKEN_FILE:-}"
+  rmdir -- "${opamp_token_directory:-}" 2>/dev/null || true
+}
+trap cleanup_opamp_token EXIT
+
+read -r -s -p "Paste the one-shot OpAMP token: " opamp_token
+echo
+printf '%s' "${opamp_token}" >"${OPAMP_TOKEN_FILE}"
+chmod 600 "${OPAMP_TOKEN_FILE}"
+unset opamp_token
+export OPAMP_RUNTIME_UID="$(id -u)"
+export OPAMP_RUNTIME_GID="$(id -g)"
+docker compose --profile activation up --detach --build activation-agent
+```
+
+The token directory is outside the checkout. The trap removes it when this
+shell exits. When the demo is finished, stop the agent and clean it up
+immediately:
+
+```bash
+docker compose --profile activation stop activation-agent
+cleanup_opamp_token
+trap - EXIT
+unset OPAMP_TOKEN_FILE OPAMP_RUNTIME_UID OPAMP_RUNTIME_GID opamp_token_directory
+unset -f cleanup_opamp_token
+```
+
+The local OpAMP endpoint is available only on the Compose network at
+`ws://otel-magnify:4320/v1/opamp`. This is the deliberate insecure local mode;
+the bearer token is not exposed on a published host port.
 
 Sign in, open the `otelcol-activation-demo` workload, edit and validate the
 config, generate its safety plan, request approval, approve it, and push it.
@@ -69,7 +108,9 @@ Compose defaults:
 - `CORS_ORIGINS=http://localhost:8080`
 - PostgreSQL data persisted in a fresh `pg18-data` Docker volume, mounted at
   `/var/lib/postgresql` with `PGDATA=/var/lib/postgresql/18/docker`
-- `OPAMP_SHARED_SECRET` empty unless you set it in the shell environment
+- `OPAMP_INSECURE=true` for this isolated local Compose network
+- managed agent credentials supplied only through the read-only
+  `OPAMP_TOKEN_FILE` bind mount
 
 Do not use sample password values from docs in a shared environment. Do not
 run `docker compose down --volumes` against an older project until its database
@@ -116,11 +157,12 @@ rm -rf "${anonymous_config}"
 
 ## Kubernetes (Helm)
 
-Create three operator-managed Secrets: one for the PostgreSQL DSN, one for the
-durable JWT signing key, and a separate Secret for the removable first-admin
-bootstrap credential. Prefer External Secrets or your platform secret manager
-in a shared cluster. The following local example avoids putting secret values
-in Helm values, shell history, or process arguments:
+Create four operator-managed Secrets: one for the PostgreSQL DSN, one for the
+durable JWT signing key, one for the removable first-admin bootstrap
+credential, and a distinct TLS Secret for the native OpAMP listener. Prefer
+External Secrets or your platform secret manager in a shared cluster. The
+following local example avoids putting secret values in Helm values, shell
+history, or process arguments:
 
 ```bash
 set -euo pipefail
@@ -152,6 +194,10 @@ kubectl --namespace "${namespace}" create secret generic magnify-bootstrap \
   --from-file="${secret_directory}/seed-admin-email" \
   --from-file="${secret_directory}/seed-admin-password" \
   --dry-run=client -o yaml | kubectl apply -f -
+kubectl --namespace "${namespace}" create secret tls magnify-opamp-tls \
+  --cert=/secure/path/opamp-tls.crt \
+  --key=/secure/path/opamp-tls.key \
+  --dry-run=client -o yaml | kubectl apply -f -
 
 helm install magnify helm/otel-magnify/ \
   --namespace "${namespace}" \
@@ -159,7 +205,8 @@ helm install magnify helm/otel-magnify/ \
   --set database.existingSecret=magnify-postgres \
   --set auth.existingSecret=magnify-auth \
   --set auth.seedAdmin.enabled=true \
-  --set auth.seedAdmin.existingSecret=magnify-bootstrap
+  --set auth.seedAdmin.existingSecret=magnify-bootstrap \
+  --set opamp.tls.existingSecret=magnify-opamp-tls
 ```
 
 After the first successful login, disable the seed environment references and
@@ -183,6 +230,8 @@ The chart creates:
 - no release JWT credential when `auth.existingSecret` is set; the `Deployment` reads `auth.jwtSecretKey`
 - optional seed-admin references from a separate Secret only while `auth.seedAdmin.enabled=true`
 - an optional `Ingress` for the API/frontend only
+- an optional read-only mount of an external OpAMP TLS Secret
+- an ingress `NetworkPolicy` that denies OpAMP traffic by default
 
 Important values:
 
@@ -209,7 +258,13 @@ Important values:
 | `auth.seedAdmin.enabled` | `false` | Inject the bootstrap email and password from a separate Secret. Disable after first login. |
 | `auth.seedAdmin.existingSecret` | empty | Secret containing the seed email and password keys; required when bootstrap is enabled. |
 | `jwtSecret` | empty | Legacy inline fallback that renders a release Secret; avoid for new installations. |
-| `opampSharedSecret` | empty | Stored in the generated Kubernetes Secret as `opamp-shared-secret`; leave empty only for trusted local/internal OpAMP networks. |
+| `opamp.insecure` | `false` | Enables plaintext WS only when explicitly `true`; cannot be combined with a TLS Secret. |
+| `opamp.tls.existingSecret` | empty | External Secret containing the native WSS certificate and key. With the secure default and no Secret, the OpAMP listener is disabled. |
+| `opamp.tls.certKey` | `tls.crt` | Certificate-chain key in the external TLS Secret. |
+| `opamp.tls.privateKeyKey` | `tls.key` | Private-key key in the external TLS Secret. |
+| `networkPolicy.enabled` | `true` | Renders the ingress policy. |
+| `networkPolicy.api.allowAll` | `true` | Allows the API port from all sources by default. |
+| `networkPolicy.opamp.allowAll` | `false` | Keeps OpAMP ingress denied unless explicit `from` peers are configured. |
 | `automountServiceAccountToken` | `false` | The binary does not call the Kubernetes API. |
 | `podSecurityContext` / `containerSecurityContext` | hardened non-root defaults | Keep these defaults unless your runtime requires a documented exception. |
 
@@ -247,7 +302,12 @@ and verify recovery independently before an application upgrade.
 - Passing secrets with `--set` can expose them in shell history and Helm release state. Use pre-created Secrets for the database, JWT key, and first-admin credential.
 - When `database.dsn` is set without `database.existingSecret`, Helm creates the release Secret with the `db-dsn` credential. When `database.existingSecret` is set, Helm does not render a release `db-dsn`; protect the operator-managed Secret and namespace read access accordingly.
 - Store the JWT signing key separately from the seed-admin credential. The former is durable; the latter should be deleted immediately after bootstrap.
-- The default ingress exposes only the API/frontend. OpAMP is a separate service port and should be exposed deliberately, with network policy, an internal load balancer, and `OPAMP_SHARED_SECRET` when possible.
+- The default ingress exposes only the API/frontend. Expose OpAMP deliberately
+  through TCP/TLS passthrough or re-encryption to the native WSS listener, an
+  explicit `networkPolicy.opamp.from`, and managed client tokens.
+- Keep the server TLS Secret separate from Collector and Supervisor token
+  Secrets. Create client tokens after login and distribute them through
+  External Secrets, Vault, or another operator-managed workflow.
 - `readOnlyRootFilesystem` is enabled. The application uses `/tmp` only for temporary files; database state belongs to PostgreSQL.
 - `automountServiceAccountToken=false` should stay disabled unless an extension binary actually needs Kubernetes API access.
 
@@ -255,6 +315,14 @@ and verify recovery independently before an application upgrade.
 
 Reference Secrets created by your secret manager without copying their content
 into a Helm values file:
+
+```bash
+kubectl create namespace otel-agents --dry-run=client -o yaml | kubectl apply -f -
+kubectl label namespace otel-agents opamp-clients=true --overwrite
+```
+
+The commands above create the example client namespace and apply the exact
+label selected by this NetworkPolicy configuration:
 
 ```yaml
 database:
@@ -268,7 +336,23 @@ auth:
     existingSecret: magnify-bootstrap
     emailKey: seed-admin-email
     passwordKey: seed-admin-password
+opamp:
+  insecure: false
+  tls:
+    existingSecret: magnify-opamp-tls
+networkPolicy:
+  opamp:
+    allowAll: false
+    from:
+      - namespaceSelector:
+          matchLabels:
+            opamp-clients: "true"
 ```
+
+Create the first client token through the UI after the application is ready.
+Reference that separate client Secret from each Collector or Supervisor with
+`secretKeyRef`; the Helm chart never stores or injects client tokens. See
+[Managed OpAMP tokens](opamp-tokens.md#kubernetes).
 
 ## Native binary
 
@@ -332,5 +416,8 @@ Before exposing otel-magnify beyond a developer machine:
 - Set `CORS_ORIGINS` to the exact browser origin(s) that should access the API.
 - Serve the API/frontend and WebSocket hub over TLS.
 - Treat legacy WebSocket URLs containing `?token=` as sensitive; browser clients should normally use the `om_session` HttpOnly cookie on `/ws`.
-- Restrict OpAMP exposure to trusted agents/networks and configure `OPAMP_SHARED_SECRET` when OpAMP crosses a shared or exposed boundary.
+- Configure native WSS, distribute managed client tokens through a secret
+  manager, and restrict OpAMP exposure to explicit trusted peers.
+- Keep `replicaCount: 1`; the chart rejects horizontal scaling until token
+  invalidation and connection ownership are distributed.
 - Review any Collector YAML before sharing it publicly; exporter configs often contain credentials.

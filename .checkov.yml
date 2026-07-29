@@ -25,8 +25,3 @@ skip-check:
   # Tag pinning + cosign signature verification (release.yml) is our chosen
   # equivalent. Revisit if/when we publish digests in chart values.
   - CKV_K8S_43
-
-  # NetworkPolicy enforcement is a cluster-level concern, handled in the
-  # Kubernetes deployment story (Phase 4: Network Policies / OPA Gatekeeper),
-  # not at the per-chart level.
-  - CKV2_K8S_6

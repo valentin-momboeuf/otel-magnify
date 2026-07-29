@@ -79,3 +79,58 @@ func TestGraceMultipleWorkloadsIndependent(t *testing.T) {
 	case <-time.After(50 * time.Millisecond):
 	}
 }
+
+func TestGraceStopCancelsPendingAndRejectsFutureSchedules(t *testing.T) {
+	gc := NewGraceController(30 * time.Millisecond)
+	fired := make(chan string, 2)
+	gc.Schedule("pending", func() { fired <- "pending" })
+
+	gc.Stop()
+	gc.Stop()
+	gc.Schedule("after-stop", func() { fired <- "after-stop" })
+
+	select {
+	case name := <-fired:
+		t.Fatalf("grace callback %q fired after Stop", name)
+	case <-time.After(70 * time.Millisecond):
+	}
+}
+
+func TestGraceStopWaitsForCallbackAlreadyInFlight(t *testing.T) {
+	gc := NewGraceController(time.Millisecond)
+	started := make(chan struct{})
+	release := make(chan struct{})
+	finished := make(chan struct{})
+	gc.Schedule("in-flight", func() {
+		close(started)
+		<-release
+		close(finished)
+	})
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("grace callback did not enter")
+	}
+
+	stopped := make(chan struct{})
+	go func() {
+		gc.Stop()
+		close(stopped)
+	}()
+	select {
+	case <-stopped:
+		t.Fatal("Stop returned before in-flight callback finished")
+	case <-time.After(30 * time.Millisecond):
+	}
+	close(release)
+	select {
+	case <-finished:
+	case <-time.After(time.Second):
+		t.Fatal("grace callback did not finish")
+	}
+	select {
+	case <-stopped:
+	case <-time.After(time.Second):
+		t.Fatal("Stop did not return after in-flight callback finished")
+	}
+}

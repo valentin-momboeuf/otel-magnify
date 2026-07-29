@@ -1,6 +1,7 @@
 package ext
 
 import (
+	"context"
 	"time"
 
 	"github.com/magnify-labs/otel-magnify/pkg/models"
@@ -87,6 +88,12 @@ type Store interface {
 	ResolveAlert(id string) error
 	ListAlerts(includeResolved bool) ([]models.Alert, error)
 	GetUnresolvedAlertByWorkloadAndRule(workloadID, rule string) (*models.Alert, error)
+
+	ListOpAMPTokens(ctx context.Context, now time.Time) ([]models.OpAMPToken, error)
+	CreateOpAMPToken(ctx context.Context, credential models.OpAMPTokenCredential, event AuditEvent) error
+	RevokeOpAMPToken(ctx context.Context, id, revokedBy string, now time.Time, event AuditEvent) (models.OpAMPToken, bool, error)
+	ValidateOpAMPToken(ctx context.Context, id string, presentedHash [32]byte, now time.Time) (models.OpAMPTokenPrincipal, error)
+	MarkOpAMPTokenUsed(ctx context.Context, id string, now time.Time) error
 
 	Close() error
 	Migrate() error

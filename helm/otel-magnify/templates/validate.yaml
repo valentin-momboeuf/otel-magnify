@@ -1,0 +1,20 @@
+{{- $replicaCountKind := kindOf .Values.replicaCount }}
+{{- $replicaCountIsNumeric := or (eq $replicaCountKind "float64") (eq $replicaCountKind "int64") }}
+{{- if not (and $replicaCountIsNumeric (eq (printf "%v" .Values.replicaCount) "1")) }}
+{{- fail "replicaCount must remain 1 because OpAMP connections, token revocation, and token expiration are process-local; distributed broadcast is required before scaling out" }}
+{{- end }}
+{{- if ne (kindOf .Values.opamp.insecure) "bool" }}
+{{- fail "opamp.insecure must be a boolean" }}
+{{- end }}
+{{- if and .Values.opamp.insecure .Values.opamp.tls.existingSecret }}
+{{- fail "opamp.insecure=true cannot be combined with opamp.tls.existingSecret" }}
+{{- end }}
+{{- if ne (kindOf .Values.networkPolicy.enabled) "bool" }}
+{{- fail "networkPolicy.enabled must be a boolean" }}
+{{- end }}
+{{- if ne (kindOf .Values.networkPolicy.api.allowAll) "bool" }}
+{{- fail "networkPolicy.api.allowAll must be a boolean" }}
+{{- end }}
+{{- if ne (kindOf .Values.networkPolicy.opamp.allowAll) "bool" }}
+{{- fail "networkPolicy.opamp.allowAll must be a boolean" }}
+{{- end }}

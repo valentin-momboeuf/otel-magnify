@@ -27,6 +27,7 @@ Monitor, configure, and alert on your OTel Collectors and SDK agents from a sing
 - **Activity log** — append-only record of pod connect/disconnect/version transitions, per workload
 - **Alert engine** — built-in rules for workload downtime, config drift (pushed config not applied), and version-outdated checks; webhook notifier for external delivery
 - **Real-time updates** — WebSocket fan-out keeps the dashboard live without polling
+- **Managed OpAMP tokens** — one-shot machine credentials with metadata, expiry, rotation, revocation, and fail-closed connection teardown
 - **Audit log** — security-relevant actions (login success/failure, password change, config create/push/rollback/label, workload archive/delete) are emitted through a pluggable `AuditLogger` interface; community defaults to a no-op sink, a persistent backend ships with the Enterprise edition. When the audit sink fails, handlers respond 503 with a `side_effect_status` body field (`applied` / `none`) so callers can reconcile.
 - **Multi-deployment** — runs locally, in Docker Compose, or on Kubernetes via Helm
 
@@ -87,14 +88,51 @@ read -r -s -p "Initial admin password (minimum 12 characters): " SEED_ADMIN_PASS
 echo
 export SEED_ADMIN_PASSWORD
 
-docker compose --profile activation up --detach --build
+docker compose up --detach --build postgres otel-magnify
 ```
 
-Open `http://localhost:8080`, sign in, select `otelcol-activation-demo`, edit
-the configuration, then use **Validate for this collector**, **Generate safety
-plan**, **Request approval**, **Approve request**, and **Push approved config**.
-The `activation-agent` service is a local OpAMP protocol simulator; it is not
-an OpenTelemetry Collector and must not be used as one in production.
+Open `http://localhost:8080`, sign in, then open
+**Administration → OpAMP tokens** and create the first token. Its credential
+value is shown once. Save it in a temporary activation file outside the
+checkout without putting it in shell history, then start the agent:
+
+```bash
+opamp_token_directory="$(mktemp -d "/tmp/otel-magnify-opamp.XXXXXX")"
+chmod 700 "${opamp_token_directory}"
+export OPAMP_TOKEN_FILE="${opamp_token_directory}/opamp-token"
+cleanup_opamp_token() {
+  rm -f -- "${OPAMP_TOKEN_FILE:-}"
+  rmdir -- "${opamp_token_directory:-}" 2>/dev/null || true
+}
+trap cleanup_opamp_token EXIT
+
+read -r -s -p "Paste the one-shot OpAMP token: " opamp_token
+echo
+printf '%s' "${opamp_token}" >"${OPAMP_TOKEN_FILE}"
+chmod 600 "${OPAMP_TOKEN_FILE}"
+unset opamp_token
+export OPAMP_RUNTIME_UID="$(id -u)"
+export OPAMP_RUNTIME_GID="$(id -g)"
+docker compose --profile activation up --detach --build activation-agent
+```
+
+The token directory is outside the checkout. The trap removes it when this
+shell exits. When the demo is finished, stop the agent and clean it up
+immediately:
+
+```bash
+docker compose --profile activation stop activation-agent
+cleanup_opamp_token
+trap - EXIT
+unset OPAMP_TOKEN_FILE OPAMP_RUNTIME_UID OPAMP_RUNTIME_GID opamp_token_directory
+unset -f cleanup_opamp_token
+```
+
+Select `otelcol-activation-demo`, edit the configuration, then use **Validate
+for this collector**, **Generate safety plan**, **Request approval**, **Approve
+request**, and **Push approved config**. The `activation-agent` service is a
+local OpAMP protocol simulator; it is not an OpenTelemetry Collector and must
+not be used as one in production.
 
 After the first successful login, remove the bootstrap credential from the
 application container environment:
@@ -126,6 +164,7 @@ or prepare an application upgrade.
 ```bash
 # Backend
 export JWT_SECRET="$(openssl rand -hex 32)"
+OPAMP_INSECURE=true \
 DB_DSN="${DB_DSN:?set DB_DSN through your local secret workflow}" \
   go run ./cmd/server/
 
@@ -135,44 +174,58 @@ npm install
 npm run dev
 ```
 
-The API runs on `:8080`, OpAMP on `:4320`, frontend dev server on `:5173` (proxied to backend).
+The API runs on `:8080`, the explicitly insecure local OpAMP listener on
+`:4320`, and the frontend dev server on `:5173` (proxied to the backend). Do
+not use this plaintext OpAMP setting outside a trusted local development
+network.
 
 ### 5,000 collector load test
 
-The local-only OpAMP benchmark requires an explicit confirmation and test-only
-configuration values. It creates an isolated Compose project and never removes
-Docker volumes:
+The local-only OpAMP benchmark requires an explicit confirmation. It generates
+invocation-local JWT, database, admin, and managed OpAMP token credentials,
+creates an isolated Compose project, scans artifacts for credential leakage,
+and removes only its own resources:
 
 ```bash
-export JWT_SECRET="$(openssl rand -hex 32)"
-export OPAMP_SHARED_SECRET="$(openssl rand -hex 32)"
-LOAD_TEST_CONFIRM=5000 \
-  DB_DSN='required-but-ignored' \
-  ./scripts/load-test-5000.sh
+LOAD_TEST_CONFIRM=5000 ./scripts/load-test-5000.sh
 ```
-
-`DB_DSN` is required as an intent guard, but its value is intentionally ignored
-and replaced with the fixed PostgreSQL DSN inside the isolated Compose project.
 
 See [load testing](docs/operations/load-testing.md) for capacity prerequisites,
 timing controls, output artifacts, and acceptance criteria.
 
 ### Kubernetes (Helm)
 
+Before installing, create `magnify-postgres`, `magnify-auth`,
+`magnify-bootstrap`, and `magnify-opamp-tls` in the `otel-magnify` namespace.
+Follow the [documented bootstrap workflow](docs/users/installation.md#kubernetes-helm)
+through its four `kubectl create secret` commands, then return here and run:
+
 ```bash
 read -r -p "Released image version (without v prefix): " otel_magnify_version
-helm install magnify helm/otel-magnify/ \
-  --set image.tag="${otel_magnify_version:?pin a released image version}" \
-  --set database.existingSecret=magnify-postgres \
-  --set auth.existingSecret=magnify-auth \
-  --set auth.seedAdmin.enabled=true \
-  --set auth.seedAdmin.existingSecret=magnify-bootstrap
+namespace="otel-magnify"
+kubectl create namespace "${namespace}" --dry-run=client -o yaml | kubectl apply -f -
+if kubectl --namespace "${namespace}" get \
+  secret/magnify-postgres \
+  secret/magnify-auth \
+  secret/magnify-bootstrap \
+  secret/magnify-opamp-tls >/dev/null; then
+  helm install magnify helm/otel-magnify/ \
+    --namespace "${namespace}" \
+    --set image.tag="${otel_magnify_version:?pin a released image version}" \
+    --set database.existingSecret=magnify-postgres \
+    --set auth.existingSecret=magnify-auth \
+    --set auth.seedAdmin.enabled=true \
+    --set auth.seedAdmin.existingSecret=magnify-bootstrap \
+    --set opamp.tls.existingSecret=magnify-opamp-tls
+else
+  printf '%s\n' "Create all four prerequisite Secrets before installing." >&2
+fi
 ```
 
-Create those Secrets through a secret manager or the [documented bootstrap
-workflow](docs/users/installation.md#kubernetes-helm). Keep the durable JWT key
-separate from the removable first-admin bootstrap Secret. Keep
-`replicaCount: 1` while OpAMP connections and the live registry remain
+Keep the durable JWT key, removable first-admin bootstrap Secret, server TLS
+Secret, and client token Secrets separate. The chart denies OpAMP ingress by
+default; configure explicit NetworkPolicy peers. Keep `replicaCount: 1` while
+token invalidation, OpAMP connections, and the live registry remain
 process-local.
 
 ## Configuration
@@ -187,6 +240,9 @@ All configuration via environment variables:
 | `DB_CONN_MAX_LIFETIME_SECONDS` | `1800` | Maximum lifetime for a pooled connection |
 | `LISTEN_ADDR` | `:8080` | API server listen address |
 | `OPAMP_ADDR` | `:4320` | OpAMP server listen address |
+| `OPAMP_INSECURE` | `false` | Exact `true` enables plaintext WS only for a trusted local test network |
+| `OPAMP_TLS_CERT_FILE` | *(optional)* | Native WSS server certificate chain; required with the key unless local insecure mode is enabled |
+| `OPAMP_TLS_KEY_FILE` | *(optional)* | Native WSS server private key; required with the certificate unless local insecure mode is enabled |
 | `JWT_SECRET` | *(required)* | Secret key for JWT signing |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins |
 | `SEED_ADMIN_EMAIL` | *(optional)* | Bootstrap the first admin on an empty database; must be set with `SEED_ADMIN_PASSWORD` |
@@ -194,19 +250,28 @@ All configuration via environment variables:
 
 ## Connecting Agents
 
-otel-magnify manages agents via the [OpAMP](https://opentelemetry.io/docs/specs/opamp/) protocol. Each agent must be configured to connect to the OpAMP WebSocket endpoint exposed on port `4320`.
+otel-magnify manages agents via the
+[OpAMP](https://opentelemetry.io/docs/specs/opamp/) protocol. Each agent must
+connect over WSS and present a managed token created after administrator
+login. Port `4320` is the default native/internal listener; public WSS commonly
+uses port `443`. Expose it through a LoadBalancer or another TCP/TLS path that
+passes traffic through or re-encrypts to the native listener.
 
 The Collector's built-in OpAMP extension can report state but does not apply
 remote configuration. Use the OpAMP Supervisor for a real remotely managed
 Collector. For the local activation path, use the Compose `activation` profile
-described above. See [Connecting agents](docs/users/connecting-agents.md) for
-the supported distinction and workload identity rules.
+described above. See [Connecting agents](docs/users/connecting-agents.md) and
+[Managed OpAMP tokens](docs/users/opamp-tokens.md) for WSS configuration,
+secret injection, rotation, and workload identity limits.
 
 ## API Endpoints
 
 | Method | Path | Auth | Description |
 |--------|------|------|-------------|
 | `POST` | `/api/auth/login` | No | Login, returns JWT |
+| `GET` | `/api/v1/opamp/tokens` | Yes + `settings:manage` | List public managed-token metadata |
+| `POST` | `/api/v1/opamp/tokens` | Yes + `settings:manage` | Create a token and return its credential once |
+| `POST` | `/api/v1/opamp/tokens/:id/revoke` | Yes + `settings:manage` | Revoke a token and disconnect its connections |
 | `GET` | `/api/workloads` | Yes | List all workloads |
 | `GET` | `/api/workloads/:id` | Yes | Get workload details |
 | `GET` | `/api/workloads/:id/instances` | Yes | Live OpAMP-connected pods for the workload |

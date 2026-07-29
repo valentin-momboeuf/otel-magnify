@@ -64,15 +64,23 @@ helm template magnify "$chart_path" \
   --namespace observability \
   --set-string database.dsn=synthetic-inline-dsn \
   --set-string jwtSecret=synthetic-inline-jwt \
-  --set-string opampSharedSecret=synthetic-inline-opamp \
   >"$rendered_file"
 
 for expected in \
   "kind: Secret" \
   "jwt-secret: \"synthetic-inline-jwt\"" \
-  "db-dsn: \"synthetic-inline-dsn\"" \
-  "opamp-shared-secret: \"synthetic-inline-opamp\""; do
+  "db-dsn: \"synthetic-inline-dsn\""; do
   helm_activation_assert_contains "$expected"
+done
+
+for unexpected in \
+  "OPAMP_SHARED_SECRET" \
+  "opampSharedSecret" \
+  "opamp-shared-secret" \
+  "tls.crt:" \
+  "tls.key:" \
+  "client-token"; do
+  helm_activation_assert_not_contains "$unexpected"
 done
 
 helm template magnify "$chart_path" \
@@ -81,16 +89,27 @@ helm template magnify "$chart_path" \
   --set-string database.dsn=synthetic-ignored-inline-dsn \
   --set auth.existingSecret=magnify-auth \
   --set-string jwtSecret=synthetic-ignored-inline-jwt \
-  --set-string opampSharedSecret=synthetic-inline-opamp \
   >"$rendered_file"
 
-helm_activation_assert_contains "opamp-shared-secret: \"synthetic-inline-opamp\""
 for unexpected in \
+  "kind: Secret" \
   "jwt-secret:" \
   "db-dsn:" \
   "synthetic-ignored-inline-jwt" \
   "synthetic-ignored-inline-dsn"; do
   helm_activation_assert_not_contains "$unexpected"
+done
+
+for forbidden_source_term in \
+  "OPAMP_SHARED_SECRET" \
+  "opampSharedSecret" \
+  "opamp-shared-secret"; do
+  if grep -Fq -- "$forbidden_source_term" \
+    "$chart_path/values.yaml" \
+    "$chart_path/templates/deployment.yaml" \
+    "$chart_path/templates/secret.yaml"; then
+    helm_activation_fail "chart source still contains removed OpAMP token term: $forbidden_source_term"
+  fi
 done
 
 if helm template magnify "$chart_path" \

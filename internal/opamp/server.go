@@ -3,8 +3,8 @@ package opamp
 import (
 	"context"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -17,6 +17,8 @@ import (
 	opampServer "github.com/open-telemetry/opamp-go/server"
 	"github.com/open-telemetry/opamp-go/server/types"
 
+	"github.com/magnify-labs/otel-magnify/internal/opampauth"
+	"github.com/magnify-labs/otel-magnify/pkg/ext"
 	"github.com/magnify-labs/otel-magnify/pkg/models"
 )
 
@@ -29,6 +31,8 @@ const reportsAvailableComponentsCap = uint64(protobufs.AgentCapabilities_AgentCa
 // bit is unset — only opamp-supervisor sets it. Exposed in the Workload JSON
 // so the UI can gate config editing affordances.
 const acceptsRemoteConfigCap = uint64(protobufs.AgentCapabilities_AgentCapabilities_AcceptsRemoteConfig)
+
+const defaultWriteTimeout = 5 * time.Second
 
 // Store is the narrow subset of store.DB the OpAMP server needs.
 type Store interface {
@@ -49,6 +53,9 @@ type Store interface {
 	GetRollbackTarget(workloadID, excludeHash string) (*models.RollbackTarget, error)
 
 	InsertWorkloadEvent(e models.WorkloadEvent) (int64, error)
+
+	ValidateOpAMPToken(ctx context.Context, id string, presentedHash [32]byte, now time.Time) (models.OpAMPTokenPrincipal, error)
+	MarkOpAMPTokenUsed(ctx context.Context, id string, now time.Time) error
 }
 
 // Notifier is called when a workload's state changes, to relay updates to the
@@ -71,9 +78,12 @@ type Options struct {
 	// RetentionDuration is how long a disconnected workload stays around
 	// before it becomes eligible for archival.
 	RetentionDuration time.Duration
-	// SharedSecret, when set, requires OpAMP clients to authenticate with an
-	// Authorization bearer token during HTTP/WebSocket connection setup.
-	SharedSecret string
+
+	// Tests inject these hooks to exercise exact expiry and timer races.
+	now       func() time.Time
+	afterFunc connectionAfterFunc
+	// writeTimeout bounds socket writes. Tests shorten it to exercise stalled peers.
+	writeTimeout time.Duration
 }
 
 // Server wraps the opamp-go server and manages workload state.
@@ -82,19 +92,41 @@ type Server struct {
 	store    Store
 	notifier Notifier
 
-	registry  *InstanceRegistry
-	grace     *GraceController
-	retention time.Duration
-	secret    string
+	registry     *InstanceRegistry
+	grace        *GraceController
+	retention    time.Duration
+	now          func() time.Time
+	writeTimeout time.Duration
+	tokens       *tokenConnections
 
-	mu        sync.RWMutex
-	conns     map[string]types.Connection // instanceUID hex -> connection
-	connToUID map[types.Connection]string // reverse map for O(1) lookup on close
+	mu    sync.RWMutex
+	conns map[string]*tokenSession // instanceUID hex -> exact owning session
+
+	stopMu     sync.Mutex
+	stopState  *serverStopState
+	operations sync.WaitGroup
 
 	// pushFn sends a config YAML to a workload. Defaults to PushConfig;
 	// overridable in tests so they can observe auto-push behavior without
 	// wiring a real OpAMP connection.
 	pushFn func(workloadID string, yaml []byte, targetInstanceUID string) error
+}
+
+type serverStopState struct {
+	done chan struct{}
+	err  error
+}
+
+type serverOperation struct {
+	wg   *sync.WaitGroup
+	once sync.Once
+}
+
+func (o *serverOperation) Done() {
+	if o == nil || o.wg == nil {
+		return
+	}
+	o.once.Do(o.wg.Done)
 }
 
 // New creates a new OpAMP server. db and notifier can be nil (useful for
@@ -106,17 +138,24 @@ func New(db Store, notifier Notifier, opts Options) *Server {
 	if opts.RetentionDuration <= 0 {
 		opts.RetentionDuration = 30 * 24 * time.Hour
 	}
-	s := &Server{
-		opamp:     opampServer.New(nil),
-		store:     db,
-		notifier:  notifier,
-		registry:  NewInstanceRegistry(),
-		grace:     NewGraceController(opts.DisconnectGrace),
-		retention: opts.RetentionDuration,
-		secret:    opts.SharedSecret,
-		conns:     make(map[string]types.Connection),
-		connToUID: make(map[types.Connection]string),
+	if opts.now == nil {
+		opts.now = time.Now
 	}
+	if opts.writeTimeout <= 0 || opts.writeTimeout > defaultWriteTimeout {
+		opts.writeTimeout = defaultWriteTimeout
+	}
+	s := &Server{
+		opamp:        opampServer.New(nil),
+		store:        db,
+		notifier:     notifier,
+		registry:     NewInstanceRegistry(),
+		grace:        NewGraceController(opts.DisconnectGrace),
+		retention:    opts.RetentionDuration,
+		now:          opts.now,
+		writeTimeout: opts.writeTimeout,
+		conns:        make(map[string]*tokenSession),
+	}
+	s.tokens = newTokenConnections(opts.now, opts.afterFunc, s.disconnectSessions)
 	s.pushFn = func(workloadID string, yaml []byte, target string) error {
 		return s.PushConfig(context.Background(), workloadID, yaml, target)
 	}
@@ -145,7 +184,10 @@ func (s *Server) InstanceWorkload(instanceUID string) (string, bool) {
 func (s *Server) GetConnection(instanceUID string) types.Connection {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.conns[instanceUID]
+	if session := s.conns[instanceUID]; session != nil {
+		return session.conn
+	}
+	return nil
 }
 
 // PushConfig sends a remote config to one specific instance (when
@@ -153,9 +195,13 @@ func (s *Server) GetConnection(instanceUID string) types.Connection {
 // workload.
 func (s *Server) PushConfig(ctx context.Context, workloadID string, yamlContent []byte, targetInstanceUID string) error {
 	configHash := sha256.Sum256(yamlContent)
-	makeMsg := func(uid string) *protobufs.ServerToAgent {
+	makeMsg := func(uid string) (*protobufs.ServerToAgent, error) {
+		rawUID, err := hex.DecodeString(uid)
+		if err != nil || len(rawUID) != 16 {
+			return nil, fmt.Errorf("instance %s has invalid UID", uid)
+		}
 		return &protobufs.ServerToAgent{
-			InstanceUid: []byte(uid),
+			InstanceUid: rawUID,
 			RemoteConfig: &protobufs.AgentRemoteConfig{
 				Config: &protobufs.AgentConfigMap{
 					ConfigMap: map[string]*protobufs.AgentConfigFile{
@@ -164,7 +210,7 @@ func (s *Server) PushConfig(ctx context.Context, workloadID string, yamlContent 
 				},
 				ConfigHash: configHash[:],
 			},
-		}
+		}, nil
 	}
 
 	if targetInstanceUID != "" {
@@ -175,7 +221,11 @@ func (s *Server) PushConfig(ctx context.Context, workloadID string, yamlContent 
 		if boundWorkloadID != workloadID {
 			return fmt.Errorf("instance %s belongs to workload %s, not %s", targetInstanceUID, boundWorkloadID, workloadID)
 		}
-		return s.sendToInstance(ctx, targetInstanceUID, makeMsg(targetInstanceUID))
+		msg, err := makeMsg(targetInstanceUID)
+		if err != nil {
+			return err
+		}
+		return s.sendToInstance(ctx, targetInstanceUID, msg)
 	}
 
 	instances := s.registry.Instances(workloadID)
@@ -184,7 +234,11 @@ func (s *Server) PushConfig(ctx context.Context, workloadID string, yamlContent 
 	}
 	var firstErr error
 	for _, i := range instances {
-		if err := s.sendToInstance(ctx, i.InstanceUID, makeMsg(i.InstanceUID)); err != nil && firstErr == nil {
+		msg, err := makeMsg(i.InstanceUID)
+		if err == nil {
+			err = s.sendToInstance(ctx, i.InstanceUID, msg)
+		}
+		if err != nil && firstErr == nil {
 			firstErr = err
 		}
 	}
@@ -193,54 +247,158 @@ func (s *Server) PushConfig(ctx context.Context, workloadID string, yamlContent 
 
 func (s *Server) sendToInstance(ctx context.Context, uid string, msg *protobufs.ServerToAgent) error {
 	s.mu.RLock()
-	conn := s.conns[uid]
+	session := s.conns[uid]
 	s.mu.RUnlock()
-	if conn == nil {
+	if session == nil {
 		return fmt.Errorf("instance %s not connected", uid)
 	}
-	return conn.Send(ctx, msg)
+	lease, ok := s.tokens.Acquire(session, s.now().UTC())
+	if !ok {
+		return fmt.Errorf("instance %s not connected", uid)
+	}
+	err := session.send(ctx, msg, s.writeTimeout)
+	lease.Release()
+	if err != nil {
+		s.disconnectSessionAfterSendError(session)
+	}
+	return err
+}
+
+func (session *tokenSession) send(ctx context.Context, msg *protobufs.ServerToAgent, timeout time.Duration) error {
+	session.sendGate.Lock()
+	defer session.sendGate.Unlock()
+	_, err := session.sendWithDeadlineLocked(ctx, msg, timeout, nil)
+	return err
+}
+
+func (session *tokenSession) sendHTTPResponse(
+	ctx context.Context,
+	msg *protobufs.ServerToAgent,
+	timeout time.Duration,
+	lease *tokenLease,
+) (bool, error) {
+	session.sendGate.Lock()
+	retained, err := session.sendWithDeadlineLocked(ctx, msg, timeout, lease)
+	if !retained {
+		session.sendGate.Unlock()
+	}
+	return retained, err
+}
+
+// sendWithDeadlineLocked requires sendGate to be held. When it retains an HTTP
+// response, ownership of both the lease and sendGate moves to httpLease and is
+// released by finishHTTPResponse after the handler flushes the response.
+func (session *tokenSession) sendWithDeadlineLocked(
+	ctx context.Context,
+	msg *protobufs.ServerToAgent,
+	timeout time.Duration,
+	httpLease *tokenLease,
+) (bool, error) {
+	conn := session.conn.Connection()
+	if conn != nil {
+		deadline := time.Now().Add(timeout)
+		if contextDeadline, ok := ctx.Deadline(); ok && contextDeadline.Before(deadline) {
+			deadline = contextDeadline
+		}
+		if err := conn.SetWriteDeadline(deadline); err != nil {
+			_ = conn.Close()
+			return false, fmt.Errorf("set OpAMP write deadline: %w", err)
+		}
+	}
+	err := session.conn.Send(ctx, msg)
+	if errors.Is(err, opampServer.ErrInvalidHTTPConnection) && session.holdHTTPResponse(httpLease) {
+		return true, err
+	}
+	if conn != nil {
+		clearErr := conn.SetWriteDeadline(time.Time{})
+		if clearErr != nil {
+			_ = conn.Close()
+			if err == nil {
+				return false, fmt.Errorf("clear OpAMP write deadline: %w", clearErr)
+			}
+		}
+	}
+	return false, err
 }
 
 // Attach mounts the OpAMP handler on an existing HTTP mux.
 func (s *Server) Attach() (opampServer.HTTPHandlerFunc, opampServer.ConnContext, error) {
-	connCallbacks := types.ConnectionCallbacks{
-		OnConnected:       s.onConnected,
-		OnMessage:         s.onMessage,
-		OnConnectionClose: s.onConnectionClose,
-	}
-
 	settings := opampServer.Settings{
 		Callbacks: types.Callbacks{
-			OnConnecting: func(req *http.Request) types.ConnectionResponse {
-				resp := s.authenticateRequest(req)
-				if !resp.Accept {
-					return resp
-				}
-				resp.ConnectionCallbacks = connCallbacks
-				return resp
-			},
+			OnConnecting: s.authenticateRequest,
 		},
 	}
 
-	return s.opamp.Attach(settings)
+	handler, connContext, err := s.opamp.Attach(settings)
+	if err != nil {
+		return nil, nil, err
+	}
+	return func(w http.ResponseWriter, req *http.Request) {
+		if req.Header.Get("Content-Type") == "application/x-protobuf" {
+			handler(&flushResponseWriter{ResponseWriter: w}, req)
+			return
+		}
+		handler(w, req)
+	}, connContext, nil
+}
+
+type flushResponseWriter struct {
+	http.ResponseWriter
+}
+
+func (w *flushResponseWriter) Write(body []byte) (int, error) {
+	w.ResponseWriter.Header().Set("Content-Type", "application/x-protobuf")
+	w.ResponseWriter.Header().Set("X-Content-Type-Options", "nosniff")
+	written, err := w.ResponseWriter.Write(body)
+	if err != nil {
+		return written, err
+	}
+	if err := http.NewResponseController(w.ResponseWriter).Flush(); err != nil {
+		return written, fmt.Errorf("flush OpAMP HTTP response: %w", err)
+	}
+	return written, nil
 }
 
 func (s *Server) authenticateRequest(req *http.Request) types.ConnectionResponse {
-	if s.secret == "" {
-		return types.ConnectionResponse{Accept: true}
+	operation, ok := s.beginOperation()
+	if !ok {
+		return serviceUnavailableConnectionResponse()
 	}
+	defer operation.Done()
 
 	const prefix = "Bearer "
-	auth := req.Header.Get("Authorization")
-	if !strings.HasPrefix(auth, prefix) {
+	values := req.Header.Values("Authorization")
+	if len(values) != 1 {
 		return unauthorizedConnectionResponse()
 	}
-	token := strings.TrimSpace(strings.TrimPrefix(auth, prefix))
-	if subtle.ConstantTimeCompare([]byte(token), []byte(s.secret)) != 1 {
+	auth := values[0]
+	if !strings.HasPrefix(auth, prefix) || strings.Contains(auth, ",") {
 		return unauthorizedConnectionResponse()
 	}
+	value := strings.TrimPrefix(auth, prefix)
+	if value == "" || strings.ContainsAny(value, " \t\r\n") {
+		return unauthorizedConnectionResponse()
+	}
+	id, presentedHash, err := opampauth.ParseAndHash(value)
+	if err != nil {
+		return unauthorizedConnectionResponse()
+	}
+	if s.store == nil {
+		return serviceUnavailableConnectionResponse()
+	}
+	principal, err := s.store.ValidateOpAMPToken(req.Context(), id, presentedHash, s.now().UTC())
+	if errors.Is(err, ext.ErrInvalidOpAMPToken) {
+		return unauthorizedConnectionResponse()
+	}
+	if err != nil {
+		return serviceUnavailableConnectionResponse()
+	}
+	session := &tokenSession{principal: principal}
 
-	return types.ConnectionResponse{Accept: true}
+	return types.ConnectionResponse{
+		Accept:              true,
+		ConnectionCallbacks: s.connectionCallbacks(session),
+	}
 }
 
 func unauthorizedConnectionResponse() types.ConnectionResponse {
@@ -251,13 +409,57 @@ func unauthorizedConnectionResponse() types.ConnectionResponse {
 	}
 }
 
-// Stop gracefully shuts down the OpAMP server.
-func (s *Server) Stop(ctx context.Context) error {
-	return s.opamp.Stop(ctx)
+func serviceUnavailableConnectionResponse() types.ConnectionResponse {
+	return types.ConnectionResponse{
+		Accept:         false,
+		HTTPStatusCode: http.StatusServiceUnavailable,
+	}
 }
 
-func (s *Server) onConnected(_ context.Context, conn types.Connection) {
-	log.Printf("OpAMP agent connected: %v", conn)
+// Stop gracefully shuts down the OpAMP server. A nil result means all cleanup
+// completed. If ctx expires, cleanup continues and a later Stop call can join
+// the same shutdown to completion.
+func (s *Server) Stop(ctx context.Context) error {
+	state := s.beginStop()
+	select {
+	case <-state.done:
+		return state.err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (s *Server) beginOperation() (*serverOperation, bool) {
+	s.stopMu.Lock()
+	defer s.stopMu.Unlock()
+	if s.stopState != nil {
+		return nil, false
+	}
+	s.operations.Add(1)
+	return &serverOperation{wg: &s.operations}, true
+}
+
+func (s *Server) beginStop() *serverStopState {
+	s.stopMu.Lock()
+	if s.stopState != nil {
+		state := s.stopState
+		s.stopMu.Unlock()
+		return state
+	}
+	state := &serverStopState{done: make(chan struct{})}
+	s.stopState = state
+	graceState := s.grace.beginStop()
+	tokenState, _ := s.tokens.beginStop()
+	s.stopMu.Unlock()
+
+	go func() {
+		<-graceState.done
+		<-tokenState.done
+		s.operations.Wait()
+		state.err = s.opamp.Stop(context.Background())
+		close(state.done)
+	}()
+	return state
 }
 
 // flattenAttrs merges identifying and non-identifying OpAMP attributes into a
@@ -297,10 +499,18 @@ func classifyAgentMessage(msg *protobufs.AgentToServer) agentMessageKind {
 	return agentMessageHeartbeat
 }
 
-func (s *Server) onMessage(_ context.Context, conn types.Connection, msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
-	uid := hex.EncodeToString(msg.InstanceUid)
-	s.registerConnection(uid, conn)
+// handleAcceptedMessage applies an already authenticated and admitted OpAMP
+// message. Keeping authentication and connection ownership outside this helper
+// lets the historical workload tests exercise message semantics directly.
+func (s *Server) handleAcceptedMessage(msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+	return s.handleAcceptedMessageWithLease(msg, nil)
+}
 
+func (s *Server) handleAcceptedMessageWithLease(
+	msg *protobufs.AgentToServer,
+	parentLease *tokenLease,
+) *protobufs.ServerToAgent {
+	uid := hex.EncodeToString(msg.InstanceUid)
 	var workloadID string
 	var requestComponents bool
 
@@ -315,23 +525,140 @@ func (s *Server) onMessage(_ context.Context, conn types.Connection, msg *protob
 		}
 	}
 
-	s.refreshWorkloadState(workloadID, uid)
+	s.refreshWorkloadState(workloadID, uid, parentLease)
 	s.recordRemoteConfigStatus(workloadID, uid, msg.RemoteConfigStatus)
 
 	return replyToAgent(msg, requestComponents)
 }
 
-func (s *Server) registerConnection(uid string, conn types.Connection) {
-	// Track connection in both directions for O(1) lookup on close. A nil
-	// conn slips in from unit tests — tolerate it so we still exercise the
-	// message-handling logic.
-	if conn == nil {
-		return
+func (s *Server) connectionCallbacks(session *tokenSession) types.ConnectionCallbacks {
+	return types.ConnectionCallbacks{
+		OnConnected: func(_ context.Context, conn types.Connection) {
+			if !s.tokens.Track(session, conn) {
+				if err := conn.Disconnect(); err != nil && !errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
+					log.Printf("OpAMP connection rejected after authentication: %v", err)
+				}
+			}
+		},
+		OnMessage: func(ctx context.Context, conn types.Connection, msg *protobufs.AgentToServer) *protobufs.ServerToAgent {
+			return s.onSessionMessage(ctx, session, conn, msg)
+		},
+		OnConnectionClose: func(conn types.Connection) {
+			s.onSessionConnectionClose(session, conn)
+		},
 	}
+}
+
+func (s *Server) onSessionMessage(
+	ctx context.Context,
+	session *tokenSession,
+	conn types.Connection,
+	msg *protobufs.AgentToServer,
+) *protobufs.ServerToAgent {
+	lease, ok := s.tokens.Acquire(session, s.now().UTC())
+	if !ok {
+		return nil
+	}
+
+	session.messageGate.Lock()
+	if session.terminal {
+		session.messageGate.Unlock()
+		lease.Release()
+		return nil
+	}
+	reply, disconnect := s.processSessionMessage(ctx, session, conn, msg, lease)
+	if disconnect {
+		session.terminal = true
+	}
+	session.messageGate.Unlock()
+	if disconnect {
+		lease.Release()
+		s.disconnectSession(session)
+		return nil
+	}
+	if reply == nil {
+		lease.Release()
+		return nil
+	}
+
+	// opamp-go normally sends this reply after OnMessage returns. WebSockets
+	// instead send it here so the token lease covers the complete operation.
+	// Plain HTTP cannot use Connection.Send; returning the reply is its only
+	// supported response path.
+	retained, err := session.sendHTTPResponse(ctx, reply, s.writeTimeout, lease)
+	if retained {
+		return reply
+	}
+	lease.Release()
+	if errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
+		s.tokens.Remove(session)
+		s.tokens.waitRemoveDrain(session)
+		s.disconnectSessions([]*tokenSession{session})
+		s.tokens.CompleteRemove(session)
+		return nil
+	}
+	if err != nil {
+		s.disconnectSession(session)
+	}
+	return nil
+}
+
+func (s *Server) processSessionMessage(
+	ctx context.Context,
+	session *tokenSession,
+	conn types.Connection,
+	msg *protobufs.AgentToServer,
+	lease *tokenLease,
+) (*protobufs.ServerToAgent, bool) {
+	if msg == nil || len(msg.InstanceUid) != 16 || session.conn != conn {
+		return nil, true
+	}
+	uid := hex.EncodeToString(msg.InstanceUid)
+
 	s.mu.Lock()
-	s.conns[uid] = conn
-	s.connToUID[conn] = uid
+	if session.admitted {
+		matches := session.uid == uid && s.conns[uid] == session
+		s.mu.Unlock()
+		if !matches {
+			return nil, true
+		}
+		return s.handleAcceptedMessageWithLease(msg, lease), false
+	}
+	if session.uid != "" {
+		s.mu.Unlock()
+		return nil, true
+	}
+	if owner := s.conns[uid]; owner != nil && owner != session {
+		s.mu.Unlock()
+		return nil, true
+	}
+	session.uid = uid
+	s.conns[uid] = session
 	s.mu.Unlock()
+
+	if s.store == nil || s.store.MarkOpAMPTokenUsed(ctx, session.principal.ID, s.now().UTC()) != nil {
+		return nil, true
+	}
+
+	s.mu.Lock()
+	if s.conns[uid] != session {
+		s.mu.Unlock()
+		return nil, true
+	}
+	session.admitted = true
+	s.mu.Unlock()
+	return s.handleAcceptedMessageWithLease(msg, lease), false
+}
+
+func (s *Server) onSessionConnectionClose(session *tokenSession, _ types.Connection) {
+	// Remove first, even for a connection that closed before its first message.
+	// Remove is non-blocking so a close callback cannot deadlock with a Send that
+	// is being unblocked by transport shutdown.
+	s.tokens.Remove(session)
+	session.finishHTTPResponse()
+	s.tokens.waitRemoveDrain(session)
+	s.releaseSession(session)
+	s.tokens.CompleteRemove(session)
 }
 
 func (s *Server) handleAgentDescription(uid string, msg *protobufs.AgentToServer) (string, bool) {
@@ -422,7 +749,7 @@ func (s *Server) handleKnownInstanceUpdate(uid string, msg *protobufs.AgentToSer
 	return wl, true
 }
 
-func (s *Server) refreshWorkloadState(workloadID, uid string) {
+func (s *Server) refreshWorkloadState(workloadID, uid string, parentLease *tokenLease) {
 	// Aggregated status + broadcast + conditional auto-push.
 	if s.store == nil {
 		return
@@ -441,10 +768,15 @@ func (s *Server) refreshWorkloadState(workloadID, uid string) {
 		drifted := s.countDrift(workloadID, wl.ActiveConfigHash)
 		s.notifier.BroadcastWorkloadUpdate(wl, connected, drifted)
 	}
-	s.maybeTriggerAutoPush(workloadID, uid, wl)
+	s.maybeTriggerAutoPush(workloadID, uid, wl, parentLease)
 }
 
-func (s *Server) maybeTriggerAutoPush(workloadID, uid string, wl models.Workload) {
+func (s *Server) maybeTriggerAutoPush(
+	workloadID string,
+	uid string,
+	wl models.Workload,
+	parentLease *tokenLease,
+) {
 	// Auto-push (P.2): only when this specific instance diverges from the
 	// workload's pinned active config.
 	if wl.ActiveConfigHash == "" || wl.ActiveConfigID == nil {
@@ -455,10 +787,33 @@ func (s *Server) maybeTriggerAutoPush(workloadID, uid string, wl models.Workload
 			continue
 		}
 		if i.EffectiveConfigHash != "" && i.EffectiveConfigHash != wl.ActiveConfigHash {
-			//nolint:gosec // auto-push is server-initiated and must outlive the OpAMP message context
-			go s.triggerAutoPush(context.Background(), *wl.ActiveConfigID, workloadID, uid)
+			s.launchAutoPush(*wl.ActiveConfigID, workloadID, uid, parentLease)
 		}
 	}
+}
+
+func (s *Server) launchAutoPush(configID, workloadID, uid string, parentLease *tokenLease) {
+	operation, ok := s.beginOperation()
+	if !ok {
+		return
+	}
+	var lease *tokenLease
+	if parentLease != nil {
+		lease, ok = parentLease.Fork()
+		if !ok {
+			operation.Done()
+			return
+		}
+	}
+
+	//nolint:gosec // auto-push is server-initiated and must outlive the OpAMP message context
+	go func() {
+		defer operation.Done()
+		if lease != nil {
+			defer lease.Release()
+		}
+		s.triggerAutoPush(context.Background(), configID, workloadID, uid)
+	}()
 }
 
 func (s *Server) recordRemoteConfigStatus(workloadID, uid string, status *protobufs.RemoteConfigStatus) {
@@ -649,21 +1004,71 @@ func flattenAvailableComponents(ac *protobufs.AvailableComponents) *models.Avail
 	return out
 }
 
-func (s *Server) onConnectionClose(conn types.Connection) {
+// DisconnectTokenConnections tombstones a managed token, waits for operations
+// admitted before the tombstone, then releases and closes only its sessions.
+func (s *Server) DisconnectTokenConnections(tokenID string) int {
+	sessions := s.tokens.Disable(tokenID)
+	return len(sessions)
+}
+
+func (s *Server) disconnectSessions(sessions []*tokenSession) {
+	for _, session := range sessions {
+		session.disconnectOnce.Do(func() {
+			s.releaseSession(session)
+			if session.conn == nil {
+				return
+			}
+			if err := session.conn.Disconnect(); err != nil && !errors.Is(err, opampServer.ErrInvalidHTTPConnection) {
+				log.Printf("OpAMP connection disconnect failed: %v", err)
+			}
+		})
+	}
+}
+
+func (s *Server) disconnectSession(session *tokenSession) {
+	s.tokens.Remove(session)
+	s.finishDisconnectSession(session)
+}
+
+func (s *Server) disconnectSessionAfterSendError(session *tokenSession) {
+	s.tokens.Remove(session)
+	if session.leases.Load() == 0 {
+		s.finishDisconnectSession(session)
+		return
+	}
+	go s.finishDisconnectSession(session)
+}
+
+func (s *Server) finishDisconnectSession(session *tokenSession) {
+	s.tokens.waitRemoveDrain(session)
+	s.disconnectSessions([]*tokenSession{session})
+	s.tokens.CompleteRemove(session)
+}
+
+func (s *Server) releaseSession(session *tokenSession) {
+	if session == nil {
+		return
+	}
+	session.releaseOnce.Do(func() {
+		s.releaseSessionOnce(session)
+	})
+}
+
+func (s *Server) releaseSessionOnce(session *tokenSession) {
+
+	// Keep the exact owner check and registry unbind in one critical section.
+	// A late close from an older connection can therefore never unbind a newer
+	// session that has claimed the same UID.
 	s.mu.Lock()
-	uid, ok := s.connToUID[conn]
-	if !ok {
-		// Connection was never registered (e.g. closed before first
-		// message). Return without touching registry state.
+	uid := session.uid
+	if uid == "" || s.conns[uid] != session {
 		s.mu.Unlock()
 		return
 	}
 	delete(s.conns, uid)
-	delete(s.connToUID, conn)
-	s.mu.Unlock()
+	session.uid = ""
+	session.admitted = false
 
-	// Capture pod_name for the disconnected event BEFORE unbinding — the
-	// pod name is only known from the registry entry.
 	var podName string
 	if wl, found := s.registry.LookupWorkload(uid); found {
 		for _, i := range s.registry.Instances(wl) {
@@ -674,6 +1079,7 @@ func (s *Server) onConnectionClose(conn types.Connection) {
 		}
 	}
 	workloadID := s.registry.UnbindInstance(uid)
+	s.mu.Unlock()
 	if workloadID == "" {
 		return
 	}

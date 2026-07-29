@@ -6,6 +6,7 @@
 # Requires: docker, npx (playwright installed in frontend/)
 
 set -euo pipefail
+umask 077
 
 cd "$(dirname "$0")/.."
 
@@ -22,11 +23,71 @@ export SEED_ADMIN_PASSWORD="initialPass!!!12"
 export POSTGRES_PASSWORD="${POSTGRES_PASSWORD:-e2e-real-postgres-password}"
 export DB_DSN="${DB_DSN:-postgres://magnify:${POSTGRES_PASSWORD}@postgres:5432/magnify?sslmode=disable}"
 
+artifact_parent=""
+playwright_log=""
+
+# ShellCheck cannot infer this EXIT-trap invocation once the test status is preserved explicitly.
+# shellcheck disable=SC2329
 cleanup() {
+  original_status="$?"
+  final_status="$original_status"
+  set +e
+
+  artifact_scan_clean="true"
+  if [ -d "$artifact_parent" ]; then
+    if rg --hidden --no-ignore --quiet --text \
+      'ompt_[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}\.[A-Za-z0-9_-]{43}' \
+      "$artifact_parent"; then
+      echo "credential material detected in Playwright artifacts" >&2
+      final_status=1
+      artifact_scan_clean="false"
+    elif [ "$?" -ne 1 ]; then
+      echo "Playwright artifact scan failed" >&2
+      final_status=1
+      artifact_scan_clean="false"
+    fi
+  elif [ -n "$artifact_parent" ]; then
+    echo "Playwright artifact scan failed" >&2
+    final_status=1
+    artifact_scan_clean="false"
+  fi
+
+  if [ "$artifact_scan_clean" = "true" ] && [ -f "$playwright_log" ]; then
+    cat "$playwright_log"
+  fi
+
   echo "--- docker compose down -v ---"
   docker compose -p otel-magnify-e2e down -v >/dev/null 2>&1 || true
+
+  if [ -n "$artifact_parent" ]; then
+    case "$artifact_parent" in
+      "${TMPDIR:-/tmp}"/otel-magnify-playwright.*)
+        if [ -d "$artifact_parent" ] && [ ! -L "$artifact_parent" ]; then
+          if ! rm -rf -- "$artifact_parent"; then
+            echo "refusing to remove an invalid Playwright artifact directory" >&2
+            final_status=1
+          fi
+        else
+          echo "refusing to remove an invalid Playwright artifact directory" >&2
+          final_status=1
+        fi
+        ;;
+      *)
+        echo "refusing to remove an invalid Playwright artifact directory" >&2
+        final_status=1
+        ;;
+    esac
+  fi
+
+  trap - EXIT
+  exit "$final_status"
 }
 trap cleanup EXIT
+
+artifact_parent="$(mktemp -d "${TMPDIR:-/tmp}/otel-magnify-playwright.XXXXXX")"
+chmod 0700 "$artifact_parent"
+playwright_log="$artifact_parent/stdout-stderr.log"
+export PLAYWRIGHT_OUTPUT_DIR="$artifact_parent/output"
 
 # Wipe any leftover volume from a previous aborted run before starting.
 docker compose -p otel-magnify-e2e down -v >/dev/null 2>&1 || true
@@ -88,4 +149,8 @@ echo "smoke: config-versioning OK"
 
 echo "--- running Playwright real suite ---"
 cd frontend
-npx playwright test --config=playwright.real.config.ts "$@"
+set +e
+npx playwright test --config=playwright.real.config.ts "$@" >"$playwright_log" 2>&1
+playwright_status="$?"
+set -e
+exit "$playwright_status"

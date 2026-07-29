@@ -1,7 +1,8 @@
 replicaCount: 1
 
 deployment:
-  # Increment after rotating an operator-managed Secret.
+  # Increment after rotating an operator-managed Secret, including the
+  # external OpAMP TLS Secret, to roll the Deployment.
   secretRevision: ""
 
 image:
@@ -16,6 +17,8 @@ service:
   opampPort: 4320
 
 ingress:
+  # This HTTP Ingress exposes only the API. Production OpAMP exposure uses
+  # the native WSS listener through a LoadBalancer or TCP/TLS passthrough.
   enabled: false
   className: ""
   hosts:
@@ -54,10 +57,23 @@ auth:
 
 # Legacy inline fallback. Prefer auth.existingSecret for new installations.
 jwtSecret: ""
-# Optional OpAMP bearer token. Leave empty only for local/trusted runs; set for
-# production, shared, or exposed OpAMP boundaries and configure agents to send
-# the same Authorization bearer value.
-opampSharedSecret: ""
+
+opamp:
+  insecure: false
+  tls:
+    # The operator owns this TLS Secret; the chart only mounts it by reference.
+    existingSecret: ""
+    certKey: tls.crt
+    privateKeyKey: tls.key
+
+networkPolicy:
+  enabled: true
+  api:
+    allowAll: true
+    from: []
+  opamp:
+    allowAll: false
+    from: []
 
 # UID/GID 10001 matches the non-root user created in the Dockerfile.
 podSecurityContext:

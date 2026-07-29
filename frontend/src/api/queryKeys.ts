@@ -8,3 +8,8 @@ export const adminSSOKeys = {
 export const capabilitiesKeys = {
   all: ['capabilities'] as const,
 }
+
+export const opampTokenKeys = {
+  all: ['admin', 'opamp', 'tokens'] as const,
+  list: () => [...opampTokenKeys.all, 'list'] as const,
+}

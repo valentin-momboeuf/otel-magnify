@@ -55,19 +55,29 @@ schemas or data.
 |----------|---------|-------------|
 | `LISTEN_ADDR` | `:8080` | API, embedded frontend, health check, and browser WebSocket hub listen address. |
 | `OPAMP_ADDR` | `:4320` | OpAMP WebSocket listen address. Agents connect to `/v1/opamp` on this listener. |
-| `OPAMP_SHARED_SECRET` | *(empty)* | Optional bearer token required from OpAMP clients. Empty keeps `:4320` unauthenticated for local/dev demos; set a random value for production, shared, or exposed networks. |
+| `OPAMP_INSECURE` | `false` | Exact `true` enables plaintext WS only for a trusted local test network. The default requires native TLS material or leaves the OpAMP listener disabled. |
+| `OPAMP_TLS_CERT_FILE` | *(empty)* | Server certificate chain for the native WSS listener. Must be set with `OPAMP_TLS_KEY_FILE` when `OPAMP_INSECURE=false`. |
+| `OPAMP_TLS_KEY_FILE` | *(empty)* | Server private key for the native WSS listener. Must be set with `OPAMP_TLS_CERT_FILE` when `OPAMP_INSECURE=false`. |
 | `CORS_ORIGINS` | `http://localhost:5173` | Comma-separated allowed origins for browser API requests. Set this to the exact UI origin(s) in production. |
 
 The browser WebSocket hub lives on the API listener at `/ws` and uses the `om_session` HttpOnly cookie set by login. The legacy `/ws?token=<jwt>` form remains available for non-browser or older clients. The OpAMP protocol is served separately on `OPAMP_ADDR` at `/v1/opamp`.
 
-### OpAMP shared secret
+### OpAMP transport and authentication
 
-`OPAMP_SHARED_SECRET` protects the OpAMP HTTP/WebSocket handshake on `OPAMP_ADDR`.
+With the default `OPAMP_INSECURE=false`, the OpAMP listener starts only when
+both TLS files form a valid, currently usable certificate/key pair. Partial,
+invalid, expired, or missing material leaves that listener disabled while the
+API remains available. `OPAMP_INSECURE=true` cannot be combined with TLS files.
 
-- Unset or empty: OpAMP clients can connect without an `Authorization` header. This is intended for local development and demo collectors on a trusted machine or private Docker network.
-- Set: every OpAMP client must send the exact value as a bearer token, for example `Authorization: Bearer ***`. Missing or mismatched tokens are rejected with `401 Unauthorized` before any OpAMP message is processed.
+Every client must use a managed token created through the admin UI or
+`/api/v1/opamp/tokens`. There is no server token environment variable.
+`OPAMP_TOKEN` appears in Collector and Supervisor examples only as a
+client-side secret input. See [Managed OpAMP tokens](opamp-tokens.md) for WSS,
+bootstrap, secret injection, rotation, and current scaling limits.
 
-Use placeholders in examples and store the real value in your deployment secret manager or shell environment; do not commit real OpAMP secrets.
+Use TCP/TLS passthrough or re-encryption from the load balancer to the native
+WSS listener. Restrict the listener with the Helm NetworkPolicy and trusted
+edge controls.
 
 ## Bootstrap
 
@@ -125,7 +135,8 @@ Capability discovery is not authorization; protected APIs still enforce authenti
 Do not paste real values for these settings into public docs, issue trackers, or support transcripts:
 
 - `JWT_SECRET`
-- `OPAMP_SHARED_SECRET`
+- managed OpAMP token values, including client-side `OPAMP_TOKEN`
+- `OPAMP_TLS_KEY_FILE` contents
 - credential-bearing `DB_DSN`
 - credential-bearing `WEBHOOK_URL`
 - bearer JWTs or `/ws?token=...` URLs

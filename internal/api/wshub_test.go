@@ -18,6 +18,36 @@ func hookClient(h *Hub) *wsClient {
 	return c
 }
 
+func TestHubBroadcastDisconnectsExpiredClient(t *testing.T) {
+	h := NewHub()
+	go h.Run()
+	defer h.Stop()
+
+	client := &wsClient{
+		send:      make(chan []byte, 1),
+		expiresAt: time.Now().Add(-time.Second),
+	}
+	h.register <- client
+
+	h.BroadcastAlertUpdate(models.Alert{ID: "alert-42"})
+
+	select {
+	case payload, ok := <-client.send:
+		if ok {
+			t.Fatalf("expired client received broadcast: %s", payload)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expired client was not disconnected")
+	}
+
+	h.mu.Lock()
+	_, registered := h.clients[client]
+	h.mu.Unlock()
+	if registered {
+		t.Fatal("expired client remains registered")
+	}
+}
+
 func TestBroadcastWorkloadUpdatePayload(t *testing.T) {
 	h := NewHub()
 	go h.Run()

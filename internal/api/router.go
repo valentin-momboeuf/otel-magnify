@@ -25,6 +25,7 @@ type OpAMPPusher interface {
 	PushConfig(ctx context.Context, workloadID string, yamlContent []byte, targetInstanceUID string) error
 	Instances(workloadID string) []opamp.Instance
 	InstanceWorkload(instanceUID string) (string, bool)
+	DisconnectTokenConnections(tokenID string) int
 }
 
 // API holds the HTTP handler dependencies (store, auth, WS hub, OpAMP pusher, feature flags) shared across all routes.
@@ -134,6 +135,9 @@ func NewRouter(db ext.Store, a ext.AuthProvider, hub *Hub, opampSrv OpAMPPusher,
 		r.Use(a.Middleware)
 
 		r.With(api.RequirePerm(perm.ManageSettings)).Get("/api/system/database", api.handleDatabaseStats)
+		r.With(api.RequirePerm(perm.ManageSettings)).Post("/api/v1/opamp/tokens", api.handleCreateOpAMPToken)
+		r.With(api.RequirePerm(perm.ManageSettings)).Get("/api/v1/opamp/tokens", api.handleListOpAMPTokens)
+		r.With(api.RequirePerm(perm.ManageSettings)).Post("/api/v1/opamp/tokens/{id}/revoke", api.handleRevokeOpAMPToken)
 
 		r.With(api.RequireFeature(FeatureConfigSafetyDriftDashboard)).Get("/api/config-safety/drift", api.handleListConfigDrift)
 		r.With(api.RequireFeature(FeatureReportsEvidencePack), api.RequirePerm(perm.ExportReports)).Post("/api/reports/evidence-pack", api.handlePreviewEvidencePack)

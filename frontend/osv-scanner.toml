@@ -1,0 +1,5 @@
+# Upstream advisory: https://github.com/remix-run/react-router/security/advisories/GHSA-qwww-vcr4-c8h2
+[[IgnoredVulns]]
+id = "GHSA-qwww-vcr4-c8h2"
+ignoreUntil = 2026-08-04
+reason = "Upstream remix-run/react-router advisory declares 7.18.2 patched while the global OSV record still exposes only the obsolete 8.3.0 boundary; remove after feed synchronization."

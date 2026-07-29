@@ -16,7 +16,9 @@ type Config struct {
 	DBConnMaxLifetime time.Duration
 	ListenAddr        string // e.g. ":8080"
 	OpAMPAddr         string // e.g. ":4320"
-	OpAMPSharedSecret string // bearer token required by OpAMP clients; empty = disabled for local/dev
+	OpAMPInsecure     string // exact "true" enables plaintext WS; default "false" requires TLS
+	OpAMPTLSCertFile  string
+	OpAMPTLSKeyFile   string
 	JWTSecret         string
 	CORSOrigins       string // comma-separated allowed origins
 	MinAgentVersion   string // minimum required agent version; empty = disabled
@@ -39,7 +41,9 @@ func Load() Config {
 		DBConnMaxLifetime:       dbConnMaxLifetime(getenv("DB_CONN_MAX_LIFETIME_SECONDS", "1800")),
 		ListenAddr:              getenv("LISTEN_ADDR", ":8080"),
 		OpAMPAddr:               getenv("OPAMP_ADDR", ":4320"),
-		OpAMPSharedSecret:       getenv("OPAMP_SHARED_SECRET", ""),
+		OpAMPInsecure:           getenv("OPAMP_INSECURE", "false"),
+		OpAMPTLSCertFile:        getenv("OPAMP_TLS_CERT_FILE", ""),
+		OpAMPTLSKeyFile:         getenv("OPAMP_TLS_KEY_FILE", ""),
 		JWTSecret:               getenv("JWT_SECRET", ""),
 		CORSOrigins:             getenv("CORS_ORIGINS", "http://localhost:5173"),
 		MinAgentVersion:         getenv("MIN_AGENT_VERSION", ""),

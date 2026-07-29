@@ -1,6 +1,6 @@
 # Connecting agents
 
-Agents connect to otel-magnify over [OpAMP](https://opentelemetry.io/docs/specs/opamp/) on port `:4320` (configurable via `OPAMP_ADDR`).
+Agents connect to otel-magnify over [OpAMP](https://opentelemetry.io/docs/specs/opamp/) through the default native/internal listener on `:4320` (configurable via `OPAMP_ADDR`); public WSS endpoints commonly use implicit port `443` and pass through or re-encrypt to that listener.
 
 Two agent types are supported:
 
@@ -41,7 +41,11 @@ extensions:
   opamp:
     server:
       ws:
-        endpoint: ws://magnify.example.com:4320/v1/opamp
+        endpoint: wss://magnify.example.com/v1/opamp
+        headers:
+          Authorization: "Bearer ${env:OPAMP_TOKEN}"
+        tls:
+          insecure: false
 
 service:
   extensions: [opamp]
@@ -54,15 +58,28 @@ apply remote configuration, so otel-magnify records
 `accepts_remote_config=false` and rejects governed pushes to this workload.
 Use the OpAMP Supervisor below for a real Collector that must apply config.
 
-Sample configs are available in the repo under `agents/collector-*.yaml` — they ship with the `resourcedetection` and `resource` processors pre-wired so the collector is fingerprinted correctly out of the box.
+`OPAMP_TOKEN` is a client environment variable, not a server setting. Inject it
+from an operator-managed secret; never commit a value. For private PKI, mount
+the CA and set `tls.ca_file` while keeping `insecure: false`. See
+[Managed OpAMP tokens](opamp-tokens.md) for bootstrap, Kubernetes, rotation,
+and failure semantics.
+
+Sample configs are available in the repo under `agents/collector-*.yaml`. They
+target Collector contrib `0.150.1` and ship with the `resourcedetection` and
+`resource` processors pre-wired so the collector is fingerprinted correctly.
 
 ## Running a demo Collector alongside otel-magnify
 
 ```bash
 docker run -d --name collector-prod-eu --network otel-magnify_default \
+  --env-file /secure/path/opamp-client.env \
   -v $(pwd)/agents/collector-prod-eu.yaml:/etc/otelcol-contrib/config.yaml \
-  otel/opentelemetry-collector-contrib:0.98.0
+  otel/opentelemetry-collector-contrib:0.150.1
 ```
+
+The private environment file contains `OPAMP_TOKEN` and should be mode `0600`.
+The public sample endpoint must be replaced with the WSS name on the server
+certificate.
 
 ## Running a Collector via OpAMP Supervisor
 
@@ -70,30 +87,30 @@ The Collector's built-in `opamp` extension reports status and effective config,
 but **does not apply remote configs**. To enable config push, run the Collector
 under the [OpAMP Supervisor](https://github.com/open-telemetry/opentelemetry-collector-contrib/tree/main/cmd/opampsupervisor).
 
-The supervisor is not shipped as an official Docker image, so you build it
-yourself. Minimal recipe:
+Official Supervisor binaries and container images are available. This
+documentation fixes Supervisor `0.150.0` with Collector contrib `0.150.1`;
+do not silently change either version because the configuration is
+version-sensitive. The official image is:
 
-```dockerfile
-FROM golang:1.25.12 AS build
-WORKDIR /src
-RUN git clone --depth=1 --branch=v0.150.0 \
-    https://github.com/open-telemetry/opentelemetry-collector-contrib.git
-WORKDIR /src/opentelemetry-collector-contrib/cmd/opampsupervisor
-RUN CGO_ENABLED=0 go build -o /out/opampsupervisor .
-
-FROM otel/opentelemetry-collector-contrib:0.150.1
-COPY --from=build /out/opampsupervisor /usr/local/bin/opampsupervisor
-ENTRYPOINT ["/usr/local/bin/opampsupervisor"]
-CMD ["--config", "/etc/otelcol/supervisor.yaml"]
+```text
+ghcr.io/open-telemetry/opentelemetry-collector-releases/opentelemetry-collector-opampsupervisor:0.150.0
 ```
+
+The official image contains the Supervisor only; it does not contain a
+Collector executable. Supply a separately pinned and verified Collector
+contrib `0.150.1` executable through your image build or artifact workflow
+while keeping Supervisor `0.150.0`. Do not download an unpinned executable
+during pod startup.
 
 Supervisor configuration (`supervisor.yaml`):
 
 ```yaml
 server:
-  endpoint: ws://otel-magnify:4320/v1/opamp
+  endpoint: wss://magnify.example.com/v1/opamp
+  headers:
+    Authorization: "Bearer ${env:OPAMP_TOKEN}"
   tls:
-    insecure: true
+    insecure: false
 
 capabilities:
   accepts_remote_config: true     # required for config push
@@ -102,7 +119,7 @@ capabilities:
   reports_remote_config: true
 
 agent:
-  executable: /otelcol-contrib    # path inside the contrib image
+  executable: /opt/otel/otelcol-contrib    # separately supplied 0.150.1 executable
   description:
     identifying_attributes:
       service.name: otelcol-contrib    # must match otelcol* to be classified as a collector
@@ -112,20 +129,35 @@ agent:
       deployment.environment: production
 
 storage:
-  directory: /tmp/supervisor       # needs a writable dir inside the container
+  directory: /var/lib/otelcol/supervisor
 ```
 
-Run it:
+Inject `OPAMP_TOKEN` from a Kubernetes `secretKeyRef`, External Secrets, Vault,
+or an equivalent secret manager. Mount a private CA and set
+`server.tls.ca_file` when the WSS certificate is not rooted in the system trust
+store.
 
-```bash
-docker run -d --name collector-supervised-eu --network otel-magnify_default \
-  --user 0 --tmpfs /tmp:exec \
-  -v $(pwd)/supervisor.yaml:/etc/otelcol/supervisor.yaml:ro \
-  otel-magnify-opampsupervisor:latest
+Mount persistent writable storage at that directory so a pod replacement
+retains the Supervisor `InstanceUid`. Use a distinct claim for each Supervisor
+instance rather than sharing one state directory:
+
+```yaml
+securityContext:
+  fsGroup: 10001
+containers:
+  - name: opamp-supervisor
+    volumeMounts:
+      - name: supervisor-state
+        mountPath: /var/lib/otelcol/supervisor
+volumes:
+  - name: supervisor-state
+    persistentVolumeClaim:
+      claimName: opamp-supervisor-state
 ```
 
-`--user 0` + `--tmpfs /tmp:exec` are needed because the contrib base image is
-distroless and otherwise has no writable path for the supervisor storage dir.
+The official image runs as UID `10001`; grant that non-root runtime write
+access to the claim. Do not solve storage permissions by running the container
+as root.
 
 ## Simulating an SDK agent
 
@@ -137,6 +169,8 @@ it does not launch or reconfigure a Collector process.
 ```bash
 go run ./cmd/sdkagent/ \
   --endpoint ws://localhost:4320/v1/opamp \
+  --token-file /secure/path/opamp-token \
+  --allow-insecure-transport \
   --name otelcol-activation-demo \
   --accept-remote-config
 ```

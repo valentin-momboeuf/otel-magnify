@@ -18,6 +18,8 @@ import (
 // Email stay empty, and the caller is responsible for putting the attempted
 // identifier in detail.
 //
+// Legacy synchronous calls intentionally leave EventID and OccurredAt unset;
+// durable token events receive both fields from their transactional outbox.
 // A nil logger is treated as a no-op so call sites don't have to guard
 // against the community NopAuditLogger default. Returns the underlying
 // logger's error so handlers can fail-loud.

@@ -4,14 +4,19 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"syscall"
@@ -29,6 +34,8 @@ const (
 
 type config struct {
 	endpoint   string
+	tokenFile  string
+	tlsConfig  *tls.Config
 	collectors int
 	ramp       time.Duration
 	hold       time.Duration
@@ -54,7 +61,7 @@ type counters struct {
 	stopFailed   atomic.Uint64
 }
 
-type collectorFunc func(context.Context, string, string, <-chan struct{}, *sync.WaitGroup, *sync.WaitGroup, *counters)
+type collectorFunc func(context.Context, string, string, *tls.Config, <-chan struct{}, *sync.WaitGroup, *sync.WaitGroup, *counters)
 
 func main() {
 	os.Exit(runMain())
@@ -66,16 +73,21 @@ func runMain() int {
 		fmt.Fprintln(os.Stderr, err)
 		return 2
 	}
+	token, err := readTokenFile(config.tokenFile)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	result, runErr := run(ctx, config, os.Getenv("OPAMP_SHARED_SECRET"))
+	result, runErr := run(ctx, config, token)
 	stop()
 	if err := json.NewEncoder(os.Stdout).Encode(result); err != nil {
-		fmt.Fprintln(os.Stderr, "write summary:", err)
+		fmt.Fprintln(os.Stderr, "write summary failed")
 		return 1
 	}
 	if runErr != nil {
-		fmt.Fprintln(os.Stderr, runErr)
+		fmt.Fprintln(os.Stderr, "load test failed")
 		return 1
 	}
 	if result.Interrupted {
@@ -92,49 +104,160 @@ func parseConfig(args []string) (config, error) {
 	flags.SetOutput(io.Discard)
 
 	config := config{}
-	flags.StringVar(&config.endpoint, "endpoint", "ws://localhost:4320/v1/opamp", "OpAMP WebSocket endpoint")
+	var allowInsecureTransport bool
+	var tlsCAFile string
+	flags.StringVar(&config.endpoint, "endpoint", "wss://localhost:4320/v1/opamp", "OpAMP WebSocket endpoint")
+	flags.StringVar(&config.tokenFile, "token-file", "", "path to the OpAMP bearer token")
+	flags.BoolVar(&allowInsecureTransport, "allow-insecure-transport", false, "allow plaintext WebSocket transport")
+	flags.StringVar(&tlsCAFile, "tls-ca-file", "", "path to an additional private CA")
 	flags.IntVar(&config.collectors, "collectors", 5000, "number of collectors to connect")
 	flags.DurationVar(&config.ramp, "ramp", 5*time.Minute, "time used to start all collectors")
 	flags.DurationVar(&config.hold, "hold", 10*time.Minute, "time to hold connections after they are established")
 	flags.StringVar(&config.readyFile, "ready-file", "", "write a JSON summary after all collectors connect")
 
 	if err := flags.Parse(args); err != nil {
-		return config, err
+		return config, errors.New("invalid command-line arguments")
 	}
 	if flags.NArg() != 0 {
-		return config, fmt.Errorf("unexpected arguments: %v", flags.Args())
+		return config, errors.New("unexpected positional arguments")
 	}
-	if config.endpoint == "" {
-		return config, fmt.Errorf("endpoint must not be empty")
+	if config.tokenFile == "" {
+		return config, errors.New("token file is required")
+	}
+	endpointURL, err := url.Parse(config.endpoint)
+	if err != nil ||
+		endpointURL.Host == "" ||
+		endpointURL.RawQuery != "" ||
+		endpointURL.Fragment != "" ||
+		strings.TrimSpace(config.endpoint) != config.endpoint {
+		return config, errors.New("endpoint is invalid")
+	}
+	if endpointURL.User != nil {
+		return config, errors.New("endpoint user info is not allowed")
+	}
+	switch endpointURL.Scheme {
+	case "ws":
+		if !allowInsecureTransport {
+			return config, errors.New("plaintext transport requires explicit opt-in")
+		}
+		if tlsCAFile != "" {
+			return config, errors.New("TLS CA cannot be used with plaintext transport")
+		}
+	case "wss":
+		if allowInsecureTransport {
+			return config, errors.New("insecure transport opt-in requires plaintext transport")
+		}
+	default:
+		return config, errors.New("endpoint scheme must be ws or wss")
 	}
 	if config.collectors <= 0 {
-		return config, fmt.Errorf("collectors must be greater than zero")
+		return config, errors.New("collectors must be greater than zero")
 	}
 	if config.ramp < 0 {
-		return config, fmt.Errorf("ramp must not be negative")
+		return config, errors.New("ramp must not be negative")
 	}
 	if config.hold < 0 {
-		return config, fmt.Errorf("hold must not be negative")
+		return config, errors.New("hold must not be negative")
+	}
+	config.tlsConfig, err = buildTLSConfig(tlsCAFile)
+	if err != nil {
+		return config, err
 	}
 
 	return config, nil
 }
 
-func run(ctx context.Context, config config, sharedSecret string) (summary, error) {
-	return runWithReporter(ctx, config, sharedSecret, runCollector, func(ready summary) error {
+func readTokenFile(path string) (string, error) {
+	// #nosec G304 -- the operator supplies the token-file path.
+	file, err := os.Open(path)
+	if err != nil {
+		return "", errors.New("token file is unavailable")
+	}
+	defer func() { _ = file.Close() }()
+
+	info, err := file.Stat()
+	if err != nil || !info.Mode().IsRegular() {
+		return "", errors.New("token file is unavailable")
+	}
+	content, err := io.ReadAll(file)
+	if err != nil {
+		return "", errors.New("token file is unavailable")
+	}
+	token := strings.TrimSpace(string(content))
+	if token == "" {
+		return "", errors.New("token file is empty")
+	}
+	return token, nil
+}
+
+func buildAuthorizationHeader(token string) http.Header {
+	header := make(http.Header, 1)
+	header.Set("Authorization", "Bearer "+token)
+	return header
+}
+
+func buildTLSConfig(caPath string) (*tls.Config, error) {
+	if caPath == "" {
+		return nil, nil
+	}
+	// #nosec G304 -- the operator supplies the private CA path.
+	caPEM, err := os.ReadFile(caPath)
+	if err != nil {
+		return nil, errors.New("TLS CA file is unavailable")
+	}
+	rootCAs, systemPoolErr := x509.SystemCertPool()
+	if rootCAs == nil {
+		rootCAs = x509.NewCertPool()
+	} else if systemPoolErr != nil {
+		return nil, errors.New("system certificate pool is unavailable")
+	}
+	if !rootCAs.AppendCertsFromPEM(caPEM) {
+		return nil, errors.New("TLS CA file is invalid")
+	}
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		RootCAs:    rootCAs,
+	}, nil
+}
+
+func rejectRedirect(_ *http.Request, _ []*http.Request) error {
+	return errors.New("redirect refused")
+}
+
+func buildStartSettings(
+	endpoint string,
+	token string,
+	tlsConfig *tls.Config,
+	instanceUID types.InstanceUid,
+	callbacks types.Callbacks,
+) types.StartSettings {
+	callbacks.CheckRedirect = func(request *http.Request, viaRequests []*http.Request, _ []*http.Response) error {
+		return rejectRedirect(request, viaRequests)
+	}
+	return types.StartSettings{
+		OpAMPServerURL: endpoint,
+		Header:         buildAuthorizationHeader(token),
+		TLSConfig:      tlsConfig,
+		InstanceUid:    instanceUID,
+		Callbacks:      callbacks,
+	}
+}
+
+func run(ctx context.Context, config config, token string) (summary, error) {
+	return runWithReporter(ctx, config, token, runCollector, func(ready summary) error {
 		return writeSummary(config.readyFile, ready)
 	})
 }
 
-func runWithCollector(ctx context.Context, config config, sharedSecret string, collector collectorFunc) summary {
-	result, _ := runWithReporter(ctx, config, sharedSecret, collector, nil)
+func runWithCollector(ctx context.Context, config config, token string, collector collectorFunc) summary {
+	result, _ := runWithReporter(ctx, config, token, collector, nil)
 	return result
 }
 
 func runWithReporter(
 	ctx context.Context,
 	config config,
-	sharedSecret string,
+	token string,
 	collector collectorFunc,
 	reportReady func(summary) error,
 ) (summary, error) {
@@ -151,7 +274,7 @@ func runWithReporter(
 		counters.attempted.Add(1)
 		ready.Add(1)
 		workers.Add(1)
-		go collector(ctx, config.endpoint, sharedSecret, stop, &ready, &workers, &counters)
+		go collector(ctx, config.endpoint, token, config.tlsConfig, stop, &ready, &workers, &counters)
 
 		if config.ramp == 0 {
 			continue
@@ -246,7 +369,8 @@ func writeSummary(path string, result summary) error {
 func runCollector(
 	ctx context.Context,
 	endpoint string,
-	sharedSecret string,
+	token string,
+	tlsConfig *tls.Config,
 	stop <-chan struct{},
 	ready *sync.WaitGroup,
 	workers *sync.WaitGroup,
@@ -288,15 +412,12 @@ func runCollector(
 		})
 	}
 
-	headers := make(http.Header)
-	if sharedSecret != "" {
-		headers.Set("Authorization", "Bearer "+sharedSecret)
-	}
-	if err := opampClient.Start(ctx, types.StartSettings{
-		OpAMPServerURL: endpoint,
-		Header:         headers,
-		InstanceUid:    instanceUID,
-		Callbacks: types.Callbacks{
+	settings := buildStartSettings(
+		endpoint,
+		token,
+		tlsConfig,
+		instanceUID,
+		types.Callbacks{
 			OnConnect: func(context.Context) {
 				recordConnect(true)
 			},
@@ -304,7 +425,8 @@ func runCollector(
 				recordConnect(false)
 			},
 		},
-	}); err != nil {
+	)
+	if err := opampClient.Start(ctx, settings); err != nil {
 		if ctx.Err() != nil {
 			counters.cancelled.Add(1)
 		} else {

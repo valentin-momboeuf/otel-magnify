@@ -13,11 +13,13 @@ import (
 
 // Config holds the server's listen addresses and feature flags.
 type Config struct {
-	ListenAddr        string // default ":8080"
-	OpAMPAddr         string // default ":4320"
-	OpAMPSharedSecret string // empty disables OpAMP bearer authentication for local/dev
-	CORSOrigins       string
-	MinAgentVersion   string
+	ListenAddr       string // default ":8080"
+	OpAMPAddr        string // default ":4320"
+	OpAMPInsecure    string // exact "true" enables plaintext WS; default "false" requires TLS
+	OpAMPTLSCertFile string
+	OpAMPTLSKeyFile  string
+	CORSOrigins      string
+	MinAgentVersion  string
 
 	// Workload lifecycle tuning. Zero values let the downstream subsystems
 	// apply their own defaults (2-minute grace, 30-day retention, 5-minute
@@ -42,6 +44,22 @@ func WithNotifier(n ext.AlertNotifier) Option {
 func WithAuditLogger(l ext.AuditLogger) Option {
 	return func(s *Server) {
 		s.auditLogger = l
+	}
+}
+
+// WithAuditOutboxSink enables durable outbox delivery to an explicitly
+// configured persistent sink. The community no-op logger never starts it.
+func WithAuditOutboxSink(l ext.AuditLogger) Option {
+	return func(s *Server) {
+		if l == nil {
+			return
+		}
+		switch l.(type) {
+		case ext.NopAuditLogger, *ext.NopAuditLogger:
+			return
+		default:
+			s.auditOutboxSink = l
+		}
 	}
 }
 

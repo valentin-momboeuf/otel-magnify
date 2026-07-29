@@ -23,9 +23,39 @@ BEGIN
     ), 0)
     INTO goose_version;
 
-    IF goose_version <> 26 THEN
-        RAISE EXCEPTION 'Goose version mismatch: got %, expected 26', goose_version;
-    END IF;
+	IF goose_version <> 28 THEN
+		RAISE EXCEPTION 'Goose version mismatch: got %, expected 28', goose_version;
+	END IF;
+
+	IF NOT EXISTS (
+		SELECT 1 FROM information_schema.tables
+		WHERE table_schema = current_schema() AND table_name = 'opamp_tokens'
+	) THEN
+		RAISE EXCEPTION 'opamp_tokens table is missing';
+	END IF;
+
+	IF NOT EXISTS (
+		SELECT 1 FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'opamp_tokens'
+		  AND column_name = 'secret_hash' AND data_type = 'bytea'
+	) THEN
+		RAISE EXCEPTION 'opamp_tokens.secret_hash is missing or has the wrong type';
+	END IF;
+
+	IF NOT EXISTS (
+		SELECT 1 FROM information_schema.tables
+		WHERE table_schema = current_schema() AND table_name = 'audit_outbox'
+	) THEN
+		RAISE EXCEPTION 'audit_outbox table is missing';
+	END IF;
+
+	IF (SELECT COUNT(*) FROM information_schema.columns
+		WHERE table_schema = current_schema() AND table_name = 'audit_outbox'
+		  AND column_name IN ('event_id', 'occurred_at', 'action', 'user_id', 'email',
+			'resource', 'resource_id', 'detail', 'attempt_count', 'next_attempt_at',
+			'claim_token', 'lease_until', 'delivered_at')) <> 13 THEN
+		RAISE EXCEPTION 'audit_outbox columns are incomplete';
+	END IF;
 
     IF (SELECT COUNT(*) FROM configs
         WHERE id = 'upgrade-marker-config'

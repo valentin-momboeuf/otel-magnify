@@ -60,7 +60,13 @@ func (h *Hub) Run() {
 			h.mu.Unlock()
 		case msg := <-h.broadcast:
 			h.mu.Lock()
+			now := time.Now()
 			for client := range h.clients {
+				if !client.expiresAt.IsZero() && !now.Before(client.expiresAt) {
+					delete(h.clients, client)
+					close(client.send)
+					continue
+				}
 				select {
 				case client.send <- msg:
 				default:

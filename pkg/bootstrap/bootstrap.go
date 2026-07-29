@@ -119,7 +119,9 @@ func Run(ctx context.Context, opts Options) error {
 	srv := server.New(server.Config{
 		ListenAddr:              cfg.ListenAddr,
 		OpAMPAddr:               cfg.OpAMPAddr,
-		OpAMPSharedSecret:       cfg.OpAMPSharedSecret,
+		OpAMPInsecure:           cfg.OpAMPInsecure,
+		OpAMPTLSCertFile:        cfg.OpAMPTLSCertFile,
+		OpAMPTLSKeyFile:         cfg.OpAMPTLSKeyFile,
 		CORSOrigins:             cfg.CORSOrigins,
 		MinAgentVersion:         cfg.MinAgentVersion,
 		WorkloadRetention:       cfg.WorkloadRetention,

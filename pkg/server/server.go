@@ -2,6 +2,8 @@ package server
 
 import (
 	"context"
+	"crypto/tls"
+	"errors"
 	"io/fs"
 	"log"
 	"net"
@@ -12,11 +14,30 @@ import (
 
 	"github.com/magnify-labs/otel-magnify/internal/alerts"
 	"github.com/magnify-labs/otel-magnify/internal/api"
+	internalaudit "github.com/magnify-labs/otel-magnify/internal/audit"
 	"github.com/magnify-labs/otel-magnify/internal/opamp"
 	"github.com/magnify-labs/otel-magnify/internal/workloads"
 	"github.com/magnify-labs/otel-magnify/pkg/capabilities"
 	"github.com/magnify-labs/otel-magnify/pkg/ext"
 )
+
+type opampServerStopper interface {
+	Stop(context.Context) error
+}
+
+func stopOpAMPServer(ctx context.Context, server opampServerStopper) {
+	err := server.Stop(ctx)
+	if err == nil {
+		return
+	}
+	log.Printf("OpAMP server stop: %v", err)
+	if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
+		return
+	}
+	if err := server.Stop(context.Background()); err != nil {
+		log.Printf("OpAMP server cleanup join: %v", err)
+	}
+}
 
 // Server composes the otel-magnify subsystems.
 type Server struct {
@@ -25,6 +46,7 @@ type Server struct {
 	auth                 ext.AuthProvider
 	notifiers            []ext.AlertNotifier
 	auditLogger          ext.AuditLogger
+	auditOutboxSink      ext.AuditLogger
 	reportSigner         ext.ReportSigner
 	staticFS             fs.FS
 	routerHooks          []func(chi.Router)
@@ -94,8 +116,27 @@ func (s *Server) Run(ctx context.Context) error {
 	opampSrv := opamp.New(s.store, hub, opamp.Options{
 		DisconnectGrace:   s.cfg.WorkloadDisconnectGrace,
 		RetentionDuration: s.cfg.WorkloadRetention,
-		SharedSecret:      s.cfg.OpAMPSharedSecret,
 	})
+	var apiHTTP *http.Server
+	var apiListener net.Listener
+	startupComplete := false
+	defer func() {
+		if startupComplete {
+			return
+		}
+		cancel()
+		cleanupCtx, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cleanupCancel()
+		if apiListener != nil {
+			_ = apiListener.Close()
+		}
+		if apiHTTP != nil {
+			_ = apiHTTP.Shutdown(cleanupCtx)
+		}
+		stopOpAMPServer(cleanupCtx, opampSrv)
+		hub.Stop()
+	}()
+
 	opampHandler, connCtx, err := opampSrv.Attach()
 	if err != nil {
 		return err
@@ -104,21 +145,57 @@ func (s *Server) Run(ctx context.Context) error {
 	opampMux := http.NewServeMux()
 	opampMux.HandleFunc("/v1/opamp", opampHandler)
 
-	opampListener, err := net.Listen("tcp", s.cfg.OpAMPAddr)
+	// REST API router
+	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.auditLogger, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention, s.capabilities, s.licenseChecker, s.protectedRouterHooks, s.reportSigner)
+
+	// Apply router hooks (enterprise can add RBAC middleware, extra routes, etc.)
+	if len(s.routerHooks) > 0 {
+		if chiRouter, ok := router.(chi.Router); ok {
+			for _, hook := range s.routerHooks {
+				hook(chiRouter)
+			}
+		}
+	}
+
+	apiListener, err = net.Listen("tcp", s.cfg.ListenAddr)
 	if err != nil {
 		return err
 	}
-	opampHTTP := &http.Server{
-		Handler:           opampMux,
-		ConnContext:       connCtx,
+	apiHTTP = &http.Server{
+		Handler:           router,
 		ReadHeaderTimeout: 5 * time.Second,
 	}
 	go func() {
-		log.Printf("OpAMP server listening on %s", opampListener.Addr())
-		if err := opampHTTP.Serve(opampListener); err != nil && err != http.ErrServerClosed {
-			log.Printf("OpAMP server: %v", err)
+		log.Printf("API server listening on %s", apiListener.Addr())
+		if err := apiHTTP.Serve(apiListener); err != nil && err != http.ErrServerClosed && !errors.Is(err, net.ErrClosed) {
+			log.Printf("API server: %v", err)
 		}
 	}()
+
+	var opampHTTP *http.Server
+	transport, transportErr := resolveOpAMPTransport(s.cfg, time.Now())
+	if transportErr != nil {
+		log.Printf("OpAMP transport disabled: %v", transportErr)
+	} else {
+		opampListener, err := net.Listen("tcp", s.cfg.OpAMPAddr)
+		if err != nil {
+			return err
+		}
+		if transport.mode == opampTransportTLS {
+			opampListener = tls.NewListener(opampListener, transport.tlsConfig)
+		}
+		opampHTTP = &http.Server{
+			Handler:           opampMux,
+			ConnContext:       connCtx,
+			ReadHeaderTimeout: 5 * time.Second,
+		}
+		go func() {
+			log.Printf("OpAMP server listening on %s", opampListener.Addr())
+			if err := opampHTTP.Serve(opampListener); err != nil && err != http.ErrServerClosed && !errors.Is(err, net.ErrClosed) {
+				log.Printf("OpAMP server: %v", err)
+			}
+		}()
+	}
 
 	// Alert engine
 	alertEngine := alerts.New(s.store, hub, 5*time.Minute, s.cfg.MinAgentVersion, s.notifiers...)
@@ -134,32 +211,27 @@ func (s *Server) Run(ctx context.Context) error {
 	log.Printf("Workload janitor started (interval=%s, event retention=%s)",
 		s.cfg.WorkloadJanitorInterval, s.cfg.WorkloadEventRetention)
 
-	// REST API router
-	router := api.NewRouter(s.store, s.auth, hub, opampSrv, s.auditLogger, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention, s.capabilities, s.licenseChecker, s.protectedRouterHooks, s.reportSigner)
-
-	// Apply router hooks (enterprise can add RBAC middleware, extra routes, etc.)
-	if len(s.routerHooks) > 0 {
-		if chiRouter, ok := router.(chi.Router); ok {
-			for _, hook := range s.routerHooks {
-				hook(chiRouter)
+	var stopAuditOutbox func()
+	if outboxStore, ok := s.store.(ext.AuditOutboxStore); ok && s.auditOutboxSink != nil {
+		dispatcherCtx, dispatcherCancel := context.WithCancel(ctx)
+		dispatcherDone := make(chan struct{})
+		dispatcher := internalaudit.NewOutboxDispatcher(outboxStore, s.auditOutboxSink)
+		go func() {
+			defer close(dispatcherDone)
+			dispatcher.Run(dispatcherCtx)
+		}()
+		stopAuditOutbox = func() {
+			dispatcherCancel()
+			waitCtx, waitCancel := context.WithTimeout(context.Background(), 10*time.Second)
+			defer waitCancel()
+			select {
+			case <-dispatcherDone:
+			case <-waitCtx.Done():
+				log.Printf("audit outbox category=shutdown_timeout")
 			}
 		}
+		defer stopAuditOutbox()
 	}
-
-	apiListener, err := net.Listen("tcp", s.cfg.ListenAddr)
-	if err != nil {
-		return err
-	}
-	apiHTTP := &http.Server{
-		Handler:           router,
-		ReadHeaderTimeout: 5 * time.Second,
-	}
-	go func() {
-		log.Printf("API server listening on %s", apiListener.Addr())
-		if err := apiHTTP.Serve(apiListener); err != nil && err != http.ErrServerClosed {
-			log.Printf("API server: %v", err)
-		}
-	}()
 
 	// Block until context cancellation
 	<-ctx.Done()
@@ -171,15 +243,16 @@ func (s *Server) Run(ctx context.Context) error {
 	if err := apiHTTP.Shutdown(shutdownCtx); err != nil {
 		log.Printf("API server shutdown: %v", err)
 	}
-	if err := opampHTTP.Shutdown(shutdownCtx); err != nil {
-		log.Printf("OpAMP HTTP shutdown: %v", err)
+	if opampHTTP != nil {
+		if err := opampHTTP.Shutdown(shutdownCtx); err != nil {
+			log.Printf("OpAMP HTTP shutdown: %v", err)
+		}
 	}
-	if err := opampSrv.Stop(shutdownCtx); err != nil {
-		log.Printf("OpAMP server stop: %v", err)
-	}
+	stopOpAMPServer(shutdownCtx, opampSrv)
 	hub.Stop()
 	log.Println("Shutdown complete")
 
+	startupComplete = true
 	return nil
 }
 
@@ -207,7 +280,6 @@ func (s *Server) Handler() http.Handler {
 	opampSrv := opamp.New(s.store, hub, opamp.Options{
 		DisconnectGrace:   s.cfg.WorkloadDisconnectGrace,
 		RetentionDuration: s.cfg.WorkloadRetention,
-		SharedSecret:      s.cfg.OpAMPSharedSecret,
 	})
 	return api.NewRouter(s.store, s.auth, hub, opampSrv, s.auditLogger, s.cfg.CORSOrigins, s.staticFS, s.currentAuthMethods, s.cfg.WorkloadRetention, s.capabilities, s.licenseChecker, s.protectedRouterHooks, s.reportSigner)
 }

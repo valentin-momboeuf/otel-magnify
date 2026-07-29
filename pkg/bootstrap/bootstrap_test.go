@@ -16,14 +16,16 @@ import (
 	"github.com/pressly/goose/v3/lock"
 )
 
-// TestRun_ReturnsOnContextCancel confirms that bootstrap.Run honours
-// context cancellation and returns cleanly. It runs with a PostgreSQL
-// test store and a short-lived context.
-func TestRun_ReturnsOnContextCancel(t *testing.T) {
+// TestRun_ReturnsOnContextCancelWithoutOpAMPTransport confirms that the
+// API bootstrap does not depend on a pre-existing OpAMP token or transport.
+func TestRun_ReturnsOnContextCancelWithoutOpAMPTransport(t *testing.T) {
 	t.Setenv("JWT_SECRET", "test-secret-key-at-least-32-bytes!")
 	t.Setenv("DB_DSN", testPostgresDSN(t))
 	t.Setenv("LISTEN_ADDR", ":0")
 	t.Setenv("OPAMP_ADDR", ":0")
+	t.Setenv("OPAMP_INSECURE", "false")
+	t.Setenv("OPAMP_TLS_CERT_FILE", "")
+	t.Setenv("OPAMP_TLS_KEY_FILE", "")
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // Run must return regardless of where it is in startup.

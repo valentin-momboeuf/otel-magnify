@@ -7,12 +7,29 @@ import (
 
 // AuditEvent describes a single security-relevant action recorded by an AuditLogger.
 type AuditEvent struct {
+	EventID    string
+	OccurredAt time.Time
 	Action     string
 	UserID     string
 	Email      string
 	Resource   string
 	ResourceID string
 	Detail     string
+}
+
+// PendingAuditEvent is an outbox event leased to one delivery attempt.
+type PendingAuditEvent struct {
+	Event        AuditEvent
+	AttemptCount int
+	ClaimToken   string
+	LeaseUntil   time.Time
+}
+
+// AuditOutboxStore persists and leases durable audit events for delivery.
+type AuditOutboxStore interface {
+	ClaimAuditOutboxEvent(ctx context.Context, claimToken string, now, leaseUntil time.Time) (*PendingAuditEvent, error)
+	MarkAuditOutboxEventDelivered(ctx context.Context, eventID, claimToken string, completedAt time.Time) (bool, error)
+	RescheduleAuditOutboxEvent(ctx context.Context, eventID, claimToken string, completedAt, nextAttemptAt time.Time) (bool, error)
 }
 
 // AuditRecord is the stable read model returned by audit query backends.
@@ -61,6 +78,10 @@ type AuditEventPage struct {
 // caller, which propagates as a 503 in the community handlers (fail-loud
 // contract — see EE audit sink design doc). The default community
 // NopAuditLogger always returns nil.
+//
+// Implementations must observe ctx cancellation and return promptly. Outbox
+// delivery and server shutdown use this contract to enforce bounded waits;
+// Go cannot forcibly stop a non-cooperative Log call.
 type AuditLogger interface {
 	Log(ctx context.Context, event AuditEvent) error
 }

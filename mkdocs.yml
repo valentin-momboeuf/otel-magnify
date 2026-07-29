@@ -62,6 +62,7 @@ nav:
       - Installation: users/installation.md
       - Configuration: users/configuration.md
       - Connecting agents: users/connecting-agents.md
+      - Managed OpAMP tokens: users/opamp-tokens.md
       - Managing configs: users/managing-configs.md
       - Alerts: users/alerts.md
       - Troubleshooting: users/troubleshooting.md

@@ -228,7 +228,7 @@ export default function Layout() {
   const alertCount = alerts?.length ?? 0
   const me = useStore((s) => s.me)
 
-  const canAdmin = hasPerm(me?.groups, 'users:manage')
+  const canAdmin = hasPerm(me?.groups, 'users:manage') || hasPerm(me?.groups, 'settings:manage')
   const { data: capabilities = emptyCapabilities, isError: capabilitiesError } = useCapabilities()
   const visibleFleetNav = fleetNav.filter(
     (item) =>
