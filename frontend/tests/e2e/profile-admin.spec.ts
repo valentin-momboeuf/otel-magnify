@@ -1,6 +1,6 @@
 import { test, expect, mockMe } from './fixtures'
 
-test('administrator sees Administration link and stub page', async ({ loggedInPage: page }) => {
+test('administrator sees Administration link and OpAMP token section', async ({ loggedInPage: page }) => {
   await page.route('**/api/workloads/version-intelligence*', (route) => route.fulfill({
     status: 200,
     contentType: 'application/json',
@@ -40,5 +40,8 @@ test('administrator sees Administration link and stub page', async ({ loggedInPa
   await expect(page.getByRole('link', { name: /administration/i })).toBeVisible()
   await page.getByRole('link', { name: /administration/i }).click()
   await expect(page.getByRole('heading', { name: /administration/i })).toBeVisible()
-  await expect(page.getByText(/v0\.3|coming|arrive/i)).toBeVisible()
+  await expect(page.getByRole('link', { name: /opamp tokens/i })).toHaveAttribute(
+    'href',
+    '/admin/opamp/tokens',
+  )
 })
