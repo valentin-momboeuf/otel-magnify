@@ -168,11 +168,12 @@ func parseConfig(args []string) (config, error) {
 }
 
 func readTokenFile(path string) (string, error) {
+	// #nosec G304 -- the operator supplies the token-file path.
 	file, err := os.Open(path)
 	if err != nil {
 		return "", errors.New("token file is unavailable")
 	}
-	defer file.Close()
+	defer func() { _ = file.Close() }()
 
 	info, err := file.Stat()
 	if err != nil || !info.Mode().IsRegular() {
@@ -199,6 +200,7 @@ func buildTLSConfig(caPath string) (*tls.Config, error) {
 	if caPath == "" {
 		return nil, nil
 	}
+	// #nosec G304 -- the operator supplies the private CA path.
 	caPEM, err := os.ReadFile(caPath)
 	if err != nil {
 		return nil, errors.New("TLS CA file is unavailable")

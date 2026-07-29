@@ -293,7 +293,7 @@ func TestBuildTLSConfigAppendsPrivateCAWithoutDisablingVerification(t *testing.T
 		t.Fatal("buildTLSConfig did not append the private CA")
 	}
 	if systemPool != nil {
-		for _, subject := range systemPool.Subjects() {
+		for _, subject := range certificatePoolSubjects(systemPool) {
 			if !certPoolContainsSubject(got.RootCAs, subject) {
 				t.Fatal("buildTLSConfig discarded a system root")
 			}
@@ -896,10 +896,14 @@ func writeSDKAgentTestFile(t *testing.T, name string, content []byte) string {
 }
 
 func certPoolContainsSubject(pool *x509.CertPool, subject []byte) bool {
-	for _, candidate := range pool.Subjects() {
+	for _, candidate := range certificatePoolSubjects(pool) {
 		if bytes.Equal(candidate, subject) {
 			return true
 		}
 	}
 	return false
+}
+
+func certificatePoolSubjects(pool *x509.CertPool) [][]byte {
+	return pool.Subjects() //nolint:staticcheck // CertPool has no public API for test-only root enumeration.
 }

@@ -347,6 +347,8 @@ type flushResponseWriter struct {
 }
 
 func (w *flushResponseWriter) Write(body []byte) (int, error) {
+	w.ResponseWriter.Header().Set("Content-Type", "application/x-protobuf")
+	w.ResponseWriter.Header().Set("X-Content-Type-Options", "nosniff")
 	written, err := w.ResponseWriter.Write(body)
 	if err != nil {
 		return written, err

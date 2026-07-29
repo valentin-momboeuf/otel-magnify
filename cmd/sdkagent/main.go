@@ -34,9 +34,10 @@ const (
 	maxProbeTimeout     = 5 * time.Minute
 	clientStopTimeout   = 5 * time.Second
 
-	exitInvalidInput         = 2
-	exitProbeAuthRejected    = 10
-	exitProbeTransient       = 11
+	exitInvalidInput      = 2
+	exitProbeAuthRejected = 10
+	exitProbeTransient    = 11
+	// #nosec G101 -- this is a protocol challenge literal, not a credential.
 	opampBearerChallenge     = `Bearer realm="opamp"`
 	probeAuthMessage         = "OpAMP authentication rejected"
 	probeServiceMessage      = "OpAMP service unavailable"
@@ -138,18 +139,18 @@ func runMainWithDependencies(
 ) int {
 	cfg, err := parseConfig(args)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return exitInvalidInput
 	}
 
 	token, err := readToken(cfg.tokenFile)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return exitInvalidInput
 	}
 	tlsConfig, err := buildTLSConfig(cfg.tlsCAFile)
 	if err != nil {
-		fmt.Fprintln(stderr, err)
+		_, _ = fmt.Fprintln(stderr, err)
 		return exitInvalidInput
 	}
 
@@ -221,6 +222,7 @@ func parseConfig(args []string) (config, error) {
 }
 
 func readToken(path string) (string, error) {
+	// #nosec G304 -- the operator supplies the token-file path.
 	content, err := os.ReadFile(path)
 	if err != nil {
 		return "", errors.New("token file is unreadable")
@@ -243,6 +245,7 @@ func buildTLSConfig(caPath string) (*tls.Config, error) {
 		return nil, nil
 	}
 
+	// #nosec G304 -- the operator supplies the private CA path.
 	caPEM, err := os.ReadFile(caPath)
 	if err != nil {
 		return nil, errors.New("TLS CA file is unreadable")
@@ -303,14 +306,14 @@ func run(
 			probeDial,
 		)
 		if message != "" {
-			fmt.Fprintln(stderr, message)
+			_, _ = fmt.Fprintln(stderr, message)
 		}
 		return exitCode
 	}
 
 	opampClient := newClient()
 	if opampClient == nil {
-		fmt.Fprintln(stderr, "initialize OpAMP client")
+		_, _ = fmt.Fprintln(stderr, "initialize OpAMP client")
 		return 1
 	}
 
@@ -323,19 +326,19 @@ func run(
 			kv("deployment.environment", cfg.env),
 		},
 	}); err != nil {
-		fmt.Fprintln(stderr, "initialize OpAMP client")
+		_, _ = fmt.Fprintln(stderr, "initialize OpAMP client")
 		return 1
 	}
 
 	capabilities := agentCapabilities(cfg.acceptRemoteConfig)
 	if err := opampClient.SetCapabilities(&capabilities); err != nil {
-		fmt.Fprintln(stderr, "initialize OpAMP client")
+		_, _ = fmt.Fprintln(stderr, "initialize OpAMP client")
 		return 1
 	}
 
 	var uid types.InstanceUid
 	if _, err := rand.Read(uid[:]); err != nil {
-		fmt.Fprintln(stderr, "initialize OpAMP client")
+		_, _ = fmt.Fprintln(stderr, "initialize OpAMP client")
 		return 1
 	}
 
@@ -380,7 +383,7 @@ func run(
 	)
 
 	if err := opampClient.Start(ctx, settings); err != nil {
-		fmt.Fprintln(stderr, "start OpAMP client")
+		_, _ = fmt.Fprintln(stderr, "start OpAMP client")
 		return 1
 	}
 
@@ -388,7 +391,7 @@ func run(
 
 	logger.Print("shutting down")
 	if err := stopClient(opampClient); err != nil {
-		fmt.Fprintln(stderr, "stop OpAMP client")
+		_, _ = fmt.Fprintln(stderr, "stop OpAMP client")
 		return 1
 	}
 	return 0

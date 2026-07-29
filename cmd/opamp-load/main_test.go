@@ -212,7 +212,6 @@ func TestReadTokenFile(t *testing.T) {
 	})
 
 	for _, content := range []string{"", " \n\t "} {
-		content := content
 		t.Run("empty or whitespace", func(t *testing.T) {
 			path := writePrivateTestFile(t, "token", content)
 			_, err := readTokenFile(path)
@@ -270,12 +269,14 @@ func TestBuildTLSConfigAppendsPrivateCAWithoutDisablingVerification(t *testing.T
 	if tlsConfig.MinVersion != tls.VersionTLS12 {
 		t.Fatal("TLS minimum version is not TLS 1.2")
 	}
-	for _, subject := range systemRoots.Subjects() {
-		if !containsCertificateSubject(tlsConfig.RootCAs.Subjects(), subject) {
+	systemSubjects := certificatePoolSubjects(systemRoots)
+	rootSubjects := certificatePoolSubjects(tlsConfig.RootCAs)
+	for _, subject := range systemSubjects {
+		if !containsCertificateSubject(rootSubjects, subject) {
 			t.Fatal("private CA pool discarded a system root")
 		}
 	}
-	if !containsCertificateSubject(tlsConfig.RootCAs.Subjects(), certificate.RawSubject) {
+	if !containsCertificateSubject(rootSubjects, certificate.RawSubject) {
 		t.Fatal("private CA was not appended")
 	}
 }
@@ -522,4 +523,8 @@ func containsCertificateSubject(subjects [][]byte, expected []byte) bool {
 		}
 	}
 	return false
+}
+
+func certificatePoolSubjects(pool *x509.CertPool) [][]byte {
+	return pool.Subjects() //nolint:staticcheck // CertPool has no public API for test-only root enumeration.
 }

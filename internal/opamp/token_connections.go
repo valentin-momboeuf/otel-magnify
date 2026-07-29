@@ -594,6 +594,6 @@ func (m *tokenConnections) expireToken(tokenID string, generation uint64) {
 func waitForTokenSessions(sessions []*tokenSession) {
 	for _, session := range sessions {
 		session.gate.Lock()
-		session.gate.Unlock()
+		session.gate.Unlock() //nolint:staticcheck // Empty critical section intentionally waits for active leases.
 	}
 }

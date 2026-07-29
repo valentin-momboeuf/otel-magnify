@@ -1,3 +1,4 @@
+// Package opampauth provides generation and verification helpers for managed OpAMP tokens.
 package opampauth
 
 import (
@@ -18,12 +19,14 @@ const (
 
 var errInvalidToken = errors.New("invalid OpAMP token")
 
+// GeneratedToken contains a new token's public identifier, bearer value, and storage digest.
 type GeneratedToken struct {
 	ID         string
 	Value      string
 	SecretHash [32]byte
 }
 
+// Generate creates a cryptographically random managed OpAMP token.
 func Generate() (GeneratedToken, error) {
 	secret := make([]byte, secretLength)
 	if _, err := rand.Read(secret); err != nil {
@@ -43,6 +46,7 @@ func Generate() (GeneratedToken, error) {
 	}, nil
 }
 
+// ParseAndHash validates a managed OpAMP token and returns its identifier and storage digest.
 func ParseAndHash(value string) (id string, secretHash [32]byte, err error) {
 	if !strings.HasPrefix(value, tokenPrefix) {
 		return "", [32]byte{}, errInvalidToken

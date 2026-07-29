@@ -208,6 +208,29 @@ func (w *blockingFlushResponseWriter) Flush() {
 	<-w.flushRelease
 }
 
+func TestFlushResponseWriterPinsProtobufResponseHeaders(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writer := &flushResponseWriter{ResponseWriter: recorder}
+	body := []byte("<script>alert(1)</script>")
+
+	written, err := writer.Write(body)
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if written != len(body) {
+		t.Fatalf("written = %d, want %d", written, len(body))
+	}
+	if got := recorder.Header().Get("Content-Type"); got != "application/x-protobuf" {
+		t.Fatalf("Content-Type = %q, want application/x-protobuf", got)
+	}
+	if got := recorder.Header().Get("X-Content-Type-Options"); got != "nosniff" {
+		t.Fatalf("X-Content-Type-Options = %q, want nosniff", got)
+	}
+	if got := recorder.Body.Bytes(); !bytes.Equal(got, body) {
+		t.Fatalf("body = %q, want unchanged %q", got, body)
+	}
+}
+
 type pipeWritingConn struct {
 	conn           net.Conn
 	sendStarted    chan struct{}
@@ -2436,8 +2459,8 @@ func TestServerStopWaitsForActiveMessageBeforeDisconnectingAllSessions(t *testin
 
 func TestServerStopWaitsForOnConnectionCloseCleanup(t *testing.T) {
 	server, store, generated := newManagedTokenServer(t, nil, Options{})
-	store.fakeStore.insertEventStarted = make(chan struct{}, 1)
-	store.fakeStore.insertEventRelease = make(chan struct{})
+	store.insertEventStarted = make(chan struct{}, 1)
+	store.insertEventRelease = make(chan struct{})
 	callbacks := authenticateManagedToken(t, server, generated.Value)
 	conn := &recordingConn{}
 	callbacks.OnConnected(context.Background(), conn)
@@ -2451,7 +2474,7 @@ func TestServerStopWaitsForOnConnectionCloseCleanup(t *testing.T) {
 		close(closeDone)
 	}()
 	select {
-	case <-store.fakeStore.insertEventStarted:
+	case <-store.insertEventStarted:
 	case <-time.After(time.Second):
 		t.Fatal("OnConnectionClose did not reach the disconnected event store call")
 	}
@@ -2461,11 +2484,11 @@ func TestServerStopWaitsForOnConnectionCloseCleanup(t *testing.T) {
 	waitForTokenStopState(t, server.tokens)
 	select {
 	case <-stopDone:
-		close(store.fakeStore.insertEventRelease)
+		close(store.insertEventRelease)
 		t.Fatal("Server.Stop returned while OnConnectionClose cleanup was blocked")
 	case <-time.After(30 * time.Millisecond):
 	}
-	close(store.fakeStore.insertEventRelease)
+	close(store.insertEventRelease)
 	select {
 	case <-closeDone:
 	case <-time.After(time.Second):
@@ -2483,12 +2506,12 @@ func TestServerStopWaitsForOnConnectionCloseCleanup(t *testing.T) {
 
 func TestServerStopContextTimeoutLeavesTokenCleanupJoinable(t *testing.T) {
 	server, store, generated := newManagedTokenServer(t, nil, Options{})
-	store.fakeStore.insertEventStarted = make(chan struct{}, 1)
-	store.fakeStore.insertEventRelease = make(chan struct{})
+	store.insertEventStarted = make(chan struct{}, 1)
+	store.insertEventRelease = make(chan struct{})
 	cleanupReleased := false
 	defer func() {
 		if !cleanupReleased {
-			close(store.fakeStore.insertEventRelease)
+			close(store.insertEventRelease)
 		}
 	}()
 	callbacks := authenticateManagedToken(t, server, generated.Value)
@@ -2504,7 +2527,7 @@ func TestServerStopContextTimeoutLeavesTokenCleanupJoinable(t *testing.T) {
 		close(closeDone)
 	}()
 	select {
-	case <-store.fakeStore.insertEventStarted:
+	case <-store.insertEventStarted:
 	case <-time.After(time.Second):
 		t.Fatal("OnConnectionClose did not enter the blocked token cleanup")
 	}
@@ -2528,7 +2551,7 @@ func TestServerStopContextTimeoutLeavesTokenCleanupJoinable(t *testing.T) {
 	default:
 	}
 
-	close(store.fakeStore.insertEventRelease)
+	close(store.insertEventRelease)
 	cleanupReleased = true
 	select {
 	case <-closeDone:
@@ -2648,8 +2671,8 @@ func TestServerStopContextTimeoutLeavesGraceCleanupJoinable(t *testing.T) {
 
 func TestDisconnectSessionJoinsConcurrentOnConnectionCloseCleanup(t *testing.T) {
 	server, store, generated := newManagedTokenServer(t, nil, Options{})
-	store.fakeStore.insertEventStarted = make(chan struct{}, 1)
-	store.fakeStore.insertEventRelease = make(chan struct{})
+	store.insertEventStarted = make(chan struct{}, 1)
+	store.insertEventRelease = make(chan struct{})
 	callbacks := authenticateManagedToken(t, server, generated.Value)
 	conn := &recordingConn{}
 	callbacks.OnConnected(context.Background(), conn)
@@ -2670,7 +2693,7 @@ func TestDisconnectSessionJoinsConcurrentOnConnectionCloseCleanup(t *testing.T) 
 		close(closeDone)
 	}()
 	select {
-	case <-store.fakeStore.insertEventStarted:
+	case <-store.insertEventStarted:
 	case <-time.After(time.Second):
 		t.Fatal("OnConnectionClose did not reach the disconnected event store call")
 	}
@@ -2682,12 +2705,12 @@ func TestDisconnectSessionJoinsConcurrentOnConnectionCloseCleanup(t *testing.T) 
 	}()
 	select {
 	case <-disconnectDone:
-		close(store.fakeStore.insertEventRelease)
+		close(store.insertEventRelease)
 		t.Fatal("disconnectSession returned before concurrent OnConnectionClose cleanup")
 	case <-time.After(30 * time.Millisecond):
 	}
 
-	close(store.fakeStore.insertEventRelease)
+	close(store.insertEventRelease)
 	select {
 	case <-closeDone:
 	case <-time.After(time.Second):

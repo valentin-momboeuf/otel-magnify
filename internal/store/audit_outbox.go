@@ -70,7 +70,7 @@ func (d *DB) MarkAuditOutboxEventDelivered(ctx context.Context, eventID, claimTo
 	if err := validateOutboxCompletion(eventID, claimToken, completedAt); err != nil {
 		return false, fmt.Errorf("mark audit outbox event delivered: %w", err)
 	}
-	result, err := d.DB.ExecContext(ctx, `
+	result, err := d.ExecContext(ctx, `
 		UPDATE audit_outbox
 		SET delivered_at = $3, claim_token = NULL, lease_until = NULL
 		WHERE event_id = $1
@@ -96,7 +96,7 @@ func (d *DB) RescheduleAuditOutboxEvent(ctx context.Context, eventID, claimToken
 	if nextAttemptAt.Before(completedAt) {
 		return false, fmt.Errorf("reschedule audit outbox event: next_attempt_at must not precede completed_at")
 	}
-	result, err := d.DB.ExecContext(ctx, `
+	result, err := d.ExecContext(ctx, `
 		UPDATE audit_outbox
 		SET next_attempt_at = $4, claim_token = NULL, lease_until = NULL
 		WHERE event_id = $1

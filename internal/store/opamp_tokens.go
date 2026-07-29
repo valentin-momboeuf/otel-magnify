@@ -36,7 +36,7 @@ func (d *DB) CreateOpAMPToken(ctx context.Context, credential models.OpAMPTokenC
 		return fmt.Errorf("create OpAMP token: new token must not contain usage or revocation state")
 	}
 
-	tx, err := d.DB.BeginTx(ctx, nil)
+	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("create OpAMP token: begin: %w", err)
 	}
@@ -60,7 +60,7 @@ func (d *DB) CreateOpAMPToken(ctx context.Context, credential models.OpAMPTokenC
 		return fmt.Errorf("create OpAMP token: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return fmt.Errorf("create OpAMP token: commit: %w: %v", ext.ErrCommitOutcomeUnknown, err)
+		return fmt.Errorf("create OpAMP token: commit: %w: %s", ext.ErrCommitOutcomeUnknown, err.Error())
 	}
 	return nil
 }
@@ -77,7 +77,7 @@ func (d *DB) RevokeOpAMPToken(ctx context.Context, id, revokedBy string, now tim
 		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: invalid audit event: %w", err)
 	}
 
-	tx, err := d.DB.BeginTx(ctx, nil)
+	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: begin: %w", err)
 	}
@@ -118,7 +118,7 @@ func (d *DB) RevokeOpAMPToken(ctx context.Context, id, revokedBy string, now tim
 		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: %w", err)
 	}
 	if err := tx.Commit(); err != nil {
-		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: commit: %w: %v", ext.ErrCommitOutcomeUnknown, err)
+		return models.OpAMPToken{}, false, fmt.Errorf("revoke OpAMP token: commit: %w: %s", ext.ErrCommitOutcomeUnknown, err.Error())
 	}
 	revokedAtUTC := now.UTC()
 	token.RevokedAt = &revokedAtUTC
@@ -147,7 +147,7 @@ func populateOpAMPTokenState(token *models.OpAMPToken, expiresAt, lastUsedAt, re
 
 // ListOpAMPTokens returns public token metadata ordered newest first.
 func (d *DB) ListOpAMPTokens(ctx context.Context, now time.Time) ([]models.OpAMPToken, error) {
-	rows, err := d.DB.QueryContext(ctx, `
+	rows, err := d.QueryContext(ctx, `
 		SELECT id, name, description, team, environment, created_at, created_by,
 		       expires_at, last_used_at, revoked_at, revoked_by,
 		       CASE
@@ -237,7 +237,7 @@ func (d *DB) MarkOpAMPTokenUsed(ctx context.Context, id string, now time.Time) e
 	}
 	now = now.UTC()
 
-	tx, err := d.DB.BeginTx(ctx, nil)
+	tx, err := d.BeginTx(ctx, nil)
 	if err != nil {
 		return fmt.Errorf("mark OpAMP token used: begin: %w", err)
 	}
